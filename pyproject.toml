@@ -24,6 +24,10 @@ dependencies = [
     "remote-slurm-executor",
     "hydra-auto-schema>=0.0.7",
     "hydra-orion-sweeper>=1.6.4 ; python_full_version < '3.11'",
+    "mani-skill>=3.0.0b22",
+    "torch-geometric>=2.7.0",
+    "diffusers>=0.37.1",
+    "accelerate>=1.13.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.11"
