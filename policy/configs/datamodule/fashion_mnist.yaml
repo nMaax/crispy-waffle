@@ -1,4 +1,0 @@
-defaults:
-  - mnist
-  - _self_
-_target_: policy.datamodules.image_classification.fashion_mnist.FashionMNISTDataModule
