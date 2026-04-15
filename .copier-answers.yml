@@ -1,0 +1,12 @@
+# Changes here will be overwritten by Copier
+_commit: v0.0.4
+_src_path: gh:mila-iqia/ResearchTemplate
+examples_to_include: []
+github_user: nMaax
+module_name: policy
+project_description: 'crispy-waffle: A new research project at VANDAL.'
+project_name: crispy-waffle
+python_version: '3.11'
+user_email: massimilianocarli@proton.me
+user_name: Massimiliano Carli
+recorded_setup: true
