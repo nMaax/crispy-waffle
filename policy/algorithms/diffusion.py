@@ -1,7 +1,11 @@
+from typing import Any
+
 import lightning as L
 import torch
 import torch.nn.functional as F
+from diffusers.optimization import get_scheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from diffusers.training_utils import EMAModel
 from torch.optim.adamw import AdamW
 
 from policy.algorithms.networks.unet1d import ConditionalUnet1D
@@ -19,7 +23,8 @@ class DiffusionPolicy(L.LightningModule):
         unet_dims: list = [256, 512, 1024],
         n_groups: int = 8,
         num_diffusion_iters: int = 100,
-        lr: float = 1e-4,  # Added for Lightning optimizer
+        lr: float = 1e-4,
+        warmup_steps: int = 500,
     ):
         super().__init__()
         # Saves all the arguments to self.hparams and logs them to W&B
@@ -31,6 +36,14 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = action_dim
         self.obs_dim = obs_dim
         self.lr = lr
+        self.warmup_steps = warmup_steps
+
+        self.ema = EMAModel(
+            parameters=self.noise_pred_net.parameters(),
+            decay=0.999,
+            inv_gamma=1.0,
+            power=0.75,
+        )
 
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.act_dim,
@@ -39,6 +52,7 @@ class DiffusionPolicy(L.LightningModule):
             down_dims=unet_dims,
             n_groups=n_groups,
         )
+
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(
             num_train_timesteps=self.num_diffusion_iters,
@@ -68,11 +82,37 @@ class DiffusionPolicy(L.LightningModule):
         self.log("val/loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Any:  # Override output for pyright
         """Lightning uses this to set up your optimizer."""
         optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=1e-4)
-        # You can also return a learning rate scheduler here if you want
-        return optimizer
+
+        stepping_batches = self.trainer.estimated_stepping_batches
+
+        if isinstance(stepping_batches, float):
+            raise ValueError(
+                "Training steps evaluated to infinity! "
+                "Ensure you have set trainer.max_steps in your Hydra config."
+            )
+
+        lr_scheduler = get_scheduler(
+            name="cosine",
+            optimizer=optimizer,
+            num_warmup_steps=self.warmup_steps,
+            num_training_steps=stepping_batches,
+        )
+
+        # Lightning parses this dict, so we tell Pyright to ignore the return type mismatch
+        return {  # type: ignore[return-value]
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": lr_scheduler,
+                "interval": "step",
+            },
+        }
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        """Automatically step the EMA model after every training iteration."""
+        self.ema.step(self.noise_pred_net.parameters())
 
     def _compute_loss(self, obs_seq, action_seq):
         """Your original loss calculation logic."""
@@ -91,6 +131,10 @@ class DiffusionPolicy(L.LightningModule):
     def get_action(self, obs_seq):
         """Used during inference/evaluation in the environment."""
         B = obs_seq.shape[0]
+
+        # Temporarily copy EMA weights in the model
+        self.ema.copy_to(self.noise_pred_net.parameters())
+
         with torch.no_grad():
             obs_cond = obs_seq.flatten(start_dim=1)
             noisy_action_seq = torch.randn(
