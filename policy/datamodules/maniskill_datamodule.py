@@ -76,48 +76,41 @@ class ManiSkillTrajectoryDataset(Dataset):
                     }
                 )
 
-        # Pre-compute sliding windows
+        # Pre-compute sliding windows centered around time step `t`
         self.slices = []
-        pad_before = self.obs_horizon - 1
-        pad_after = self.pred_horizon - self.obs_horizon
-
         for traj_idx, traj in enumerate(self.trajectories):
             L = len(traj["actions"])
-            for start in range(-pad_before, L - self.pred_horizon + pad_after):
-                end = start + self.pred_horizon
-                self.slices.append((traj_idx, start, end, L))
+
+            # Loop over every timestep. `t` represents the CURRENT frame.
+            for t in range(L):
+                # Observations: history leading up to and including `t`
+                obs_start = t - self.obs_horizon + 1
+                obs_end = t + 1
+
+                # Actions: future execution starting exactly at `t`
+                act_start = t
+                act_end = t + self.pred_horizon
+
+                self.slices.append((traj_idx, obs_start, obs_end, act_start, act_end, L))
 
         print(f"Dataset initialized: {len(self.slices)} temporal windows extracted.")
 
     def _slice_and_pad(self, data, start, end, L):
-        """Recursively slices and pads dictionaries or numpy arrays.
-
-        - If start < 0, it repeats the first frame.
-        - If end > L, it repeats the last frame.
-        """
         if isinstance(data, dict):
-            # If it's a nested dictionary (like priv_states), recurse!
             return {k: self._slice_and_pad(v, start, end, L) for k, v in data.items()}
 
-        # Base case: It's a numpy array
         pad_before = max(0, -start)
         pad_after = max(0, end - L)
 
-        valid_start = max(0, start)
-        valid_end = min(L, end)
+        # Prevents negative indices from acting as "end-of-array" slices
+        valid_start = max(0, min(L, start))
+        valid_end = max(0, min(L, end))
 
-        # Grab the valid segment
         seq = data[valid_start:valid_end]
 
-        # Pad by repeating the first frame
-        if pad_before > 0:
-            padding = np.repeat(seq[0:1], pad_before, axis=0)
-            seq = np.concatenate([padding, seq], axis=0)
-
-        # Pad by repeating the last frame
-        if pad_after > 0:
-            padding = np.repeat(seq[-1:], pad_after, axis=0)
-            seq = np.concatenate([seq, padding], axis=0)
+        if pad_before > 0 or pad_after > 0:
+            pad_width = [(pad_before, pad_after)] + [(0, 0)] * (seq.ndim - 1)
+            seq = np.pad(seq, pad_width, mode="edge")
 
         return seq
 
@@ -125,12 +118,12 @@ class ManiSkillTrajectoryDataset(Dataset):
         return len(self.slices)
 
     def __getitem__(self, idx):
-        traj_idx, start, end, L = self.slices[idx]
+        traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
-        obs_seq = self._slice_and_pad(traj["obs"], start, start + self.obs_horizon, L)
-        env_seq = self._slice_and_pad(traj["env_states"], start, start + self.obs_horizon, L)
-        action_seq = self._slice_and_pad(traj["actions"], start, end, L)
+        obs_seq = self._slice_and_pad(traj["obs"], obs_start, obs_end, L)
+        env_seq = self._slice_and_pad(traj["env_states"], obs_start, obs_end, L)
+        action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
         return {
             "obs_seq": to_tensor(obs_seq),
@@ -186,6 +179,6 @@ if __name__ == "__main__":
         Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
     )
     obs_horizon = 8
-    pred_horizon = 16
+    pred_horizon = 4
     dataset = ManiSkillTrajectoryDataset(h5_path, obs_horizon, pred_horizon)
     print_dict_tree(dataset[0])
