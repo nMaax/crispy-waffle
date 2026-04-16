@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import typing
 from pathlib import Path
 
 import hydra
@@ -30,10 +29,6 @@ from policy.experiment import train_and_evaluate
 from policy.utils.hydra_utils import resolve_dictconfig
 from policy.utils.typing_utils import HydraConfigFor
 from policy.utils.utils import print_config
-
-if typing.TYPE_CHECKING:
-    # Doing this in this type-checking-only block to avoid circular import issues.
-    from policy.trainers.jax_trainer import JaxModule
 
 PROJECT_NAME = policy.__name__
 REPO_ROOTDIR = Path(__file__).parent.parent
@@ -121,9 +116,9 @@ def setup_logging(log_level: str, global_log_level: str = "WARNING") -> None:
 
 
 def instantiate_algorithm(
-    algorithm_config: HydraConfigFor[lightning.LightningModule | JaxModule],
+    algorithm_config: HydraConfigFor[lightning.LightningModule],
     datamodule: lightning.LightningDataModule | None = None,
-) -> lightning.LightningModule | JaxModule:
+) -> lightning.LightningModule:
     """Function used to instantiate the algorithm.
 
     It is suggested that your algorithm (LightningModule) take in the `datamodule` and `network`
