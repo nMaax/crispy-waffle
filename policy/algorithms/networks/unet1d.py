@@ -1,3 +1,23 @@
+# Reference: https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/conditional_unet1d.py
+
+# @markdown ### **Network**
+# @markdown
+# @markdown Defines a 1D UNet architecture `ConditionalUnet1D`
+# @markdown as the noies prediction network
+# @markdown
+# @markdown Components
+# @markdown - `SinusoidalPosEmb` Positional encoding for the diffusion iteration k
+# @markdown - `Downsample1d` Strided convolution to reduce temporal resolution
+# @markdown - `Upsample1d` Transposed convolution to increase temporal resolution
+# @markdown - `Conv1dBlock` Conv1d --> GroupNorm --> Mish
+# @markdown - `ConditionalResidualBlock1D` Takes two inputs `x` and `cond`. \
+# @markdown `x` is passed through 2 `Conv1dBlock` stacked together with residual connection.
+# @markdown `cond` is applied to `x` with [FiLM](https://arxiv.org/abs/1709.07871) conditioning.
+"""
+Note: This is copied from the colab notebook.
+The main difference with the github repo code is in `class ConditionalUnet1D` -- this version makes some simplifications.
+"""
+
 import math
 
 import torch
