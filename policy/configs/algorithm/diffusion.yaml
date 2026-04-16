@@ -1,0 +1,11 @@
+_target_: policy.algorithms.diffusion.DiffusionPolicy
+obs_horizon: ${datamodule.obs_horizon}
+pred_horizon: ${datamodule.pred_horizon}
+act_horizon: 8
+action_dim: 8 # Franka Panda
+obs_dim: 13 # Stack Cube
+diffusion_step_embed_dim: 256
+unet_dims: [256, 512, 1024]
+n_groups: 8
+num_diffusion_iters: 100
+lr: 1e-4
