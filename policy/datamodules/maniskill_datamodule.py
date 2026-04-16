@@ -67,7 +67,6 @@ class ManiSkillTrajectoryDataset(Dataset):
                 traj_data = data[f"traj_{eps['episode_id']}"]
                 trajectory = load_h5_data(traj_data)
 
-                # Use all available frames
                 self.trajectories.append(
                     {
                         "obs": trajectory["obs"],
