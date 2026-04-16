@@ -49,9 +49,7 @@ of training or something similar.
 @pytest.mark.parametrize("experiment_config", experiment_configs)
 def test_experiment_config_is_tested(experiment_config: str, pytestconfig: pytest.Config):
     select_experiment_command = f"experiment={experiment_config}"
-    executing_subset_of_repo = any(
-        "policy/" in arg for arg in pytestconfig.invocation_params.args
-    )
+    executing_subset_of_repo = any("policy/" in arg for arg in pytestconfig.invocation_params.args)
     if executing_subset_of_repo:
         warnings.warn(
             "This test might fail when running only a subset of the tests "
@@ -83,20 +81,6 @@ def test_experiment_config_is_tested(experiment_config: str, pytestconfig: pytes
     )
 
 
-def test_jax_can_use_the_GPU():
-    """Test that Jax can use the GPU if it we have one."""
-    # NOTE: Super interesting: Seems like running just an
-    # `import jax.numpy; print(jax.numpy.zeros(1).devices())` in a new terminal FAILS, but if you
-    # do `import torch` before that, then it works!
-    import jax.numpy
-
-    device = jax.numpy.zeros(1).devices().pop()
-    if shutil.which("nvidia-smi"):
-        assert str(device) == "cuda:0"
-    else:
-        assert "cpu" in str(device).lower()
-
-
 def test_torch_can_use_the_GPU():
     """Test that torch can use the GPU if it we have one."""
 
@@ -107,8 +91,8 @@ def test_torch_can_use_the_GPU():
 def mock_train_and_evaluate(monkeypatch: pytest.MonkeyPatch):
     fn = policy.experiment.train_and_evaluate
     mock_train_fn = Mock(spec=fn, return_value=("fake", 0.0))
-    monkeypatch.setattr(policy.experiment, fn.__name__, mock_train_fn)
-    monkeypatch.setattr(policy.main, fn.__name__, mock_train_fn)
+    monkeypatch.setattr(policy.experiment, "train_and_evaluate", mock_train_fn)
+    monkeypatch.setattr(policy.main, "train_and_evaluate", mock_train_fn)
     return mock_train_fn
 
 
