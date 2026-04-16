@@ -25,6 +25,8 @@ class DiffusionPolicy(L.LightningModule):
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
         warmup_steps: int = 500,
+        datamodule=None,
+        **kwargs,
     ):
         super().__init__()
         # Saves all the arguments to self.hparams and logs them to W&B

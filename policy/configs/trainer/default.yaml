@@ -15,6 +15,9 @@ max_epochs: -1 # -1 disables epoch limits
 max_steps: 100000 # Train for exactly 100,000 iterations (batches)
 log_every_n_steps: 50 # Print progress to the terminal every 50 batches
 
+limit_val_batches: 0 # Tells experiment.py to skip validation
+limit_test_batches: 0 # Tells experiment.py to skip testing
+
 # path to output directory, created dynamically by hydra
 # path generation pattern is specified in `configs/hydra/default.yaml`
 # use it to store all files generated during the run, like checkpoints and metrics
