@@ -242,17 +242,6 @@ default_marks_for_config_combinations: dict[tuple[str, ...], list[pytest.MarkDec
             reason="FcNet shouldn't be applied to the ImageNet datamodule. It can lead to nans in the parameters."
         )
     ],
-    ("imagenet", "jax_fcnet"): [
-        pytest.mark.xfail(
-            reason="FcNet shouldn't be applied to the ImageNet datamodule. It can lead to nans in the parameters."
-        )
-    ],
-    ("imagenet", "jax_cnn"): [
-        pytest.mark.xfail(
-            reason="todo: parameters contain nans when overfitting on one batch? Maybe we're "
-            "using too many iterations?"
-        )
-    ],
     **{
         (resnet_config, mnist_dataset_config): [
             pytest.mark.skip(

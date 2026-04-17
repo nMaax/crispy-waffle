@@ -198,7 +198,6 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
                 "grads": training_step_content.grads,
                 "outputs": training_step_outputs,
             },
-            # todo: this tolerance was mainly added for the jax example.
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},  # some tolerance
             # todo: check if this actually differs between cpu / gpu.
             # Save the regression files on a different subfolder for each device (cpu / cuda)

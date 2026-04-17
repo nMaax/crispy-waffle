@@ -111,9 +111,6 @@ from policy.utils.typing_utils import is_sequence_of
 if typing.TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
-    # TODO: Might not be present if the Jax examples aren't included.
-    from policy.trainers.jax_trainer import JaxTrainer
-
 
 logger = get_logger(__name__)
 
@@ -135,29 +132,6 @@ skip_on_macOS_in_CI = pytest.mark.skipif(
     sys.platform == "darwin" and IN_GITHUB_CI,
     reason="TODO: Fails for some reason on MacOS in GitHub CI.",
 )
-
-
-@pytest.fixture(autouse=True, scope="session")
-def prevent_jax_from_reserving_all_the_vram():
-    # note; not using monkeypatch because we want this to be session-scoped.
-    @contextmanager
-    def change_env(variable_name: str, value: str):
-        val_before = os.environ.get(variable_name)
-        os.environ[variable_name] = value
-        yield
-        if val_before is None:
-            os.environ.pop(variable_name)
-        else:
-            os.environ[variable_name] = val_before
-
-    # Set these so that we can use torch and jax during tests on the same GPU (and so that Jax lets
-    # go of the VRAM it doesn't need anymore.
-    # See https://jax.readthedocs.io/en/latest/gpu_memory_allocation.html for more info.
-    with (
-        change_env("XLA_PYTHON_CLIENT_PREALLOCATE", "false"),
-        change_env("XLA_PYTHON_CLIENT_ALLOCATOR", "platform"),
-    ):
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -330,7 +304,7 @@ def datamodule(dict_config: DictConfig) -> lightning.LightningDataModule | None:
 def algorithm(
     config: Config,
     datamodule: lightning.LightningDataModule | None,
-    trainer: lightning.Trainer | JaxTrainer,
+    trainer: lightning.Trainer,
     seed: int,
     device: torch.device,
 ):
@@ -349,7 +323,7 @@ def algorithm(
 @pytest.fixture(scope="function")
 def trainer(
     config: Config,
-) -> pl.Trainer | JaxTrainer:
+) -> pl.Trainer:
     setup_logging(log_level=config.log_level)
     # put here to copy what's done in main.py
     lightning.seed_everything(config.seed, workers=True)

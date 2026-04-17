@@ -21,8 +21,6 @@ concurrency:
 env:
   UV_VERSION: "0.6.2"
 
-
-
 jobs:
   linting:
     name: Run linting/pre-commit checks
@@ -76,8 +74,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache-suffix: ${{ matrix.python-version }}
       - name: Test with pytest
-        env:
-          JAX_PLATFORMS: cpu
         run: uv run --frozen pytest -v --cov=project --cov-report=xml --cov-append --gen-missing
 
       - name: Store coverage report as an artifact
