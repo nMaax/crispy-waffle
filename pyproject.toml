@@ -6,7 +6,7 @@ authors = [
   { name = "Massimiliano Carli", email = "massimilianocarli@proton.me" },
 ]
 dependencies = [
-  "torch==2.4.1",
+  "torch>=2.5.1",
   "hydra-core>=1.3.2",
   "hydra-submitit-launcher>=1.2.0",
   "wandb>=0.17.6",
