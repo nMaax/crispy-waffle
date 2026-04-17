@@ -8,7 +8,8 @@ act_horizon: 8
 action_dim: 8
 obs_dim: 13
 num_diffusion_iters: 100
-lr: 1e-4
+lr: 1e-4,
+warmup_steps: 500
 
 network:
   # Overriding the ??? in unet1d config file
