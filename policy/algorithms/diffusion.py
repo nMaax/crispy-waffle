@@ -2,26 +2,23 @@ from typing import Any
 
 import lightning as L
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from diffusers.optimization import get_scheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from torch.optim.adamw import AdamW
 
-from policy.algorithms.networks.unet1d import ConditionalUnet1D
-
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
         self,
+        network: nn.Module,
         obs_horizon: int,
         act_horizon: int,
         pred_horizon: int,
         action_dim: int,
         obs_dim: int,
-        diffusion_step_embed_dim: int = 256,
-        unet_dims: list = [256, 512, 1024],
-        n_groups: int = 8,
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
         warmup_steps: int = 500,
@@ -30,7 +27,9 @@ class DiffusionPolicy(L.LightningModule):
     ):
         super().__init__()
         # Saves all the arguments to self.hparams and logs them to W&B
-        self.save_hyperparameters()
+        # network and datamodule are excluded because nn.Module / LightningDataModule
+        # are not JSON-serialisable as plain hyperparameters.
+        self.save_hyperparameters(ignore=["network", "datamodule"])
 
         self.obs_horizon = obs_horizon
         self.act_horizon = act_horizon
@@ -40,19 +39,14 @@ class DiffusionPolicy(L.LightningModule):
         self.lr = lr
         self.warmup_steps = warmup_steps
 
+        # Assign the network first so that self.ema can reference its parameters.
+        self.noise_pred_net = network
+
         self.ema = EMAModel(
             parameters=self.noise_pred_net.parameters(),
             decay=0.999,
             inv_gamma=1.0,
             power=0.75,
-        )
-
-        self.noise_pred_net = ConditionalUnet1D(
-            input_dim=self.act_dim,
-            global_cond_dim=self.obs_horizon * self.obs_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=unet_dims,
-            n_groups=n_groups,
         )
 
         self.num_diffusion_iters = num_diffusion_iters
