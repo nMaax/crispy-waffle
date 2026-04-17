@@ -62,27 +62,3 @@ jobs:
         with:
           name: coverage-reports-unit-tests-${{ matrix.platform }}-${{ matrix.python-version }}
           path: ./coverage.xml
-
-  # https://about.codecov.io/blog/uploading-code-coverage-in-a-separate-job-on-github-actions/
-  upload-coverage-codecov:
-    needs: [slurm_integration_tests]
-    runs-on: ubuntu-latest
-    name: Upload coverage reports to Codecov
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-reports-*
-          merge-multiple: false
-          # download all the artifacts in this directory (each .coverage.xml will be in a subdirectory)
-          # Next step if this doesn't work would be to give the coverage files a unique name and use merge-multiple: true
-          path: coverage_reports
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: coverage_reports
-          fail_ci_if_error: true
