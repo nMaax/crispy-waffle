@@ -20,7 +20,6 @@ dependencies = [
   # Hugging Face dependencies:
   # Hydra / submitit plugins
   "hydra-colorlog>=1.2.0",
-  "remote-slurm-executor",
   "hydra-auto-schema>=0.0.7",
   "hydra-orion-sweeper>=1.6.4 ; python_full_version < '3.11'",
   "mani-skill>=3.0.0b22",
@@ -69,10 +68,6 @@ lint.select = ["E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.uv]
 managed = true
-
-[tool.uv.sources]
-remote-slurm-executor = { git = "https://github.com/lebrice/remote-slurm-executor", branch = "master" }
-
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
