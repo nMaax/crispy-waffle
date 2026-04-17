@@ -17,15 +17,14 @@ import torch
 import torchvision.models
 from hydra.core.config_store import ConfigStore
 
-from policy.utils.env_vars import NETWORK_DATASETS_DIR, SLURM_JOB_ID
+from policy.utils.env_vars import NETWORK_DATASETS_DIR
 from policy.utils.hydra_utils import get_outer_class
 
 logger = get_logger(__name__)
 
 IN_GITHUB_CI = "GITHUB_ACTIONS" in os.environ
 IN_SELF_HOSTED_GITHUB_CI = IN_GITHUB_CI and (
-    "self-hosted" in os.environ.get("RUNNER_LABELS", "")
-    or (torch.cuda.is_available() and SLURM_JOB_ID is None)
+    "self-hosted" in os.environ.get("RUNNER_LABELS", "") or (torch.cuda.is_available())
 )
 IN_GITHUB_CLOUD_CI = IN_GITHUB_CI and not IN_SELF_HOSTED_GITHUB_CI
 PARAM_WHEN_USED_MARK_NAME = "parametrize_when_used"
