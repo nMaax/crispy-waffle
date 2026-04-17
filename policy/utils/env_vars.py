@@ -54,7 +54,7 @@ NETWORK_DATASETS_DIR = (
     if (_mila_network_datasets_dir := Path("/network/datasets")).exists()
     else _drac_network_datasets_dir
     if (
-        _drac_network_datasets_dir := Path.home() / "policys/rrg-bengioy-ad/data/curated"
+        _drac_network_datasets_dir := Path.home() / "projects/rrg-bengioy-ad/data/curated"
     ).exists()
     else None
 )
