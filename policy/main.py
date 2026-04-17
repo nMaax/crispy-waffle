@@ -23,7 +23,6 @@ from hydra_plugins.auto_schema import auto_schema_plugin
 from omegaconf import DictConfig
 
 import policy
-from policy.configs import add_configs_to_hydra_store
 from policy.configs.config import Config
 from policy.experiment import train_and_evaluate
 from policy.utils.hydra_utils import resolve_dictconfig
@@ -43,8 +42,6 @@ auto_schema_plugin.config = auto_schema_plugin.AutoSchemaPluginConfig(
     verbose=False,
     add_headers=False,  # don't fallback to adding headers if we can't use vscode settings file.
 )
-
-add_configs_to_hydra_store()
 
 
 @hydra.main(
