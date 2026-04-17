@@ -55,7 +55,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache-suffix: ${{ matrix.python-version }}
       - name: Test with pytest
-        run: uv run --frozen pytest -v --cov=project --cov-report=xml --cov-append --gen-missing
+        run: uv run --frozen pytest -v
 
       - name: Store coverage report as an artifact
         uses: actions/upload-artifact@v4
