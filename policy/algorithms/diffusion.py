@@ -26,7 +26,6 @@ class DiffusionPolicy(L.LightningModule):
         obs_dim: int,
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
-        init_seed: int = 42,
     ):
         super().__init__()
 
@@ -49,7 +48,6 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = action_dim
         self.obs_dim = obs_dim
         self.lr = lr
-        self.init_seed = init_seed
 
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(
