@@ -60,7 +60,6 @@ from __future__ import annotations
 
 import copy
 import functools
-import operator
 import os
 import shlex
 import sys
@@ -77,7 +76,6 @@ import lightning
 import lightning.pytorch
 import lightning.pytorch as pl
 import lightning.pytorch.utilities
-import optree
 import pytest
 import tensor_regression.stats
 import torch
@@ -92,7 +90,6 @@ from hydra_plugins.auto_schema.auto_schema_plugin import add_schemas_to_all_hydr
 from omegaconf import DictConfig, open_dict
 from tensor_regression.stats import get_simple_attributes
 from tensor_regression.to_array import to_ndarray
-from torch import Tensor
 from torch.utils.data import DataLoader
 
 from policy.configs.config import Config
@@ -347,23 +344,6 @@ def train_dataloader(
     train_dataloader = datamodule.train_dataloader()
     assert isinstance(train_dataloader, DataLoader)
     return train_dataloader
-
-
-# todo: Remove (unused).
-@pytest.fixture(scope="session")
-def training_batch(train_dataloader: DataLoader, device: torch.device) -> optree.PyTree[Tensor]:
-    # Get a batch of data from the dataloader.
-
-    # The batch of data will always be the same because the dataloaders are passed a Generator
-    # object in their constructor.
-    assert isinstance(train_dataloader, DataLoader)
-    dataloader_iterator = iter(train_dataloader)
-
-    with torch.random.fork_rng(list(range(torch.cuda.device_count()))):
-        # todo: This ugliness is because torchvision transforms use the global pytorch RNG!
-        torch.random.manual_seed(42)
-        batch = next(dataloader_iterator)
-    return optree.tree_map(operator.methodcaller("to", device=device), batch)
 
 
 @pytest.fixture(autouse=True, scope="function")
