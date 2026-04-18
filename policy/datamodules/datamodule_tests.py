@@ -3,6 +3,7 @@ import sys
 from typing import Generic, TypeVar
 
 import hydra_zen
+import lightning
 import omegaconf
 import pytest
 from lightning import LightningDataModule
@@ -71,6 +72,9 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def batch(self, dataloader: DataLoader):
+        # Pin the random seed right before iterating to guarantee the RandomSampler
+        # generates the exact same sequence of indices every time.
+        lightning.seed_everything(42, workers=True)
         iterator = iter(dataloader)
         batch = next(iterator)
         return batch
