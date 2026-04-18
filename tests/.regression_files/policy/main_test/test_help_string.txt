@@ -5,7 +5,7 @@ Compose your configuration from those groups (group=option)
 
 algorithm: diffusion, no_op
 algorithm/lr_scheduler: CosineAnnealingLR, StepLR
-algorithm/network: fcnet, resnet18, resnet50, unet1d
+algorithm/network: unet1d
 algorithm/optimizer: Adam, AdamW, SGD, custom_adam
 datamodule: maniskill_datamodule
 experiment: diffusion

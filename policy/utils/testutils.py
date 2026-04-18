@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import itertools
 import os
 import typing
 from collections.abc import Callable, Mapping
@@ -14,7 +13,6 @@ import hydra
 import hydra_zen
 import pytest
 import torch
-import torchvision.models
 from hydra.core.config_store import ConfigStore
 
 from policy.utils.env_vars import NETWORK_DATASETS_DIR
@@ -235,29 +233,8 @@ def get_all_configs_in_group_of_type(
     return compatible_config_names
 
 
-default_marks_for_config_combinations: dict[tuple[str, ...], list[pytest.MarkDecorator]] = {
-    ("imagenet", "fcnet"): [
-        pytest.mark.xfail(
-            reason="FcNet shouldn't be applied to the ImageNet datamodule. It can lead to nans in the parameters."
-        )
-    ],
-    **{
-        (resnet_config, mnist_dataset_config): [
-            pytest.mark.skip(
-                reason="ResNets don't work with MNIST datasets because the image resolution is too small.",
-                # raises=RuntimeError,
-            )
-        ]
-        for resnet_config, mnist_dataset_config in itertools.product(
-            get_all_configs_in_group_of_type("algorithm/network", torchvision.models.ResNet),
-            ["mnist", "fashion_mnist"],
-        )
-    },
-}
-"""Dict with some default marks to add to tests when some config combinations are present.
-
-For example, ResNet networks can't be applied to the MNIST datasets.
-"""
+default_marks_for_config_combinations: dict[tuple[str, ...], list[pytest.MarkDecorator]] = {}
+"""Dict with default marks for unsupported config combinations."""
 
 
 def run_for_all_configs_of_type(
