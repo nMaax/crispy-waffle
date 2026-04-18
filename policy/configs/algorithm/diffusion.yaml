@@ -14,4 +14,9 @@ lr: 1e-4
 warmup_steps: 500
 init_seed: 42
 
-# You can eventually override unet1d and adam down below
+# You can eventually override unet1d and adam down below. e.g.:
+# network:
+#   down_dims: [128, 256, 512]  # Changes just the dims, keeps kernel_size etc. from unet1d.yaml
+
+# optimizer:
+#   weight_decay: 1e-5          # Overrides the weight decay in adam.yaml

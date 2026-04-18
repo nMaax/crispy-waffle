@@ -1,8 +1,7 @@
 # @package _global_
 defaults:
-  - override /algorithm: diffusion
-  - override /datamodule: maniskill_datamodule
+    - override /algorithm: diffusion
+    - override /datamodule: maniskill_datamodule
 
-# Optional: Override any specific parameters for this experiment
 trainer:
-  max_epochs: 100
+    max_epochs: 100

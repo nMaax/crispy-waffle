@@ -31,10 +31,8 @@ class DiffusionPolicy(L.LightningModule):
         init_seed: int = 42,
     ):
         super().__init__()
-        # TODO: are we sure about this? Maybe I should include network?
         # Saves all the arguments to self.hparams and logs them to W&B
-        # network and datamodule are excluded because nn.Module / LightningDataModule
-        # are not JSON-serialisable as plain hyperparameters.
+        # datamodule is excluded because LightningDataModule is not JSON-serialisable as plain hyperparameters.
         self.save_hyperparameters(ignore=["datamodule"])
 
         self.network_config = network
@@ -74,7 +72,9 @@ class DiffusionPolicy(L.LightningModule):
 
         # Fork the RNG to guarantee reproducible weight initialization
         with torch.random.fork_rng():
-            torch.manual_seed(self.init_seed) # TODO: isnt this going to affect the whole system? Review seeding
+            # TODO: review your approach to seeding overall, where do you set the seeds? Are you sure that one seed will conver everything and there arent sneaky overwrites?
+            # Do not worry about setting seed manually, we are inside the with block, so once this finishes the original RNG state will be restored.
+            torch.manual_seed(self.init_seed)
             
             # Use hydra_zen to instantiate, injecting computed dimensions
             self.network = hydra_zen.instantiate(
@@ -123,27 +123,16 @@ class DiffusionPolicy(L.LightningModule):
 
         return F.mse_loss(noise_pred, noise)
 
-    def training_step(self, batch, batch_idx):
-        # TODO: can I do both training and val in the same function? Like a shared_step
-        """Lightning automatically calls this during trainer.fit()"""
-        obs_seq = batch["env_seq"]
-        action_seq = batch["action_seq"]
-
-        loss = self._compute_loss(obs_seq, action_seq)
-        
-        self.log("train/loss", loss, prog_bar=True)
+    def shared_step(self, batch, batch_idx, phase: str):
+        loss = self._compute_loss(batch["env_seq"], batch["action_seq"])
+        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase=="val"))
         return loss
+
+    def training_step(self, batch, batch_idx):
+        return self.shared_step(batch, batch_idx, "train")
 
     def validation_step(self, batch, batch_idx):
-        # TODO: actually this isnt really need, I would just train on the whole dataset and evaluate the policy performance in the environment.
-        """Lightning automatically calls this during validation."""
-        obs_seq = batch["env_seq"]
-        action_seq = batch["action_seq"]
-
-        loss = self._compute_loss(obs_seq, action_seq)
-
-        self.log("val/loss", loss, prog_bar=True, sync_dist=True)
-        return loss
+        return self.shared_step(batch, batch_idx, "val")
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Automatically step the EMA model after every training iteration."""
