@@ -190,4 +190,3 @@ class ManiSkillDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
-

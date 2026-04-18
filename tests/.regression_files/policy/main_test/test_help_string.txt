@@ -5,14 +5,13 @@ Compose your configuration from those groups (group=option)
 
 algorithm: diffusion, no_op
 algorithm/lr_scheduler: CosineAnnealingLR, StepLR
-algorithm/network: fcnet, resnet18, resnet50
-algorithm/optimizer: Adam, SGD, custom_adam
-cluster: beluga, cedar, current, mila, narval
+algorithm/network: fcnet, resnet18, resnet50, unet1d
+algorithm/optimizer: Adam, AdamW, SGD, custom_adam
 datamodule: maniskill_datamodule
-resources: cpu, gpu
+experiment: diffusion
 trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, early_stopping, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar
-trainer/logger: tensorboard, wandb, wandb_cluster
+trainer/logger: tensorboard, wandb
 
 
 == Config ==

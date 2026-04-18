@@ -7,8 +7,8 @@ _recursive_: false # Since we instantiate the network and optimizer inside the a
 
 # obs_horizon and pred_horizon are automatically fetched by datamodule
 act_horizon: 8
-action_dim: 8
-obs_dim: 13
+action_dim: 8 #  TODO: should be set in experiment?
+obs_dim: 70 # 13 (table_workspace) + 13 (cubeA) + 13 (cubeB) + 31 (panda_wristcam) # TODO: Should be set in experiment?
 
 num_diffusion_iters: 100
 lr: 1e-4
