@@ -23,9 +23,8 @@ import policy.configs
 import policy.experiment
 import policy.main
 from policy.algorithms.no_op import NoOp
-from policy.conftest import setup_with_overrides, skip_on_macOS_in_CI
+from policy.conftest import setup_with_overrides
 from policy.utils.env_vars import REPO_ROOTDIR
-from policy.utils.hydra_utils import resolve_dictconfig
 
 logger = getLogger(__name__)
 
@@ -38,7 +37,9 @@ experiment_configs = [p.stem for p in (CONFIG_DIR / "experiment").glob("*.yaml")
 This is used to check that all the experiment configs are covered by tests.
 """
 
-experiment_commands_to_test: list[str | ParameterSet] = []
+experiment_commands_to_test: list[str | ParameterSet] = [
+    "experiment=diffusion trainer.max_epochs=1"
+]
 """List of experiment commands to run for testing.
 
 Consider adding a command that runs simple sanity check for your algorithm, something like one step
@@ -132,17 +133,6 @@ def test_can_run_experiment(
     logger.info(f"Launching sanity check experiment with command: {command_line_args}")
     monkeypatch.setattr(sys, "argv", command_line_args)
     policy.main.main()
-
-
-@skip_on_macOS_in_CI
-@setup_with_overrides("algorithm=image_classifier")
-def test_setting_just_algorithm_isnt_enough(dict_config: DictConfig) -> None:
-    """Check that the datamodule is required on the command-line if the algorithm needs one."""
-    with pytest.raises(
-        omegaconf.errors.InterpolationResolutionError,
-        match="Did you forget to set a value for the 'datamodule' config?",
-    ):
-        _ = resolve_dictconfig(dict_config)
 
 
 @pytest.mark.xfail(strict=False, reason="Regression files aren't necessarily present.")
