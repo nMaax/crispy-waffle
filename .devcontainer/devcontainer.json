@@ -18,7 +18,7 @@
     // "forwardPorts": [],
     // Configure tool-specific properties.
     "customizations": {
-        // TODO: look into this one.
+        // todo: look into this one.
         "codespaces": {},
         // Configure properties specific to VS Code.
         "vscode": {
