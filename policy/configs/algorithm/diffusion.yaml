@@ -12,7 +12,6 @@ obs_dim: 70 # 13 (table_workspace) + 13 (cubeA) + 13 (cubeB) + 31 (panda_wristca
 
 num_diffusion_iters: 100
 lr: 1e-4
-warmup_steps: 500
 init_seed: 42
 
 # You can eventually override unet1d and adam down below. e.g.:

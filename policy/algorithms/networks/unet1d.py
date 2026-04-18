@@ -28,6 +28,7 @@ class SinusoidalPosEmb(nn.Module):
     def forward(self, x):
         device = x.device
         half_dim = self.dim // 2
+        # TODO: Maybe I should move all these integers as constants on top, same in diffusion.py for EMA? Or maybe I add them to the config?
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
         emb = x[:, None] * emb[None, :]

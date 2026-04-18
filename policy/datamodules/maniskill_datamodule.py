@@ -4,9 +4,10 @@ from pathlib import Path
 import h5py
 import lightning as L
 import numpy as np
-import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+from policy.utils import to_tensor
 
 
 def load_h5_data(data):
@@ -18,16 +19,6 @@ def load_h5_data(data):
         else:
             out[k] = load_h5_data(data[k])
     return out
-
-
-def to_tensor(data, device=None):
-    """Recursively converts numpy arrays to PyTorch tensors."""
-    if isinstance(data, dict):
-        return {k: to_tensor(v, device) for k, v in data.items()}
-    tensor = torch.from_numpy(data).float()
-    if device is not None:
-        tensor = tensor.to(device)
-    return tensor
 
 
 class ManiSkillTrajectoryDataset(Dataset):
@@ -158,7 +149,7 @@ class ManiSkillDataModule(L.LightningDataModule):
     def train_dataloader(self):
         if self.dataset is None:
             raise TypeError(
-                "It appears you asked for a dataloader without setting up a Dataset first. Call setup()."
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
             self.dataset,
@@ -172,7 +163,7 @@ class ManiSkillDataModule(L.LightningDataModule):
     def val_dataloader(self):
         if self.dataset is None:
             raise TypeError(
-                "It appears you asked for a dataloader without setting up a Dataset first. Call setup()."
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
             self.dataset,
@@ -185,7 +176,7 @@ class ManiSkillDataModule(L.LightningDataModule):
     def test_dataloader(self):
         if self.dataset is None:
             raise TypeError(
-                "It appears you asked for a dataloader without setting up a Dataset first. Call setup()."
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
             self.dataset,

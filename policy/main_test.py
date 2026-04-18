@@ -171,9 +171,3 @@ def test_setup_with_overrides_works(dict_config: omegaconf.DictConfig):
     """This test receives the `dict_config` loaded from Hydra with the given overrides."""
     assert dict_config["algorithm"]["_target_"] == NoOp.__module__ + "." + NoOp.__name__
     assert dict_config["trainer"]["max_epochs"] == 1
-
-
-# TODO: Add some more integration tests:
-# - running sweeps from Hydra!
-# - using the slurm launcher!
-# - Test offline mode for narval and such.

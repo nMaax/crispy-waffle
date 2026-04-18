@@ -26,10 +26,10 @@ class DiffusionPolicy(L.LightningModule):
         obs_dim: int,
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
-        warmup_steps: int = 500,
         init_seed: int = 42,
     ):
         super().__init__()
+
         # Saves all the arguments to self.hparams and logs them to W&B
         # datamodule is excluded because LightningDataModule is not JSON-serialisable as plain hyperparameters.
         self.save_hyperparameters(ignore=["datamodule"])
@@ -49,7 +49,6 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = action_dim
         self.obs_dim = obs_dim
         self.lr = lr
-        self.warmup_steps = warmup_steps
         self.init_seed = init_seed
 
         self.num_diffusion_iters = num_diffusion_iters
@@ -87,8 +86,9 @@ class DiffusionPolicy(L.LightningModule):
         )
 
     def configure_optimizers(self):
-        # TODO: doesn't lighitng have configure lr scheduler?
         """Creates the optimizers."""
+
+        # TODO: Can Lighting configure lr scheduler too?
 
         # Instantiate the optimizer config into a functools.partial object.
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
@@ -170,6 +170,8 @@ class DiffusionPolicy(L.LightningModule):
             )
 
             for k in self.noise_scheduler.timesteps:
+                k = cast(int, k.item())
+
                 noise_pred = self.network(
                     sample=noisy_action_seq,
                     timestep=k,
@@ -177,7 +179,7 @@ class DiffusionPolicy(L.LightningModule):
                 )
                 output = self.noise_scheduler.step(
                     model_output=noise_pred,
-                    timestep=k,  # type: ignore[argtype]
+                    timestep=k,
                     sample=noisy_action_seq,
                 )
 
