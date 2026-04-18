@@ -50,10 +50,3 @@ class DataModule(Protocol[BatchType]):
     def setup(self, stage: Literal["fit", "validate", "test", "predict"]) -> None: ...
 
     def train_dataloader(self) -> DataLoader[BatchType]: ...
-
-
-@runtime_checkable
-class ClassificationDataModule(DataModule[BatchType], Protocol):
-    """Protocol that matches "datamodules with a 'num_classes' int attribute."""
-
-    num_classes: int

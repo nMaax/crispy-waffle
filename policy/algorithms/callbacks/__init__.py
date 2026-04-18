@@ -1,7 +1,7 @@
-from .classification_metrics import ClassificationMetricsCallback
+from .rollout_evaluation import RolloutEvaluationCallback
 from .samples_per_second import MeasureSamplesPerSecondCallback
 
 __all__ = [
-    "ClassificationMetricsCallback",
     "MeasureSamplesPerSecondCallback",
+    "RolloutEvaluationCallback"
 ]
