@@ -6,8 +6,8 @@ defaults:
     - _self_
 
 model_checkpoint:
-    monitor: "val/loss" # name of the logged metric which determines when model is improving
-    mode: "min" # "max" means higher metric value is better, can be also "min"
+    monitor: "val/success_rate" # name of the logged metric which determines when model is improving
+    mode: "max" # "max" means higher metric value is better, can be also "min"
     save_top_k: 1 # save k best models (determined by above metric)
     save_last: True # additionally always save model from last epoch
     verbose: False
@@ -16,9 +16,9 @@ model_checkpoint:
     auto_insert_metric_name: False
 
 early_stopping:
-    monitor: "val/loss"
-    patience: 5 # "Stop training if the monitored metric (val/loss) doesn't improve after 5 consecutive validation checks"
-    mode: "min"
+    monitor: "val/success_rate" # name of the logged metric which determines when training is improving
+    mode: "max" # "max" means higher metric value is better, can be
+    patience: 5 # "Stop training if the monitored metric (val/success_rate) doesn't improve after 5 consecutive validation checks"
 
 model_summary:
     max_depth: 2
@@ -28,5 +28,12 @@ lr_monitor:
 
 device_utilisation:
     _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
+
 throughput:
     _target_: policy.algorithms.callbacks.samples_per_second.MeasureSamplesPerSecondCallback
+
+rollout_evaluation:
+    _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+    env_id: "PickCube-v1" # Or whatever your ManiSkill env is
+    num_val_episodes: 10
+    num_test_episodes: 100

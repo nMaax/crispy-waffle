@@ -25,11 +25,11 @@ trainer:
       _target_: lightning.pytorch.callbacks.ModelCheckpoint
       dirpath: ${hydra:runtime.output_dir}/checkpoints
       filename: epoch_{epoch:03d}
-      monitor: val/loss
+      monitor: val/success_rate
       verbose: false
       save_last: true
       save_top_k: 1
-      mode: min
+      mode: max
       auto_insert_metric_name: false
       save_weights_only: false
       every_n_train_steps: null
@@ -38,11 +38,11 @@ trainer:
       save_on_train_epoch_end: null
     early_stopping:
       _target_: lightning.pytorch.callbacks.EarlyStopping
-      monitor: val/loss
+      monitor: val/success_rate
       min_delta: 0.0
       patience: 5
       verbose: false
-      mode: min
+      mode: max
       strict: true
       check_finite: true
       stopping_threshold: null
@@ -59,6 +59,11 @@ trainer:
       _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
     throughput:
       _target_: policy.algorithms.callbacks.samples_per_second.MeasureSamplesPerSecondCallback
+    rollout_evaluation:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      env_id: PickCube-v1
+      num_val_episodes: 10
+      num_test_episodes: 100
   _target_: lightning.Trainer
   accelerator: auto
   strategy: auto

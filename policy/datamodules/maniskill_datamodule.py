@@ -4,11 +4,20 @@ from pathlib import Path
 import h5py
 import lightning as L
 import numpy as np
-from torch.utils.data import DataLoader, Dataset
+import torch
+from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
 from policy.utils import to_tensor
 
+
+class DummyDataset(Dataset):
+    """A minimal dataset to trigger Lightning loops for simulation-only phases."""
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, idx):
+        return {}
 
 def load_h5_data(data):
     """Recursively loads h5py data into memory as numpy arrays."""
@@ -19,7 +28,6 @@ def load_h5_data(data):
         else:
             out[k] = load_h5_data(data[k])
     return out
-
 
 class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
@@ -130,6 +138,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         pred_horizon: int = 16,
         batch_size: int = 256,
         num_workers: int = 4,
+        val_split: float = 0.1,
     ):
         super().__init__()
         self.dataset_file = dataset_file
@@ -137,51 +146,50 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.pred_horizon = pred_horizon
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.dataset = None
+        self.val_split = val_split
+        self.train_set = None
+        self.val_set = None
 
     def setup(self, stage=None):
-        if self.dataset is None:
-            # TODO: You'd split this into train/val datasets (or not really)
-            self.dataset = ManiSkillTrajectoryDataset(
+        if self.train_set is None:
+            full_dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file, self.obs_horizon, self.pred_horizon
             )
 
+            val_size = int(len(full_dataset) * self.val_split)
+            train_size = len(full_dataset) - val_size
+
+            # Use a fixed seed for reproducibility
+            # TODO: NONONONONONO do not seed this way!!!!!
+            self.train_set, self.val_set = random_split(
+                full_dataset, [train_size, val_size],
+                generator=torch.Generator().manual_seed(42)
+            )
+
     def train_dataloader(self):
-        if self.dataset is None:
+        if self.train_set is None:
             raise TypeError(
                 "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
-            self.dataset,
+            self.train_set,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=True,  # Speeds up GPU transfer
         )
 
-    # TODO: The following is not correct, I should actually avoid val/test as they should be generated via simulations.
     def val_dataloader(self):
-        if self.dataset is None:
+        if self.val_set is None:
             raise TypeError(
                 "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
-            self.dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
+            self.val_set, batch_size=self.batch_size, shuffle=False,
+            num_workers=self.num_workers, pin_memory=True
         )
 
     def test_dataloader(self):
-        if self.dataset is None:
-            raise TypeError(
-                "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
-            )
-        return DataLoader(
-            self.dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-        )
+        # Testing is done strictly via simulation in the Callback.
+        # We return a dummy batch just to trigger the Callback logic.
+        return DataLoader(DummyDataset(), batch_size=1)

@@ -180,7 +180,10 @@ def evaluate_lightning(
         # NOTE: This is the value that is used for HParam sweeps.
         metric_name = "1-accuracy"
         error = 1 - accuracy
-
+    elif (success_rate := metrics.get(f"{results_type}/success_rate")) is not None:
+        # Added for Imitation Learning
+        metric_name = "1-success_rate"
+        error = 1.0 - success_rate
     elif (loss := metrics.get(f"{results_type}/loss")) is not None:
         logger.info("Assuming that the objective to minimize is the loss metric.")
         # If 'accuracy' isn't in the results, assume that the loss is the metric to use.
