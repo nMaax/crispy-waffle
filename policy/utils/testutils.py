@@ -65,7 +65,7 @@ def get_config_loader():
 
     from policy.main import PROJECT_NAME
 
-    # TODO: This (loading a config) is actually taking a long time, in part because this is
+    # todo: This (loading a config) is actually taking a long time, in part because this is
     # triggering the hydra-auto-schema plugin to add schemas to all the yaml files.
     AutoSchemaPlugin = None
     backup = None
@@ -94,7 +94,7 @@ def get_target_of_config(
 
     In the case of inner dataclasses (e.g. Model.HParams), this returns the outer class (Model).
     """
-    # TODO: Rework, use the same mechanism as in auto-schema.py
+    # todo: Rework, use the same mechanism as in auto-schema.py
     if _cs is None:
         from policy.configs import cs as _cs
 

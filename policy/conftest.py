@@ -130,7 +130,7 @@ fails_on_macOS_in_CI = pytest.mark.xfail(
 )
 skip_on_macOS_in_CI = pytest.mark.skipif(
     sys.platform == "darwin" and IN_GITHUB_CI,
-    reason="TODO: Fails for some reason on MacOS in GitHub CI.",
+    reason="todo: Fails for some reason on MacOS in GitHub CI.",
 )
 
 
@@ -141,7 +141,7 @@ def original_datadir(original_datadir: Path):
     By default, they are in a folder next to the source. Here instead we move them to a different
     folder to keep the source code folder as neat as we can.
 
-    TODO: The large regression files (the .npz files containing tensors) could be stored in a cache
+    todo: The large regression files (the .npz files containing tensors) could be stored in a cache
     on $SCRATCH and referenced to via a symlink in the test folder. There could be some issues
     though if scratch is cleaned up.
     """
@@ -226,7 +226,7 @@ def command_line_arguments(
         # NOTE: if we were to run the test in a slurm job, this wouldn't make sense.
         # f"trainer.devices={devices}",
         # f"trainer.accelerator={accelerator}",
-        # TODO: Setting this here, which actually impacts the tests!
+        # todo: Setting this here, which actually impacts the tests!
         "seed=42",
     ]
     if algorithm_config:
@@ -360,7 +360,7 @@ def training_batch(train_dataloader: DataLoader, device: torch.device) -> optree
     dataloader_iterator = iter(train_dataloader)
 
     with torch.random.fork_rng(list(range(torch.cuda.device_count()))):
-        # TODO: This ugliness is because torchvision transforms use the global pytorch RNG!
+        # todo: This ugliness is because torchvision transforms use the global pytorch RNG!
         torch.random.manual_seed(42)
         batch = next(dataloader_iterator)
     return optree.tree_map(operator.methodcaller("to", device=device), batch)
@@ -377,7 +377,7 @@ def seed(request: pytest.FixtureRequest, make_torch_deterministic: None):
         yield random_seed
 
 
-# TODO: Remove this.
+# todo: Remove this.
 @pytest.fixture(scope="session")
 def accelerator(request: pytest.FixtureRequest):
     """Returns the accelerator to use during unit tests.
@@ -385,7 +385,7 @@ def accelerator(request: pytest.FixtureRequest):
     By default, if cuda is available, returns "cuda". If the tests are run with -vvv, then also
     runs CPU.
     """
-    # TODO: Shouldn't we get this from the experiment config instead?
+    # todo: Shouldn't we get this from the experiment config instead?
 
     default_accelerator = "gpu" if torch.cuda.is_available() else "cpu"
     accelerator: str = getattr(request, "param", default_accelerator)
@@ -423,7 +423,7 @@ def devices(
     Splits up the GPUs between pytest-xdist workers when using distributed testing.
     This isn't currently used in the CI.
 
-    TODO: Design dilemna here: Should we be parametrizing the `devices` command-line override and
+    todo: Design dilemna here: Should we be parametrizing the `devices` command-line override and
     force experiments to run with this value during tests? Or should we be changing things based on
     this value in the config?
     """
@@ -605,7 +605,7 @@ def _add_default_marks_for_config_name(config_name: str, request: pytest.Fixture
     if config_name in default_marks_for_config_name:
         for marker in default_marks_for_config_name[config_name]:
             request.applymarker(marker)
-    # TODO: ALSO add all the marks for config combinations that contain this config?
+    # todo: ALSO add all the marks for config combinations that contain this config?
 
 
 @pytest.fixture
@@ -729,7 +729,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         except TypeError:
             pass
 
-        # TODO: unsure what mark to pass here, if there were multiple marks for the same argument..
+        # todo: unsure what mark to pass here, if there were multiple marks for the same argument..
         marker = args_to_be_parametrized_markers[arg_name][-1]
         indirect = marker.kwargs.get("indirect", False)
         metafunc.parametrize(arg_name, arg_values, indirect=indirect, _param_mark=marker)
@@ -742,7 +742,7 @@ def pytest_configure(config: pytest.Config):
     )
 
 
-# TODO: remove these, add this fix to the tensor_regression package instead.
+# todo: remove these, add this fix to the tensor_regression package instead.
 @pytest.fixture(autouse=True)
 def _dont_use_tensor_hashes_in_regression_files(monkeypatch: pytest.MonkeyPatch):
     """Temporarily remove the hash of tensors from the regression files."""

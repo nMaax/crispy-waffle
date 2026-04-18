@@ -229,7 +229,7 @@ class ClassificationMetricsCallback(lightning.Callback):
         assert isinstance(accuracy, MulticlassAccuracy)
         assert isinstance(top5_accuracy, MulticlassAccuracy)
 
-        # TODO: It's a bit confusing, not sure if this is the right way to use this:
+        # todo: It's a bit confusing, not sure if this is the right way to use this:
         accuracy(probs, y)
         top5_accuracy(probs, y)
         prog_bar = phase == "train"

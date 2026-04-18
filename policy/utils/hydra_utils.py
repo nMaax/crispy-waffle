@@ -103,7 +103,7 @@ def resolve_dictconfig(dict_config: DictConfig) -> Config:
     # Convert the "raw" DictConfig (which uses the `Config` class to define it's structure)
     # into an actual `Config` object:
 
-    # TODO: Seems to only be necessary now that the datamodule group is optional?
+    # todo: Seems to only be necessary now that the datamodule group is optional?
     # Need to manually nudge OmegaConf so that it instantiates the datamodule first.
     if dict_config["datamodule"]:
         with omegaconf.open_dict(dict_config):
@@ -372,7 +372,7 @@ def make_config_and_store(
             # BUG: Causes issues, tries to get the config from the module again, which re-creates
             # it?
             "module": _calling_module.__name__,
-            # TODO: Seems to be causing issues with `_target_` being overwritten?
+            # todo: Seems to be causing issues with `_target_` being overwritten?
             "frozen": False,
         },
         # Seems to make things not pickleable!
