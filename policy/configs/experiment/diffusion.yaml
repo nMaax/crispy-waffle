@@ -3,5 +3,5 @@ defaults:
     - override /algorithm: diffusion
     - override /datamodule: maniskill_datamodule
 
-trainer:
-    max_epochs: 100
+# The name of the experiment (for logging)
+name: diffusion_run

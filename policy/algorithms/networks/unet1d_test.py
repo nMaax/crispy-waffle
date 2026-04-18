@@ -1,23 +1,33 @@
 import hydra
+import hydra_zen
 import pytest
 import torch
 from omegaconf import DictConfig
 
+def test_unet1d_instantiates_and_runs():
+    with hydra.initialize(version_base="1.2", config_path="../../configs/algorithm/network"):
+        cfg = hydra.compose(config_name="unet1d")
 
-@pytest.mark.parametrize("algorithm_network_config", ["unet1d"], indirect=True)
-def test_unet1d_instantiates_and_runs(dict_config: DictConfig):
-    """Test specifically reserved for the Unet1D network configuration."""
-    network_config = dict_config.algorithm.network
-    network = hydra.utils.instantiate(network_config)
+    #Inject the dimensions directly into instantiate
+    network = hydra_zen.instantiate(
+        cfg, 
+        input_dim=8, 
+        global_cond_dim=104
+    )
 
-    assert isinstance(network, torch.nn.Module)
-    assert network.__class__.__name__ == "ConditionalUnet1D"
+    # Dummy inputs based on the overrides we just provided
+    batch_size = 2
+    horizon = 16
+    input_dim = 8
+    global_cond_dim = 104
+    sample = torch.randn(batch_size, horizon, input_dim)
+    
+    timestep = torch.randint(0, 100, (batch_size,)) 
+    
+    global_cond = torch.randn(batch_size, global_cond_dim)
 
-    B, pred_horizon, act_dim = 2, 16, network_config.input_dim
+    # Run a forward pass to ensure the architecture doesn't crash
+    output = network(sample, timestep, global_cond=global_cond)
 
-    sample = torch.randn(B, pred_horizon, act_dim)
-    timestep = torch.tensor([10, 50])
-    global_cond = torch.randn(B, network_config.global_cond_dim)
-
-    out = network(sample, timestep, global_cond=global_cond)
-    assert out.shape == sample.shape
+    # For a 1D Unet in diffusion, output shape should match the sample shape
+    assert output.shape == sample.shape

@@ -3,6 +3,7 @@ defaults:
     - optimizer: AdamW
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
+_recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we set this to false to prevent hydra from trying to instantiate them before
 
 # obs_horizon and pred_horizon are automatically fetched by datamodule
 act_horizon: 8

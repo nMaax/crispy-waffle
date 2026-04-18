@@ -1,6 +1,4 @@
 _target_: policy.algorithms.networks.unet1d.ConditionalUnet1D
-input_dim: ???
-global_cond_dim: ???
 diffusion_step_embed_dim: 256
 down_dims: [256, 512, 1024]
 kernel_size: 5,

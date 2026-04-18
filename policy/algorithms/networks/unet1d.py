@@ -13,10 +13,6 @@
 # @markdown - `ConditionalResidualBlock1D` Takes two inputs `x` and `cond`. \
 # @markdown `x` is passed through 2 `Conv1dBlock` stacked together with residual connection.
 # @markdown `cond` is applied to `x` with [FiLM](https://arxiv.org/abs/1709.07871) conditioning.
-"""
-Note: This is copied from the colab notebook.
-The main difference with the github repo code is in `class ConditionalUnet1D` -- this version makes some simplifications.
-"""
 
 import math
 
