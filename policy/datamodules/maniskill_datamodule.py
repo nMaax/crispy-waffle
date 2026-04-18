@@ -40,12 +40,12 @@ class ManiSkillTrajectoryDataset(Dataset):
         success_only: bool = False,
     ) -> None:
         super().__init__()
-        self.dataset_file = dataset_file
+        self.dataset_file = Path(dataset_file)
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
 
         # Load JSON metadata
-        json_path = Path(dataset_file).with_suffix(".json")
+        json_path = self.dataset_file.with_suffix(".json")
         with open(json_path) as f:
             self.json_data = json.load(f)
 
@@ -57,7 +57,7 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         # Load data into RAM (WARNING: Only do this for state-based observations!
         # For visual observations, you should lazily load from disk inside __getitem__)
-        with h5py.File(dataset_file, "r") as data:
+        with h5py.File(self.dataset_file, "r") as data:
             print(f"Loading {load_count} episodes into memory...")
             for eps_id in tqdm(range(load_count), desc="Loading HDF5"):
                 eps = self.episodes[eps_id]

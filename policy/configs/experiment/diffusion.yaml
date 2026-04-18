@@ -5,3 +5,6 @@ defaults:
 
 # The name of the experiment (for logging)
 name: diffusion_run
+
+datamodule:
+    dataset_file: /home/massimiliano/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
