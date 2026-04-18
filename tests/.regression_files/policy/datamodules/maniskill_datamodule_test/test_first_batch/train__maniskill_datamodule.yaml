@@ -1,0 +1,50 @@
+action_seq:
+  device: cpu
+  max: 2.9448275566101074
+  mean: 0.04758206009864807
+  min: -2.5998141765594482
+  shape:
+  - 256
+  - 16
+  - 8
+  sum: 1559.1689453125
+env_seq.actors.cubeA:
+  device: cpu
+  max: 4.226457595825195
+  mean: 0.07887967675924301
+  min: -2.316640615463257
+  shape:
+  - 256
+  - 2
+  - 13
+  sum: 525.0231323242188
+env_seq.actors.cubeB:
+  device: cpu
+  max: 0.999995768070221
+  mean: 0.05115644261240959
+  min: -1.4323885440826416
+  shape:
+  - 256
+  - 2
+  - 13
+  sum: 340.4972839355469
+env_seq.actors.table-workspace:
+  device: cpu
+  max: 0.7071068286895752
+  mean: 0.028813133016228676
+  min: -0.9196429252624512
+  shape:
+  - 256
+  - 2
+  - 13
+  sum: 191.78021240234375
+env_seq.articulations.panda_wristcam:
+  device: cpu
+  max: 2.924586057662964
+  mean: 0.031363748013973236
+  min: -2.5961132049560547
+  shape:
+  - 256
+  - 2
+  - 31
+  sum: 497.805419921875
