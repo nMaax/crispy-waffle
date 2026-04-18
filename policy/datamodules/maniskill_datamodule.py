@@ -167,6 +167,28 @@ class ManiSkillDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,  # Speeds up GPU transfer
         )
+    
+    def val_dataloader(self):
+        if self.dataset is None:
+            raise TypeError("It appears you asked for a dataloader without setting up a Dataset first. Call setup().")
+        return DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            shuffle=False,  # No need to shuffle validation data
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+
+    def test_dataloader(self):
+        if self.dataset is None:
+            raise TypeError("It appears you asked for a dataloader without setting up a Dataset first. Call setup().")
+        return DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
 
 
 if __name__ == "__main__":
