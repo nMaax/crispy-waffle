@@ -66,16 +66,10 @@ class DiffusionPolicy(L.LightningModule):
 
         global_cond_dim = self.obs_horizon * self.obs_dim
 
-        # Fork the RNG to guarantee reproducible weight initialization
-        with torch.random.fork_rng():
-            # TODO: review your approach to seeding overall, where do you set the seeds? Are you sure that one seed will cover everything and there aren't sneaky overwrites?
-            # Do not worry about setting seed manually, we are inside the with block, so once this finishes the original RNG state will be restored.
-            torch.manual_seed(self.init_seed)
-
-            # Use hydra_zen to instantiate, injecting computed dimensions
-            self.network = hydra_zen.instantiate(
-                self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
-            )
+        # Use hydra_zen to instantiate, injecting computed dimensions
+        self.network = hydra_zen.instantiate(
+            self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
+        )
 
         # Now that the network exists, we can create the EMA model
         self.ema = EMAModel(
