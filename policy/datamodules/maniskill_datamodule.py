@@ -150,7 +150,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def setup(self, stage=None):
         if self.dataset is None:
-            # TODO: You'd split this into train/val datasets
+            # TODO: You'd split this into train/val datasets (or not really)
             self.dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file, self.obs_horizon, self.pred_horizon
             )
@@ -168,6 +168,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             pin_memory=True,  # Speeds up GPU transfer
         )
     
+    # TODO: The following is not correct, I should actually avoid val/test as they should be generated via simulations.
     def val_dataloader(self):
         if self.dataset is None:
             raise TypeError("It appears you asked for a dataloader without setting up a Dataset first. Call setup().")
