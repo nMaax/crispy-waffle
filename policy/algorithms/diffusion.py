@@ -71,6 +71,7 @@ class DiffusionPolicy(L.LightningModule):
 
         # Now that the network exists, we can create the EMA model
         self.ema = EMAModel(
+            # TODO: Maybe put this as constants on top of the file? Or they could be set via configs
             parameters=self.network.parameters(),
             decay=0.999,
             inv_gamma=1.0,
