@@ -174,7 +174,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         return DataLoader(
             self.dataset,
             batch_size=self.batch_size,
-            shuffle=False,  # No need to shuffle validation data
+            shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
         )
@@ -190,16 +190,3 @@ class ManiSkillDataModule(L.LightningDataModule):
             pin_memory=True,
         )
 
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    from policy.utils import print_dict_tree
-
-    h5_path = (
-        Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
-    )
-    obs_horizon = 8
-    pred_horizon = 4
-    dataset = ManiSkillTrajectoryDataset(h5_path, obs_horizon, pred_horizon)
-    print_dict_tree(dataset[0])

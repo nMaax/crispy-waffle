@@ -14,6 +14,7 @@ from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils.typing_utils import HydraConfigFor
+from policy.utils import get_batch_size, flatten_tensor_dict
 
 
 class DiffusionPolicy(L.LightningModule):
@@ -110,8 +111,8 @@ class DiffusionPolicy(L.LightningModule):
         if self.network is None:
             raise ValueError("Network not initialized. Call configure_model() before computing loss.")
 
-        B = obs_seq.shape[0]
-        obs_cond = obs_seq.flatten(start_dim=1)
+        B = get_batch_size(obs_seq)
+        obs_cond = flatten_tensor_dict(obs_seq)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -153,13 +154,13 @@ class DiffusionPolicy(L.LightningModule):
         if self.ema is None:
             raise ValueError("EMA not initialized. Call configure_model() before getting action.")
 
-        B = obs_seq.shape[0]
+        B = get_batch_size(obs_seq)
 
         # Temporarily copy EMA weights in the model
         self.ema.copy_to(self.network.parameters())
 
         with torch.no_grad():
-            obs_cond = obs_seq.flatten(start_dim=1)
+            obs_cond = flatten_tensor_dict(obs_seq)
             noisy_action_seq = torch.randn(
                 (B, self.pred_horizon, self.act_dim), device=self.device
             )
