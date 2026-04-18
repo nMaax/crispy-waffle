@@ -1,5 +1,5 @@
 _target_: policy.datamodules.maniskill_datamodule.ManiSkillDataModule
-dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
+dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 # Maybe move this to experiments? But only once you truly need it
 obs_horizon: 2
 pred_horizon: 16
 batch_size: 256
