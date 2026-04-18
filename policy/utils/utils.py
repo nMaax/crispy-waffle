@@ -7,6 +7,7 @@ import rich
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
+import torch
 
 logger = get_logger(__name__)
 
@@ -64,3 +65,46 @@ def print_config(
 
     # with open("config_tree.log", "w") as file:
     #     rich.print(tree, file=file)
+
+def print_dict_tree(data, indent=""):
+    """Recursively prints a dictionary as a tree.
+
+    Prints .shape and .dtype for atomic elements that possess them.
+    """
+    items = list(data.items())
+    for i, (key, value) in enumerate(items):
+        is_last = i == len(items) - 1
+        branch = "└── " if is_last else "├── "
+
+        # Branch: If the value is another dictionary, recurse
+        if isinstance(value, dict):
+            print(f"{indent}{branch}{key}")
+            new_indent = indent + ("    " if is_last else "│   ")
+            print_dict_tree(value, new_indent)
+
+            # Leaf: If the value has a shape (and potentially a dtype)
+        elif hasattr(value, "shape"):
+            # Get dtype if it exists, otherwise leave empty
+            dtype_str = f", dtype={value.dtype}" if hasattr(value, "dtype") else ""
+            print(f"{indent}{branch}{key}: shape={value.shape}{dtype_str}")
+
+            # Leaf: Basic types
+        else:
+            print(f"{indent}{branch}{key}: {type(value).__name__}")
+
+def get_batch_size(data):
+    """Recursively finds the batch size from a nested dictionary of tensors."""
+    if isinstance(data, torch.Tensor):
+        return data.shape[0]
+    for v in data.values():
+        return get_batch_size(v)
+
+def flatten_tensor_dict(data):
+    """Recursively flattens a dictionary of tensors and concatenates them."""
+    if isinstance(data, torch.Tensor):
+        return data.flatten(start_dim=1)
+    
+    tensors = []
+    for v in data.values():
+        tensors.append(flatten_tensor_dict(v))
+    return torch.cat(tensors, dim=1)
