@@ -1,17 +1,17 @@
 defaults:
-  - network: unet1d
+    - network: unet1d
+    - optimizer: adam # Assuming you have an optimizer config folder like the template
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
-obs_horizon: ${datamodule.obs_horizon}
-pred_horizon: ${datamodule.pred_horizon}
+
+# obs_horizon and pred_horizon are automatically fetched by datamodule
 act_horizon: 8
 action_dim: 8
 obs_dim: 13
-num_diffusion_iters: 100
-lr: 1e-4,
-warmup_steps: 500
 
-network:
-  # Overriding the ??? in unet1d config file
-  input_dim: ${algorithm.action_dim}
-  global_cond_dim: ${eval:'${algorithm.obs_horizon} * ${algorithm.obs_dim}'}
+num_diffusion_iters: 100
+lr: 1e-4
+warmup_steps: 500
+init_seed: 42
+
+# You can eventually override unet1d and adam down below

@@ -1,6 +1,8 @@
-from typing import Any
+from typing import cast
 
+import hydra_zen
 import lightning as L
+import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,51 +10,52 @@ from diffusers.optimization import get_scheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from torch.optim.adamw import AdamW
+from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.utils.typing_utils import HydraConfigFor
 
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
         self,
-        network: nn.Module,
+        network: HydraConfigFor[nn.Module],
+        optimizer: HydraConfigFor[functools.partial[Optimizer]],
         datamodule: ManiSkillDataModule,
-        obs_horizon: int,
         act_horizon: int,
-        pred_horizon: int,
         action_dim: int,
         obs_dim: int,
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
         warmup_steps: int = 500,
-        **kwargs,
+        init_seed: int = 42,
     ):
         super().__init__()
         # TODO: are we sure about this? Maybe I should include network?
         # Saves all the arguments to self.hparams and logs them to W&B
         # network and datamodule are excluded because nn.Module / LightningDataModule
         # are not JSON-serialisable as plain hyperparameters.
-        self.save_hyperparameters(ignore=["network", "datamodule"])
+        self.save_hyperparameters(ignore=["datamodule"])
 
-        self.obs_horizon = obs_horizon
+        self.network_config = network
+        self.network: torch.nn.Module | None = None 
+        self.ema: EMAModel | None = None
+
+        self.optimizer_config = optimizer
+        self.optimizer: Optimizer | None = None
+
+        self.datamodule = datamodule
+        self.obs_horizon = self.datamodule.obs_horizon
+        self.pred_horizon = self.datamodule.pred_horizon
+
         self.act_horizon = act_horizon
-        self.pred_horizon = pred_horizon
         self.act_dim = action_dim
         self.obs_dim = obs_dim
         self.lr = lr
         self.warmup_steps = warmup_steps
+        self.init_seed = init_seed
 
-        self.datamodule = datamodule
-
-        # Assign the network first so that self.ema can reference its parameters.
-        self.noise_pred_net = network
-
-        self.ema = EMAModel(
-            parameters=self.noise_pred_net.parameters(),
-            decay=0.999,
-            inv_gamma=1.0,
-            power=0.75,
-        )
+        
 
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(
@@ -62,79 +65,109 @@ class DiffusionPolicy(L.LightningModule):
             prediction_type="epsilon",
         )
 
-    def training_step(self, batch, batch_idx):
-        """Lightning automatically calls this during trainer.fit()"""
-        # Note: Depending on your dataloader dict keys, adjust these:
-        obs_seq = batch["env_seq"]
-        action_seq = batch["action_seq"]
+    def configure_model(self):
+        """Lightning calls this before training starts to initialize weights safely."""
+        if self.network is not None:
+            return
 
-        loss = self._compute_loss(obs_seq, action_seq)
+        global_cond_dim = self.obs_horizon * self.obs_dim
 
-        # Log to wandb/tensorboard automatically
-        self.log("train/loss", loss, prog_bar=True)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Lightning automatically calls this during validation."""
-        obs_seq = batch["env_seq"]
-        action_seq = batch["action_seq"]
-
-        loss = self._compute_loss(obs_seq, action_seq)
-        self.log("val/loss", loss, prog_bar=True, sync_dist=True)
-        return loss
-
-    def configure_optimizers(self) -> Any:  # Override output for pyright
-        """Lightning uses this to set up your optimizer."""
-        optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=1e-4)
-
-        stepping_batches = self.trainer.estimated_stepping_batches
-
-        if isinstance(stepping_batches, float):
-            raise ValueError(
-                "Training steps evaluated to infinity! "
-                "Ensure you have set trainer.max_steps in your Hydra config."
+        # Fork the RNG to guarantee reproducible weight initialization
+        with torch.random.fork_rng():
+            torch.manual_seed(self.init_seed) # TODO: isnt this going to affect the whole system? Review seeding
+            
+            # Use hydra_zen to instantiate, injecting computed dimensions
+            self.network = hydra_zen.instantiate(
+                self.network_config,
+                input_dim=self.act_dim,
+                global_cond_dim=global_cond_dim
             )
 
-        lr_scheduler = get_scheduler(
-            name="cosine",
-            optimizer=optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=stepping_batches,
+        # Now that the network exists, we can create the EMA model
+        self.ema = EMAModel(
+            parameters=self.network.parameters(),
+            decay=0.999,
+            inv_gamma=1.0,
+            power=0.75,
         )
 
-        # Lightning parses this dict, so we tell Pyright to ignore the return type mismatch
-        return {  # type: ignore[return-value]
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": lr_scheduler,
-                "interval": "step",
-            },
-        }
+    def configure_optimizers(self):
+        # TODO: doesnt lighitng have configure lr scheduler?
+        """Creates the optimizers."""                
 
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        """Automatically step the EMA model after every training iteration."""
-        self.ema.step(self.noise_pred_net.parameters())
+        # Instantiate the optimizer config into a functools.partial object.
+        optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
+                
+        # Call the functools.partial object, passing the parameters as an argument.
+        optimizer = optimizer_partial(self.parameters())
+                
+        # This then returns the optimizer.
+        return optimizer
 
     def _compute_loss(self, obs_seq, action_seq):
-        """Your original loss calculation logic."""
+        """Loss calculation logic."""
+
+        if self.network is None:
+            raise ValueError("Network not initialized. Call configure_model() before computing loss.")
+
         B = obs_seq.shape[0]
         obs_cond = obs_seq.flatten(start_dim=1)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
-        timesteps = torch.randint(0, self.num_diffusion_iters, (B,), device=self.device).long()
+        timesteps = torch.randint(0, self.num_diffusion_iters, (B,), device=self.device, dtype=torch.int32)
+        timesteps = cast(torch.IntTensor, timesteps)
 
-        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)  # type: ignore[argtype]
-        noise_pred = self.noise_pred_net(noisy_action_seq, timesteps, global_cond=obs_cond)
+        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
+        noise_pred = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
 
         return F.mse_loss(noise_pred, noise)
 
+    def training_step(self, batch, batch_idx):
+        # TODO: can I do both training and val in the same function? Like a shared_step
+        """Lightning automatically calls this during trainer.fit()"""
+        obs_seq = batch["env_seq"]
+        action_seq = batch["action_seq"]
+
+        loss = self._compute_loss(obs_seq, action_seq)
+        
+        self.log("train/loss", loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        # TODO: actually this isnt really need, I would just train on the whole dataset and evaluate the policy performance in the environment.
+        """Lightning automatically calls this during validation."""
+        obs_seq = batch["env_seq"]
+        action_seq = batch["action_seq"]
+
+        loss = self._compute_loss(obs_seq, action_seq)
+
+        self.log("val/loss", loss, prog_bar=True, sync_dist=True)
+        return loss
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        """Automatically step the EMA model after every training iteration."""
+        if self.network is None:
+            raise ValueError("Network not initialized. Call configure_model() before on_train_batch_end.")
+        
+        if self.ema is None:
+            raise ValueError("EMA not initialized. Call configure_model() before on_train_batch_end.")
+
+        self.ema.step(self.network.parameters())
+
     def get_action(self, obs_seq):
         """Used during inference/evaluation in the environment."""
+
+        if self.network is None:
+            raise ValueError("Network not initialized. Call configure_model() before getting action.")
+        
+        if self.ema is None:
+            raise ValueError("EMA not initialized. Call configure_model() before getting action.")
+
         B = obs_seq.shape[0]
 
         # Temporarily copy EMA weights in the model
-        self.ema.copy_to(self.noise_pred_net.parameters())
+        self.ema.copy_to(self.network.parameters())
 
         with torch.no_grad():
             obs_cond = obs_seq.flatten(start_dim=1)
@@ -143,7 +176,7 @@ class DiffusionPolicy(L.LightningModule):
             )
 
             for k in self.noise_scheduler.timesteps:
-                noise_pred = self.noise_pred_net(
+                noise_pred = self.network(
                     sample=noisy_action_seq,
                     timestep=k,
                     global_cond=obs_cond,
