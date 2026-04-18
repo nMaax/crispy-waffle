@@ -7,8 +7,8 @@ from typing import Any
 import rich
 import rich.syntax
 import rich.tree
-from omegaconf import DictConfig, OmegaConf
 import torch
+from omegaconf import DictConfig, OmegaConf
 
 logger = get_logger(__name__)
 

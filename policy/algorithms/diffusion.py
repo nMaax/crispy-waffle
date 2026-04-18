@@ -1,20 +1,18 @@
+import functools
 from typing import cast
 
 import hydra_zen
 import lightning as L
-import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from diffusers.optimization import get_scheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
-from torch.optim.adamw import AdamW
 from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.utils import flatten_tensor_dict, get_batch_size
 from policy.utils.typing_utils import HydraConfigFor
-from policy.utils import get_batch_size, flatten_tensor_dict
 
 
 class DiffusionPolicy(L.LightningModule):
@@ -37,7 +35,7 @@ class DiffusionPolicy(L.LightningModule):
         self.save_hyperparameters(ignore=["datamodule"])
 
         self.network_config = network
-        self.network: torch.nn.Module | None = None 
+        self.network: torch.nn.Module | None = None
         self.ema: EMAModel | None = None
 
         self.optimizer_config = optimizer
@@ -53,8 +51,6 @@ class DiffusionPolicy(L.LightningModule):
         self.lr = lr
         self.warmup_steps = warmup_steps
         self.init_seed = init_seed
-
-        
 
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(
@@ -73,15 +69,13 @@ class DiffusionPolicy(L.LightningModule):
 
         # Fork the RNG to guarantee reproducible weight initialization
         with torch.random.fork_rng():
-            # TODO: review your approach to seeding overall, where do you set the seeds? Are you sure that one seed will conver everything and there arent sneaky overwrites?
+            # TODO: review your approach to seeding overall, where do you set the seeds? Are you sure that one seed will cover everything and there aren't sneaky overwrites?
             # Do not worry about setting seed manually, we are inside the with block, so once this finishes the original RNG state will be restored.
             torch.manual_seed(self.init_seed)
-            
+
             # Use hydra_zen to instantiate, injecting computed dimensions
             self.network = hydra_zen.instantiate(
-                self.network_config,
-                input_dim=self.act_dim,
-                global_cond_dim=global_cond_dim
+                self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
             )
 
         # Now that the network exists, we can create the EMA model
@@ -93,15 +87,15 @@ class DiffusionPolicy(L.LightningModule):
         )
 
     def configure_optimizers(self):
-        # TODO: doesnt lighitng have configure lr scheduler?
-        """Creates the optimizers."""                
+        # TODO: doesn't lighitng have configure lr scheduler?
+        """Creates the optimizers."""
 
         # Instantiate the optimizer config into a functools.partial object.
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
-                
+
         # Call the functools.partial object, passing the parameters as an argument.
         optimizer = optimizer_partial(self.parameters())
-                
+
         # This then returns the optimizer.
         return optimizer
 
@@ -109,14 +103,18 @@ class DiffusionPolicy(L.LightningModule):
         """Loss calculation logic."""
 
         if self.network is None:
-            raise ValueError("Network not initialized. Call configure_model() before computing loss.")
+            raise ValueError(
+                "Network not initialized. Call configure_model() before computing loss."
+            )
 
         B = get_batch_size(obs_seq)
         obs_cond = flatten_tensor_dict(obs_seq)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
-        timesteps = torch.randint(0, self.num_diffusion_iters, (B,), device=self.device, dtype=torch.int32)
+        timesteps = torch.randint(
+            0, self.num_diffusion_iters, (B,), device=self.device, dtype=torch.int32
+        )
         timesteps = cast(torch.IntTensor, timesteps)
 
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
@@ -126,7 +124,7 @@ class DiffusionPolicy(L.LightningModule):
 
     def shared_step(self, batch, batch_idx, phase: str):
         loss = self._compute_loss(batch["env_seq"], batch["action_seq"])
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase=="val"))
+        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -138,10 +136,14 @@ class DiffusionPolicy(L.LightningModule):
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Automatically step the EMA model after every training iteration."""
         if self.network is None:
-            raise ValueError("Network not initialized. Call configure_model() before on_train_batch_end.")
-        
+            raise ValueError(
+                "Network not initialized. Call configure_model() before on_train_batch_end."
+            )
+
         if self.ema is None:
-            raise ValueError("EMA not initialized. Call configure_model() before on_train_batch_end.")
+            raise ValueError(
+                "EMA not initialized. Call configure_model() before on_train_batch_end."
+            )
 
         self.ema.step(self.network.parameters())
 
@@ -149,8 +151,10 @@ class DiffusionPolicy(L.LightningModule):
         """Used during inference/evaluation in the environment."""
 
         if self.network is None:
-            raise ValueError("Network not initialized. Call configure_model() before getting action.")
-        
+            raise ValueError(
+                "Network not initialized. Call configure_model() before getting action."
+            )
+
         if self.ema is None:
             raise ValueError("EMA not initialized. Call configure_model() before getting action.")
 

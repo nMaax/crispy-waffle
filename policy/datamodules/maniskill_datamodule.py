@@ -167,11 +167,13 @@ class ManiSkillDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,  # Speeds up GPU transfer
         )
-    
+
     # TODO: The following is not correct, I should actually avoid val/test as they should be generated via simulations.
     def val_dataloader(self):
         if self.dataset is None:
-            raise TypeError("It appears you asked for a dataloader without setting up a Dataset first. Call setup().")
+            raise TypeError(
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup()."
+            )
         return DataLoader(
             self.dataset,
             batch_size=self.batch_size,
@@ -182,7 +184,9 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def test_dataloader(self):
         if self.dataset is None:
-            raise TypeError("It appears you asked for a dataloader without setting up a Dataset first. Call setup().")
+            raise TypeError(
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup()."
+            )
         return DataLoader(
             self.dataset,
             batch_size=self.batch_size,

@@ -18,7 +18,7 @@ uv sync
 python policy/main.py --help
 ```
 
-## Donwload dataset
+## Download dataset
 
 ```bash
 uv run python -m mani_skill.utils.download_demo "StackCube-v1"
