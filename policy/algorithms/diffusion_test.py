@@ -16,7 +16,12 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
     - test_update_is_reproducible
     """
 
-    def test_forward_pass_is_reproducible(self, *args, **kwargs):
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
         pytest.skip(
             "Diffusion policies do not use a standard single-step `forward` pass "
             "during the training step. Inference is handled iteratively via `get_action`."
