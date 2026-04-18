@@ -1,6 +1,6 @@
 defaults:
     - network: unet1d
-    - optimizer: adam # Assuming you have an optimizer config folder like the template
+    - optimizer: AdamW
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
 
@@ -19,4 +19,4 @@ init_seed: 42
 #   down_dims: [128, 256, 512]  # Changes just the dims, keeps kernel_size etc. from unet1d.yaml
 
 # optimizer:
-#   weight_decay: 1e-5          # Overrides the weight decay in adam.yaml
+#   weight_decay: 1e-5          # Overrides the weight decay in AdamW.yaml
