@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from logging import getLogger as get_logger
+from typing import Any
 
 import rich
 import rich.syntax
@@ -32,10 +33,10 @@ def print_config(
         resolve: Whether to resolve reference fields of DictConfig.
     """
 
-    style = "dim"
+    style: str = "dim"
     tree = rich.tree.Tree("CONFIG", style=style, guide_style=style)
 
-    queue = []
+    queue: list[Any] = []
 
     for f in print_order:
         if f in config:
@@ -66,12 +67,13 @@ def print_config(
     # with open("config_tree.log", "w") as file:
     #     rich.print(tree, file=file)
 
-def print_dict_tree(data, indent=""):
+
+def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
     """Recursively prints a dictionary as a tree.
 
     Prints .shape and .dtype for atomic elements that possess them.
     """
-    items = list(data.items())
+    items: list[tuple[str, Any]] = list(data.items())
     for i, (key, value) in enumerate(items):
         is_last = i == len(items) - 1
         branch = "└── " if is_last else "├── "
@@ -92,19 +94,26 @@ def print_dict_tree(data, indent=""):
         else:
             print(f"{indent}{branch}{key}: {type(value).__name__}")
 
-def get_batch_size(data):
+
+def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     """Recursively finds the batch size from a nested dictionary of tensors."""
     if isinstance(data, torch.Tensor):
         return data.shape[0]
-    for v in data.values():
-        return get_batch_size(v)
+    for value in data.values():
+        return get_batch_size(value)
+    raise ValueError("data must contain at least one tensor")
 
-def flatten_tensor_dict(data):
+
+def flatten_tensor_dict(data: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
     """Recursively flattens a dictionary of tensors and concatenates them."""
     if isinstance(data, torch.Tensor):
         return data.flatten(start_dim=1)
-    
-    tensors = []
-    for v in data.values():
-        tensors.append(flatten_tensor_dict(v))
+
+    tensors: list[torch.Tensor] = []
+    for value in data.values():
+        tensors.append(flatten_tensor_dict(value))
+
+    if not tensors:
+        raise ValueError("data must contain at least one tensor")
+
     return torch.cat(tensors, dim=1)
