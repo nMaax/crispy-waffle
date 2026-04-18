@@ -18,8 +18,15 @@ uv sync
 python policy/main.py --help
 ```
 
-## Download dataset
+### Download dataset
 
 ```bash
 uv run python -m mani_skill.utils.download_demo "StackCube-v1"
 ```
+
+### Git Hooks Setup
+
+To enable automatic linting and formatting on your machine, follow these steps:
+
+1. Run `uv run pre-commit install` to link the hooks to your local Git repository
+2. Verify the setup by running `uv run pre-commit run --all-files`
