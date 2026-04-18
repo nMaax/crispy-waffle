@@ -9,11 +9,14 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from torch.optim.adamw import AdamW
 
+from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
         self,
         network: nn.Module,
+        datamodule: ManiSkillDataModule,
         obs_horizon: int,
         act_horizon: int,
         pred_horizon: int,
@@ -22,10 +25,10 @@ class DiffusionPolicy(L.LightningModule):
         num_diffusion_iters: int = 100,
         lr: float = 1e-4,
         warmup_steps: int = 500,
-        datamodule=None,
         **kwargs,
     ):
         super().__init__()
+        # TODO: are we sure about this? Maybe I should include network?
         # Saves all the arguments to self.hparams and logs them to W&B
         # network and datamodule are excluded because nn.Module / LightningDataModule
         # are not JSON-serialisable as plain hyperparameters.
@@ -38,6 +41,8 @@ class DiffusionPolicy(L.LightningModule):
         self.obs_dim = obs_dim
         self.lr = lr
         self.warmup_steps = warmup_steps
+
+        self.datamodule = datamodule
 
         # Assign the network first so that self.ema can reference its parameters.
         self.noise_pred_net = network
