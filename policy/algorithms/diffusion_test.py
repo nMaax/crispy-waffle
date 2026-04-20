@@ -23,7 +23,8 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         tensor_regression,
     ):
         pytest.skip(
-            "Diffusion policies do not use a standard single-step `forward` pass "
-            "during the training step. Inference is handled iteratively via `get_action`."
+            "The built-in test would have required to define forward() in the model. "
+            "However, diffusion do not use a standard single-step `forward` pass "
+            "during the training step. Inference is handled iteratively via multiple calls (see `get_action`)."
             "Thus, we skip this test as it is not applicable to the DiffusionPolicy architecture."
         )
