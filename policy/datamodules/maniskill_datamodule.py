@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -33,11 +34,14 @@ def load_h5_data(data):
     return out
 
 
-def extract_shapes(d):
-    if isinstance(d, dict):
-        return {k: extract_shapes(v) for k, v in d.items()}
-    elif hasattr(d, "shape"):
-        return {"shape": tuple(d.shape), "dtype": str(d.dtype)}
+def _extract_h5_shapes(data: Any):
+    """Recursively extracts shapes from h5py objects without loading into RAM."""
+    if isinstance(data, h5py.Group):
+        # h5py.Group behaves like a dict, but isn't one!
+        # We must iterate explicitly here so isinstance(dict) doesn't fail.
+        return {k: _extract_h5_shapes(data[k]) for k in data.keys()}
+    elif isinstance(data, h5py.Dataset):
+        return {"shape": tuple(data.shape), "dtype": str(data.dtype)}
     else:
         return None
 
@@ -90,8 +94,8 @@ class ManiSkillTrajectoryDataset(Dataset):
         # Peak into the tensors and extract dimensions for later use
         self.action_dim = self.trajectories[0]["actions"].shape[-1]
         # TODO: not really that good, as env states and obs are actually dictionaries of different dimensional tensors!
-        self.env_state_dim = extract_shapes(self.trajectories[0]["env_states"])
-        self.obs_dim = extract_shapes(self.trajectories[0]["obs"])
+        self.env_state_dim = _extract_h5_shapes(self.trajectories[0]["env_states"])
+        self.obs_dim = _extract_h5_shapes(self.trajectories[0]["obs"])
 
         # Pre-compute sliding windows centered around time step `t`
         self.slices = []
@@ -161,20 +165,53 @@ class ManiSkillDataModule(L.LightningDataModule):
         val_split: float = 0.1,
     ):
         super().__init__()
-        self.dataset_file = dataset_file
+        self.dataset_file = Path(dataset_file)
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
 
+        # Prepare train and val split sets
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
 
-        # TODO: maybe having these as None is not good, when do Hydra instantiate the dataset?
-        self.action_dim: int | None = None
-        self.env_state_dim: int | dict[str, Any] | None = None
-        self.obs_dim: int | dict[str, Any] | None = None
+        # Fetch dimensions instantly without loading the full dataset into RAM
+        # Otherwise these may had to be set to None and wait for setup() to be called
+        self.action_dim: int
+        self.env_state_dim: int | dict[str, Any]
+        self.obs_dim: int | dict[str, Any]
+        self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
+
+    def _peek_dimensions(self):
+        """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
+        json_path = self.dataset_file.with_suffix(".json")
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"JSON file not found: {json_path}")
+
+        with open(json_path) as f:
+            json_data = json.load(f)
+
+        episodes = json_data.get("episodes")
+        if not episodes or "episode_id" not in episodes[0]:
+            raise ValueError("No valid episode_id found in JSON.")
+
+        first_episode_id = json_data["episodes"][0]["episode_id"]
+
+        with h5py.File(self.dataset_file, "r") as data:
+            traj_data = data[f"traj_{first_episode_id}"]
+
+            # h5py Datasets return .shape without loading into memory (TODO: is this true?)
+            act_dim = traj_data["actions"].shape[-1]  # type: ignore
+            env_state_dim = _extract_h5_shapes(traj_data["env_states"])  # type: ignore
+            obs_dim = _extract_h5_shapes(traj_data["obs"])  # type: ignore
+
+        if act_dim is None or env_state_dim is None or obs_dim is None:
+            raise ValueError(
+                "The h5 dataset was not found, thus dimensionalities could not be fetched."
+            )
+
+        return act_dim, env_state_dim, obs_dim
 
     def setup(self, stage=None):
         if self.train_set is None:
@@ -182,11 +219,6 @@ class ManiSkillDataModule(L.LightningDataModule):
             full_dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file, self.obs_horizon, self.pred_horizon
             )
-
-            # Inherit parameters once the dataset is loaded
-            self.action_dim = full_dataset.action_dim
-            self.env_state_dim = full_dataset.env_state_dim
-            self.obs_dim = full_dataset.obs_dim
 
             # Compute the sizes for splitting
             val_size = int(len(full_dataset) * self.val_split)
@@ -233,25 +265,14 @@ class ManiSkillDataModule(L.LightningDataModule):
 if __name__ == "__main__":
     from pathlib import Path
 
-    from policy.utils import print_dict_tree
 
     h5_path = (
         Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
     )
     obs_horizon = 8
     pred_horizon = 4
-    dataset = ManiSkillTrajectoryDataset(h5_path, obs_horizon, pred_horizon)
-    print_dict_tree(dataset[0])
-
-    print(type(dataset.action_dim))
-    print(type(dataset.env_state_dim))
-    print(type(dataset.obs_dim))
-
-    print("\n\n\n")
-
     # Load a datamodule instead of a dataset and get the action, obs and env shapes
     datamodule = ManiSkillDataModule(h5_path, obs_horizon, pred_horizon)
-    datamodule.setup()
     print(datamodule.action_dim)
     print(datamodule.env_state_dim)
     print(datamodule.obs_dim)
