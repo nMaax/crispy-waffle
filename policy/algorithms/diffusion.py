@@ -19,10 +19,11 @@ class DiffusionPolicy(L.LightningModule):
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],
+        noise_scheduler: HydraConfigFor[DDPMScheduler],
+        ema: HydraConfigFor[EMAModel],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         datamodule: ManiSkillDataModule,
         act_horizon: int,
-        num_diffusion_iters: int = 100,
     ):
         super().__init__()
 
@@ -33,7 +34,13 @@ class DiffusionPolicy(L.LightningModule):
 
         self.network_config = network
         self.network: torch.nn.Module | None = None
+        self.ema_config = ema
         self.ema: EMAModel | None = None
+
+        self.noise_scheduler_config = noise_scheduler
+        self.noise_scheduler: DDPMScheduler | None = hydra_zen.instantiate(
+            self.noise_scheduler_config
+        )
 
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None
@@ -58,15 +65,6 @@ class DiffusionPolicy(L.LightningModule):
             # Fallback in case it's already an integer
             self.obs_dim = cast(int, raw_obs_dim)
 
-        self.num_diffusion_iters = num_diffusion_iters
-        self.noise_scheduler = DDPMScheduler(
-            # TODO: maybe I should move these constants on top of the file? Or they could be set via configs
-            num_train_timesteps=self.num_diffusion_iters,
-            beta_schedule="squaredcos_cap_v2",
-            clip_sample=True,
-            prediction_type="epsilon",
-        )
-
     def configure_model(self):
         """Lightning calls this before training starts to initialize weights safely."""
         if self.network is not None:
@@ -80,14 +78,8 @@ class DiffusionPolicy(L.LightningModule):
             self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
         )
 
-        # Now that the network exists, we can create the EMA model
-        self.ema = EMAModel(
-            # TODO: Maybe put this as constants on top of the file? Or they could be set via configs
-            parameters=self.network.parameters(),
-            decay=0.999,
-            inv_gamma=1.0,
-            power=0.75,
-        )
+        # Once network is instantiated, add EMA as well
+        self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self):
         """Creates the optimizers."""
@@ -111,13 +103,27 @@ class DiffusionPolicy(L.LightningModule):
                 "Network not initialized. Call configure_model() before computing loss."
             )
 
+        if self.noise_scheduler is None:
+            raise ValueError(
+                "Noise Scheduler not initialized. Call configure_model() before computing loss."
+            )
+
+        if self.ema is None:
+            raise ValueError(
+                "EMA Model not initialized. Call configure_model() before computing loss."
+            )
+
         B = get_batch_size(obs_seq)
         obs_cond = flatten_tensor_dict(obs_seq)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
         timesteps = torch.randint(
-            0, self.num_diffusion_iters, (B,), device=self.device, dtype=torch.int32
+            0,
+            self.noise_scheduler.num_diffusion_iters,
+            (B,),
+            device=self.device,
+            dtype=torch.int32,
         )
         timesteps = cast(torch.IntTensor, timesteps)
 
@@ -162,8 +168,15 @@ class DiffusionPolicy(L.LightningModule):
                 "Network not initialized. Call configure_model() before getting action."
             )
 
+        if self.noise_scheduler is None:
+            raise ValueError(
+                "Noise Scheduler not initialized. Call configure_model() before getting action."
+            )
+
         if self.ema is None:
-            raise ValueError("EMA not initialized. Call configure_model() before getting action.")
+            raise ValueError(
+                "EMA Model not initialized. Call configure_model() before getting action."
+            )
 
         B = get_batch_size(obs_seq)
 

@@ -1,0 +1,6 @@
+_target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
+# Note the double dots `..` to go up the config tree and grab the value from diffusion.yaml
+num_train_timesteps: ${..num_diffusion_iters}
+beta_schedule: "squaredcos_cap_v2"
+clip_sample: true
+prediction_type: "epsilon"

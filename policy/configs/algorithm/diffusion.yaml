@@ -1,19 +1,31 @@
 defaults:
   - network: unet1d
   - optimizer: AdamW
+  - noise_scheduler: ddpm
+  - ema: default
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we set this to false to prevent hydra from trying to instantiate them before
 
-# obs_horizon and pred_horizon, as well as obs_dim and action_dim are automatically fetched by datamodule # TODO: refine this comment
+# obs_horizon, pred_horizon, obs_dim, action_dim are automatically inferred from the datamodule (see ManiSkillDataModule).
+# No need to set them here.
 act_horizon: 8
 
-num_diffusion_iters: 100
+# --- OVERRIDES, just for fun ---
 
-# You can eventually override unet1d and adam down below. e.g.:
+# Overrides network/unet1d.yaml
+network:
+  down_dims: [128, 256, 512] # Changes just the dims, keeps kernel_size etc. from unet1d.yaml
 
-# network:
-#   down_dims: [128, 256, 512]  # Changes just the dims, keeps kernel_size etc. from unet1d.yaml
+# Overrides optimizer/AdamW.yaml
+optimizer:
+  weight_decay: 1e-5 # Overrides the weight decay in AdamW.yaml
 
-# optimizer:
-#   weight_decay: 1e-5          # Overrides the weight decay in AdamW.yaml
+# Overwrite ema/default.yaml
+ema:
+  decay: 0.9999
+
+# Overwrite noise_scheduler/ddpm.yaml
+noise_scheduler:
+  beta_schedule: "linear"
+  num_diffusion_iters: 100

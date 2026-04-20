@@ -1,0 +1,4 @@
+_target_: diffusers.training_utils.EMAModel
+decay: 0.999
+inv_gamma: 1.0
+power: 0.75
