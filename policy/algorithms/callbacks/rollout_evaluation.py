@@ -21,6 +21,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def _run_rollouts(self, pl_module: L.LightningModule, num_episodes: int, phase: str):
         # We assume the pl_module has the get_action method and obs_horizon defined
+        # TODO: as in diffusion, how to generalize to handle either (or both) obs and env_states?
         env = gym.make(self.env_id, obs_mode="state", control_mode="pd_ee_delta_pose")
         successes = 0
 
@@ -28,7 +29,6 @@ class RolloutEvaluationCallback(L.Callback):
         pl_module.eval()
 
         for _ in range(num_episodes):
-            # TODO: check again, this should handle env_states
             # TODO: as in diffusion, how to generalize to handle either (or both) obs and env_states?
             obs, _ = env.reset()
             done = False

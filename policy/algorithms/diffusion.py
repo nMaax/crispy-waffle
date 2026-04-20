@@ -55,6 +55,8 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = self.datamodule.action_dim
 
         # TODO: not really that good to put env as obs, I am mixing terminology here, later re-order
+        # Should also find a solution for naming convention, as sometimes you write act_dim and sometimes action_dim, obs_dim vs env_state_dim, etc.
+        # Maybe we can just unify everything as obs and action, and then in the datamodule we can have some logic to extract the right dimensions from the right places, and then in the policy we just use obs_dim and action_dim without caring about where they come from?
         raw_obs_dim = (
             self.datamodule.env_state_dim
         )  # Grab the extracted shapes from the datamodule
