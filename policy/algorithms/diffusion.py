@@ -78,6 +78,9 @@ class DiffusionPolicy(L.LightningModule):
             self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
         )
 
+        if self.ema is not None:
+            return
+
         # Once network is instantiated, add EMA as well
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
@@ -85,6 +88,9 @@ class DiffusionPolicy(L.LightningModule):
         """Creates the optimizers."""
 
         # TODO: Can Lighting configure a LR scheduler too?
+
+        # NOTE: Optimizers and schedulers could actually be made in one shot, without partial, for how they are handles here
+        # however I prefer to follow the template prescription, just for coherence
 
         # Instantiate the optimizer config into a functools.partial object
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
