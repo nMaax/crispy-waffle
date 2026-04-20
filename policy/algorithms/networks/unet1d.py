@@ -71,6 +71,8 @@ class Conv1dBlock(nn.Module):
 
 
 class ConditionalResidualBlock1D(nn.Module):
+    """Conv1dBlock --> FiLM conditioning --> Conv1dBlock with residual connection."""
+
     def __init__(self, in_channels, out_channels, cond_dim, kernel_size=3, n_groups=8):
         super().__init__()
 
@@ -104,14 +106,17 @@ class ConditionalResidualBlock1D(nn.Module):
         returns:
         out : [ batch_size x out_channels x horizon ]
         """
+        # First Conv1d Block
         out = self.blocks[0](x)
-        embed = self.cond_encoder(cond)
 
+        # FiLM conditioning
+        embed = self.cond_encoder(cond)
         embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
         scale = embed[:, 0, ...]
         bias = embed[:, 1, ...]
         out = scale * out + bias
 
+        # Second Conv1d Block + residual
         out = self.blocks[1](out)
         out = out + self.residual_conv(x)
         return out
@@ -247,11 +252,10 @@ class ConditionalUnet1D(nn.Module):
         global_cond: (B,global_cond_dim)
         output: (B,T,input_dim)
         """
-        # (B,T,C)
+        # (B,T,C) -> (B,C,T)
         sample = sample.moveaxis(-1, -2)
-        # (B,C,T)
 
-        #  time
+        # Ensure time is a non-scalar tensor
         if not isinstance(timestep, torch.Tensor):
             # this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
             timesteps = torch.tensor([timestep], dtype=torch.long, device=sample.device)
@@ -260,17 +264,21 @@ class ConditionalUnet1D(nn.Module):
             if len(timesteps.shape) == 0:
                 timesteps = timesteps[None]
 
-        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+        # Broadcast time to batch dimension in a way that's compatible with ONNX/Core ML
         timesteps = timesteps.expand(sample.shape[0])
 
+        # Encode time as an ebedding
         global_feature = self.diffusion_step_encoder(timesteps)
 
+        # Concatenate time embedding with the (eventually provided) global conditioning
         if global_cond is not None:
             global_feature = torch.cat([global_feature, global_cond], dim=-1)
 
-        x = sample
-        h = []
+        # Prepare variables to pass and track Unet features for skip connections
+        x = sample  # Working variable that we will pass through the UNet
+        h = []  # Storage for features for skip connections between down and up modules
 
+        # Downsample
         for modules in self.down_modules:
             resnet, resnet2, downsample = modules  # type: ignore[misc]
             x = resnet(x, global_feature)
@@ -278,9 +286,11 @@ class ConditionalUnet1D(nn.Module):
             h.append(x)
             x = downsample(x)
 
+        # Middle
         for mid_module in self.mid_modules:
             x = mid_module(x, global_feature)
 
+        # Upsample
         for modules in self.up_modules:
             resnet, resnet2, upsample = modules  # type: ignore[misc]
             x = torch.cat((x, h.pop()), dim=1)
@@ -288,9 +298,10 @@ class ConditionalUnet1D(nn.Module):
             x = resnet2(x, global_feature)
             x = upsample(x)
 
+        # Final layer
         x = self.final_conv(x)
 
-        # (B,C,T)
+        # (B,C,T) -> (B, T, C)
         x = x.moveaxis(-1, -2)
-        # (B,T,C)
+
         return x
