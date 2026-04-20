@@ -45,8 +45,12 @@ class DiffusionPolicy(L.LightningModule):
         self.pred_horizon = self.datamodule.pred_horizon
 
         self.act_horizon = act_horizon
-        self.act_dim = action_dim
-        self.obs_dim = obs_dim
+
+        # Extract these from the datamodule
+        # TODO: these could be None if dataset has not been loaded yet, look again on how to fix this
+        self.act_dim = self.datamodule.action_dim
+        # TODO: not really that good to put env as obs, I am mixing terminology here, later re-order
+        self.obs_dim = self.datamodule.env_state_dim
 
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(

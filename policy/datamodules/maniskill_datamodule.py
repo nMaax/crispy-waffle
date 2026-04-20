@@ -13,11 +13,13 @@ from policy.utils import to_tensor
 
 class DummyDataset(Dataset):
     """A minimal dataset to trigger Lightning loops for simulation-only phases."""
+
     def __len__(self):
         return 1
 
     def __getitem__(self, idx):
         return {}
+
 
 def load_h5_data(data):
     """Recursively loads h5py data into memory as numpy arrays."""
@@ -28,6 +30,7 @@ def load_h5_data(data):
         else:
             out[k] = load_h5_data(data[k])
     return out
+
 
 class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
@@ -73,6 +76,12 @@ class ManiSkillTrajectoryDataset(Dataset):
                         "actions": trajectory["actions"],
                     }
                 )
+
+        # Peak into the tensors and extract dimensions for later use
+        self.action_dim = self.trajectories[0]["actions"].shape[-1]
+        # TODO: not really that good, as env states and obs are actually dictionaries of different dimensional tensors!
+        self.env_state_dim = self.trajectories[0]["env_states"].shape[-1]
+        self.obs_dim = self.trajectories[0]["obs"].shape[-1]
 
         # Pre-compute sliding windows centered around time step `t`
         self.slices = []
@@ -150,20 +159,31 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.train_set = None
         self.val_set = None
 
+        # TODO: maybe having these as None is not good, when do Hydra instantiate the dataset?
+        self.action_dim = None
+        self.env_state_dim = None
+        self.obs_dim = None
+
     def setup(self, stage=None):
         if self.train_set is None:
+            # Load the dataset
             full_dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file, self.obs_horizon, self.pred_horizon
             )
 
+            # Inherit parameters once the dataset is loaded
+            self.action_dim = full_dataset.action_dim
+            self.env_state_dim = full_dataset.env_state_dim
+            self.obs_dim = full_dataset.obs_dim
+
+            # Compute the sizes for splitting
             val_size = int(len(full_dataset) * self.val_split)
             train_size = len(full_dataset) - val_size
 
             # Use a fixed seed for reproducibility
             # TODO: NONONONONONO do not seed this way!!!!!
             self.train_set, self.val_set = random_split(
-                full_dataset, [train_size, val_size],
-                generator=torch.Generator().manual_seed(42)
+                full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
             )
 
     def train_dataloader(self):
@@ -185,8 +205,11 @@ class ManiSkillDataModule(L.LightningDataModule):
                 "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
         return DataLoader(
-            self.val_set, batch_size=self.batch_size, shuffle=False,
-            num_workers=self.num_workers, pin_memory=True
+            self.val_set,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
         )
 
     def test_dataloader(self):
