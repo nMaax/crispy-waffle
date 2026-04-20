@@ -1,12 +1,31 @@
 # @package _global_
 defaults:
-    - override /algorithm: diffusion
-    - override /datamodule: maniskill_datamodule
+  - override /algorithm: diffusion
+  - override /datamodule: maniskill_datamodule
+  - override /optimizer: custom_AdamW
+  - override /trainer: default.yaml # Redundant, but just to be sure
+  - _self_
 
-# The name of the experiment (for logging)
-name: diffusion_run
+# --- OVERRIDEs for the above defaults ---
+
+# algorithm:
+#   num_diffusion_iters: 100
+
+datamodule:
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 # Maybe move this to experiments? But only once you truly need it
+  obs_horizon: 2
+  pred_horizon: 16
+  batch_size: 256
+
+# optimizer:
+#   lr: 1e-3
 
 trainer:
-    limit_val_batches: null # Re-enable validation
-    limit_test_batches: null # Re-enable testing
-    val_check_interval: 5000 # Run the rollout callback every 5000 steps
+  limit_val_batches: null # Re-enable validation
+  limit_test_batches: null # Re-enable testing
+  val_check_interval: 5000 # Run the rollout callback every 5000 steps
+
+# --- _SELF_ for the above defaults ---
+
+# The name of the experiment (for logging)
+name: StackCube-v1_neuromotor_run
