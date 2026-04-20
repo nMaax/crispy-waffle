@@ -6,7 +6,6 @@ from typing import Any
 import h5py
 import lightning as L
 import numpy as np
-import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
@@ -190,20 +189,14 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def setup(self, stage=None):
         if self.train_set is None:
-            # Load the dataset
             full_dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file, self.obs_horizon, self.pred_horizon
             )
 
-            # Compute the sizes for splitting
             val_size = int(len(full_dataset) * self.val_split)
             train_size = len(full_dataset) - val_size
 
-            # Use a fixed seed for reproducibility
-            # TODO: NONONONONONO do not seed this way!!!!!
-            self.train_set, self.val_set = random_split(
-                full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
-            )
+            self.train_set, self.val_set = random_split(full_dataset, [train_size, val_size])
 
     def train_dataloader(self):
         if self.train_set is None:
