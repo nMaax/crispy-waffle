@@ -11,18 +11,8 @@ from diffusers.training_utils import EMAModel
 from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
-from policy.utils import flatten_tensor_dict, get_batch_size
+from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
-
-
-# TODO: should collect all these helpers and move them to utils
-def _sum_shapes(d: dict) -> int:
-    if "shape" in d:
-        # Base case: we hit a leaf dict like {'shape': (108, 13), 'dtype': 'float32'}
-        return d["shape"][-1]
-
-    # Recursive case: iterate over values, keeping only nested dictionaries
-    return sum(_sum_shapes(v) for v in d.values() if isinstance(v, dict))
 
 
 class DiffusionPolicy(L.LightningModule):
@@ -63,7 +53,7 @@ class DiffusionPolicy(L.LightningModule):
         )  # Grab the extracted shapes from the datamodule
         if isinstance(raw_obs_dim, dict):
             # Recursive helper to sum the last element of every 'shape' tuple
-            self.obs_dim = _sum_shapes(raw_obs_dim)
+            self.obs_dim = sum_shapes(raw_obs_dim)
         else:
             # Fallback in case it's already an integer
             self.obs_dim = cast(int, raw_obs_dim)
@@ -132,7 +122,7 @@ class DiffusionPolicy(L.LightningModule):
         timesteps = cast(torch.IntTensor, timesteps)
 
         # Here we do noise-prediction (as in DDPM), not data prediction
-        # TODO: Maybe in the future we could generalize this as hyperparameters in the DiffusionPolicy class?
+        # TODO: Maybe in the future we could generalize noise pred vs action pred as hyperparameters in the DiffusionPolicy class?
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
         noise_pred = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
 

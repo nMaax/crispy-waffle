@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-from policy.utils import to_tensor
+from policy.utils import extract_h5_shapes, load_h5_data, to_tensor
 
 
 class DummyDataset(Dataset):
@@ -21,29 +21,6 @@ class DummyDataset(Dataset):
 
     def __getitem__(self, idx):
         return {}
-
-
-def load_h5_data(data):
-    """Recursively loads h5py data into memory as numpy arrays."""
-    out = dict()
-    for k in data.keys():
-        if isinstance(data[k], h5py.Dataset):
-            out[k] = data[k][:]
-        else:
-            out[k] = load_h5_data(data[k])
-    return out
-
-
-def _extract_h5_shapes(data: Any):
-    """Recursively extracts shapes from h5py objects without loading into RAM."""
-    if isinstance(data, h5py.Group):
-        # h5py.Group behaves like a dict, but isn't one!
-        # We must iterate explicitly here so isinstance(dict) doesn't fail.
-        return {k: _extract_h5_shapes(data[k]) for k in data.keys()}
-    elif isinstance(data, h5py.Dataset):
-        return {"shape": tuple(data.shape), "dtype": str(data.dtype)}
-    else:
-        return None
 
 
 class ManiSkillTrajectoryDataset(Dataset):
@@ -93,9 +70,8 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         # Peak into the tensors and extract dimensions for later use
         self.action_dim = self.trajectories[0]["actions"].shape[-1]
-        # TODO: not really that good, as env states and obs are actually dictionaries of different dimensional tensors!
-        self.env_state_dim = _extract_h5_shapes(self.trajectories[0]["env_states"])
-        self.obs_dim = _extract_h5_shapes(self.trajectories[0]["obs"])
+        self.env_state_dim = extract_h5_shapes(self.trajectories[0]["env_states"])
+        self.obs_dim = extract_h5_shapes(self.trajectories[0]["obs"])
 
         # Pre-compute sliding windows centered around time step `t`
         self.slices = []
@@ -157,7 +133,6 @@ class ManiSkillDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_file: str | Path,
-        # TODO: since we use Hydra maybe we could remove these? BUt the it becomes hard doing quick debugs in mains
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         batch_size: int = 256,
@@ -201,10 +176,10 @@ class ManiSkillDataModule(L.LightningDataModule):
         with h5py.File(self.dataset_file, "r") as data:
             traj_data = data[f"traj_{first_episode_id}"]
 
-            # h5py Datasets return .shape without loading into memory (TODO: is this true?)
+            # h5py can return .shape without loading into memory
             act_dim = traj_data["actions"].shape[-1]  # type: ignore
-            env_state_dim = _extract_h5_shapes(traj_data["env_states"])  # type: ignore
-            obs_dim = _extract_h5_shapes(traj_data["obs"])  # type: ignore
+            env_state_dim = extract_h5_shapes(traj_data["env_states"])  # type: ignore
+            obs_dim = extract_h5_shapes(traj_data["obs"])  # type: ignore
 
         if act_dim is None or env_state_dim is None or obs_dim is None:
             raise ValueError(
@@ -264,7 +239,6 @@ class ManiSkillDataModule(L.LightningDataModule):
 
 if __name__ == "__main__":
     from pathlib import Path
-
 
     h5_path = (
         Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"

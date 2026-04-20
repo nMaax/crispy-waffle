@@ -131,3 +131,11 @@ def flatten_tensor_dict(data: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
         raise ValueError("data must contain at least one tensor")
 
     return torch.cat(tensors, dim=1)
+
+
+def sum_shapes(d: dict) -> int:
+    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key."""
+    if "shape" in d:
+        return d["shape"][-1]
+
+    return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict))
