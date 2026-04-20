@@ -28,6 +28,8 @@ class RolloutEvaluationCallback(L.Callback):
         pl_module.eval()
 
         for _ in range(num_episodes):
+            # TODO: check again, this should handle env_states
+            # TODO: as in diffusion, how to generalize to handle either (or both) obs and env_states?
             obs, _ = env.reset()
             done = False
 
@@ -37,7 +39,9 @@ class RolloutEvaluationCallback(L.Callback):
             while not done:
                 stacked_obs = np.stack(obs_deque)
                 # Note: Adjust the tensor device and structure to match your exact pipeline
-                obs_tensor = torch.tensor(stacked_obs, dtype=torch.float32, device=pl_module.device).unsqueeze(0)
+                obs_tensor = torch.tensor(
+                    stacked_obs, dtype=torch.float32, device=pl_module.device
+                ).unsqueeze(0)
                 obs_seq_dict = {"state": obs_tensor}
 
                 # Get action from the policy

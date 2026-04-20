@@ -1,0 +1,5 @@
+rollout_evaluation:
+  _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+  env_id: "StackCube-v1" # The ManiSkill environment ID
+  num_val_episodes: 20 # Number of episodes for validation
+  num_test_episodes: 100 # Number of episodes for testing
