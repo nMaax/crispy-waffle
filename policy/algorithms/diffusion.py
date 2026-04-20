@@ -30,7 +30,8 @@ class DiffusionPolicy(L.LightningModule):
         super().__init__()
 
         # Saves all the arguments to self.hparams and logs them to W&B
-        # datamodule is excluded because LightningDataModule is not JSON-serialisable as plain hyperparameters.
+        # datamodule is excluded because LightningDataModule is not JSON-serialisable as plain hyperparameters
+        # Network and optimizer are included as they are passed as Hydra configs
         self.save_hyperparameters(ignore=["datamodule"])
 
         self.network_config = network
@@ -51,6 +52,7 @@ class DiffusionPolicy(L.LightningModule):
 
         self.num_diffusion_iters = num_diffusion_iters
         self.noise_scheduler = DDPMScheduler(
+            # TODO: maybe I should move these constants on top of the file? Or they could be set via configs
             num_train_timesteps=self.num_diffusion_iters,
             beta_schedule="squaredcos_cap_v2",
             clip_sample=True,
@@ -62,6 +64,7 @@ class DiffusionPolicy(L.LightningModule):
         if self.network is not None:
             return
 
+        # Here our conditioning is the flatten observation sequence, so we compute the dimension accordingly
         global_cond_dim = self.obs_horizon * self.obs_dim
 
         # Use hydra_zen to instantiate, injecting computed dimensions
@@ -81,15 +84,15 @@ class DiffusionPolicy(L.LightningModule):
     def configure_optimizers(self):
         """Creates the optimizers."""
 
-        # TODO: Can Lighting configure lr scheduler too?
+        # TODO: Can Lighting configure a LR scheduler too?
 
-        # Instantiate the optimizer config into a functools.partial object.
+        # Instantiate the optimizer config into a functools.partial object
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
 
-        # Call the functools.partial object, passing the parameters as an argument.
+        # Call the functools.partial object, passing the parameters as an argument
         optimizer = optimizer_partial(self.parameters())
 
-        # This then returns the optimizer.
+        # This then returns the optimizer
         return optimizer
 
     def _compute_loss(self, obs_seq, action_seq):
@@ -110,24 +113,27 @@ class DiffusionPolicy(L.LightningModule):
         )
         timesteps = cast(torch.IntTensor, timesteps)
 
+        # Here we do noise-prediction (as in DDPM), not data prediction
+        # TODO: Maybe in the future we could generalize this as hyperparameters in the DiffusionPolicy class?
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
         noise_pred = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
 
         return F.mse_loss(noise_pred, noise)
 
-    def shared_step(self, batch, batch_idx, phase: str):
+    def _shared_step(self, batch, batch_idx, phase: str):
+        "Main step logic, it doesn't differ between training and validation except for the logging."
         loss = self._compute_loss(batch["env_seq"], batch["action_seq"])
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
     def training_step(self, batch, batch_idx):
-        return self.shared_step(batch, batch_idx, "train")
+        return self._shared_step(batch, batch_idx, "train")
 
     def validation_step(self, batch, batch_idx):
-        return self.shared_step(batch, batch_idx, "val")
+        return self._shared_step(batch, batch_idx, "val")
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
-        """Automatically step the EMA model after every training iteration."""
+        """Automatically step the EMA model after every training batch iteration."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before on_train_batch_end."

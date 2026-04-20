@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from logging import getLogger as get_logger
 from typing import Any
 
+import numpy as np
 import rich
 import rich.syntax
 import rich.tree
@@ -94,14 +95,19 @@ def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
         else:
             print(f"{indent}{branch}{key}: {type(value).__name__}")
 
-def to_tensor(data, device=None):
-    """Recursively converts a nested dictionary of numpy arrays to PyTorch tensors."""
+
+def to_tensor(
+    data: np.ndarray | dict[str, Any], device: torch.device | None
+) -> torch.Tensor | dict[str, Any]:
+    """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
+    tensors."""
     if isinstance(data, dict):
         return {k: to_tensor(v, device) for k, v in data.items()}
     tensor = torch.from_numpy(data).float()
     if device is not None:
         tensor = tensor.to(device)
     return tensor
+
 
 def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     """Recursively finds the batch size from a nested dictionary of tensors."""
