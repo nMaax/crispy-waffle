@@ -5,10 +5,10 @@ wandb:
   policy: "ResearchTemplate"
   name: ${name}
   save_dir: "."
-  offline: False # set True to store all logs only locally
+  offline: false # set true to store all logs only locally
   id: null # pass correct id to resume experiment!
   # entity: ""  # set to name of your wandb team
-  log_model: False
+  log_model: false
   prefix: ""
   job_type: "train"
   group: ""

@@ -4,7 +4,7 @@ tensorboard:
   _target_: lightning.pytorch.loggers.tensorboard.TensorBoardLogger
   save_dir: "${hydra:runtime.output_dir}/tensorboard/"
   name: null
-  log_graph: False
-  default_hp_metric: True
+  log_graph: false
+  default_hp_metric: true
   prefix: ""
   # version: ""

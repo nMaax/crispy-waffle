@@ -18,18 +18,18 @@ job_logging:
   handlers:
     rich:
       class: rich.logging.RichHandler
-      markup: True
-      rich_tracebacks: True
+      markup: true
+      rich_tracebacks: true
   root:
     handlers: [rich]
-  disable_existing_loggers: False
+  disable_existing_loggers: false
 
 hydra_logging:
   handlers:
     rich:
       class: rich.logging.RichHandler
-      markup: True
-      rich_tracebacks: True
+      markup: true
+      rich_tracebacks: true
   root:
     handlers: [rich]
-  disable_existing_loggers: False
+  disable_existing_loggers: false

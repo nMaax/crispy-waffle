@@ -10,11 +10,11 @@ model_checkpoint:
   monitor: "val/success_rate" # name of the logged metric which determines when model is improving
   mode: "max" # "max" means higher metric value is better, can be also "min"
   save_top_k: 1 # save k best models (determined by above metric)
-  save_last: True # additionally always save model from last epoch
-  verbose: False
+  save_last: true # additionally always save model from last epoch
+  verbose: false
   dirpath: "${hydra:runtime.output_dir}/checkpoints"
   filename: "epoch_{epoch:03d}"
-  auto_insert_metric_name: False
+  auto_insert_metric_name: false
 
 early_stopping:
   monitor: "val/success_rate" # name of the logged metric which determines when training is improving
