@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import h5py
 import lightning as L
@@ -30,6 +31,15 @@ def load_h5_data(data):
         else:
             out[k] = load_h5_data(data[k])
     return out
+
+
+def extract_shapes(d):
+    if isinstance(d, dict):
+        return {k: extract_shapes(v) for k, v in d.items()}
+    elif hasattr(d, "shape"):
+        return {"shape": tuple(d.shape), "dtype": str(d.dtype)}
+    else:
+        return None
 
 
 class ManiSkillTrajectoryDataset(Dataset):
@@ -80,8 +90,8 @@ class ManiSkillTrajectoryDataset(Dataset):
         # Peak into the tensors and extract dimensions for later use
         self.action_dim = self.trajectories[0]["actions"].shape[-1]
         # TODO: not really that good, as env states and obs are actually dictionaries of different dimensional tensors!
-        self.env_state_dim = self.trajectories[0]["env_states"].shape[-1]
-        self.obs_dim = self.trajectories[0]["obs"].shape[-1]
+        self.env_state_dim = extract_shapes(self.trajectories[0]["env_states"])
+        self.obs_dim = extract_shapes(self.trajectories[0]["obs"])
 
         # Pre-compute sliding windows centered around time step `t`
         self.slices = []
@@ -142,7 +152,8 @@ class ManiSkillTrajectoryDataset(Dataset):
 class ManiSkillDataModule(L.LightningDataModule):
     def __init__(
         self,
-        dataset_file: str,
+        dataset_file: str | Path,
+        # TODO: since we use Hydra maybe we could remove these? BUt the it becomes hard doing quick debugs in mains
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         batch_size: int = 256,
@@ -156,13 +167,14 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.train_set = None
-        self.val_set = None
+
+        self.train_set: Dataset | None = None
+        self.val_set: Dataset | None = None
 
         # TODO: maybe having these as None is not good, when do Hydra instantiate the dataset?
-        self.action_dim = None
-        self.env_state_dim = None
-        self.obs_dim = None
+        self.action_dim: int | None = None
+        self.env_state_dim: int | dict[str, Any] | None = None
+        self.obs_dim: int | dict[str, Any] | None = None
 
     def setup(self, stage=None):
         if self.train_set is None:
@@ -216,3 +228,30 @@ class ManiSkillDataModule(L.LightningDataModule):
         # Testing is done strictly via simulation in the Callback.
         # We return a dummy batch just to trigger the Callback logic.
         return DataLoader(DummyDataset(), batch_size=1)
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+
+    from policy.utils import print_dict_tree
+
+    h5_path = (
+        Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
+    )
+    obs_horizon = 8
+    pred_horizon = 4
+    dataset = ManiSkillTrajectoryDataset(h5_path, obs_horizon, pred_horizon)
+    print_dict_tree(dataset[0])
+
+    print(type(dataset.action_dim))
+    print(type(dataset.env_state_dim))
+    print(type(dataset.obs_dim))
+
+    print("\n\n\n")
+
+    # Load a datamodule instead of a dataset and get the action, obs and env shapes
+    datamodule = ManiSkillDataModule(h5_path, obs_horizon, pred_horizon)
+    datamodule.setup()
+    print(datamodule.action_dim)
+    print(datamodule.env_state_dim)
+    print(datamodule.obs_dim)

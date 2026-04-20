@@ -47,7 +47,7 @@ class DiffusionPolicy(L.LightningModule):
         self.act_horizon = act_horizon
 
         # Extract these from the datamodule
-        # TODO: these could be None if dataset has not been loaded yet, look again on how to fix this
+        # TODO: these could be None if dataset has not been loaded yet (.setup()), look again on how to fix this
         self.act_dim = self.datamodule.action_dim
         # TODO: not really that good to put env as obs, I am mixing terminology here, later re-order
         self.obs_dim = self.datamodule.env_state_dim

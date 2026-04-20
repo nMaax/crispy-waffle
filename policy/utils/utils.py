@@ -97,7 +97,7 @@ def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
 
 
 def to_tensor(
-    data: np.ndarray | dict[str, Any], device: torch.device | None
+    data: np.ndarray | dict[str, Any], device: torch.device | None = None
 ) -> torch.Tensor | dict[str, Any]:
     """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
     tensors."""
