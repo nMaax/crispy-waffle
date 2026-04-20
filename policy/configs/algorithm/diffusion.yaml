@@ -1,6 +1,6 @@
 defaults:
-    - network: unet1d
-    - optimizer: AdamW
+  - network: unet1d
+  - optimizer: AdamW
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we set this to false to prevent hydra from trying to instantiate them before
@@ -11,7 +11,6 @@ action_dim: 8 #  TODO: should be set in experiment?
 obs_dim: 70 # 13 (table_workspace) + 13 (cubeA) + 13 (cubeB) + 31 (panda_wristcam) # TODO: Should be set in experiment?
 
 num_diffusion_iters: 100
-lr: 1e-4
 
 # You can eventually override unet1d and adam down below. e.g.:
 # network:
