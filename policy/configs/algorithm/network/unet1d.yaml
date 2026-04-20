@@ -1,7 +1,4 @@
 _target_: policy.algorithms.networks.unet1d.ConditionalUnet1D
-# Do not pass input_dim and global_cond_dim here since we will inject them during instantiate in the test. This allows us to keep the config more general and reusable.
-# Indeed, we should never "choose" them, they should always be injected from the algorithm config which has access to the datamodule config where these dimensions are defined based on the dataset.
-# The one below instead are basically architectural choices that we made for our specific use case. So they deserve to be in this config file.
 diffusion_step_embed_dim: 256
 down_dims: [256, 512, 1024]
 kernel_size: 5
