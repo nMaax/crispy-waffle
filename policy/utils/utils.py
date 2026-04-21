@@ -133,9 +133,16 @@ def flatten_tensor_dict(data: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
     return torch.cat(tensors, dim=1)
 
 
-def sum_shapes(d: dict) -> int:
-    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key."""
-    if "shape" in d:
-        return d["shape"][-1]
-
-    return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict))
+def sum_shapes(d) -> int:
+    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key, or returns
+    the value if it's an int or a tuple."""
+    if isinstance(d, dict):
+        if "shape" in d:
+            return d["shape"][-1]
+        return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict | int | tuple))
+    elif isinstance(d, int):
+        return d
+    elif isinstance(d, tuple):
+        return d[-1]
+    else:
+        raise TypeError(f"Unsupported type for sum_shapes: {type(d)}")

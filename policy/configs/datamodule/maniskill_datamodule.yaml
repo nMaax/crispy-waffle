@@ -4,3 +4,4 @@ obs_horizon: 2
 pred_horizon: 16
 batch_size: 128
 num_workers: 4
+conditioning_source: "env_states"

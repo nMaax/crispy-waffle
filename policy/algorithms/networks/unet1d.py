@@ -125,7 +125,7 @@ class ConditionalUnet1D(nn.Module):
     def __init__(
         self,
         input_dim,
-        global_cond_dim,
+        global_cond_dim,  # TODO: improve naming, as well as docstrings
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
         kernel_size=5,
@@ -134,8 +134,8 @@ class ConditionalUnet1D(nn.Module):
         """
         input_dim: Dim of actions.
         global_cond_dim: Dim of global conditioning applied with FiLM
-          in addition to diffusion step embedding. This is usually obs_horizon * obs_dim
-        diffusion_step_embed_dim: Size of positional encoding for diffusion iteration k
+          in addition to diffusion step embedding. This is usually obs_horizon * cond_dim
+        diffusion_step_embed_dim: Dimensionality of  encoding for time / diffusion iteration k
         down_dims: Channel size for each UNet level.
           The length of this array determines number of levels.
         kernel_size: Conv kernel size

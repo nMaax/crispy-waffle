@@ -69,12 +69,13 @@ class PolicyProtocol(Protocol):
     device: torch.device
     """Device on which the policy parameters live."""
 
-    def get_action(self, obs_seq: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
+    def get_action(self, cond_seq: torch.Tensor | Mapping[str, Any] | None) -> torch.Tensor:
         """Return a sequence of actions given a (batched) conditioning window.
 
         Args:
-            obs_seq: Either a float tensor of shape ``(B, obs_horizon, obs_dim)`` or a
+            cond_seq: Either a float tensor of shape ``(B, obs_horizon, cond_dim)`` or a
                 nested dict of such tensors, depending on the conditioning source.
+
         Returns:
             Action tensor of shape ``(B, act_horizon, act_dim)``.
         """

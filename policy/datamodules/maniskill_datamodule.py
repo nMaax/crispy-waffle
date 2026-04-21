@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import h5py
 import lightning as L
@@ -28,6 +28,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         dataset_file: str | Path,
         obs_horizon: int,
         pred_horizon: int,
+        conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
         load_count: int = -1,
         success_only: bool = False,
     ) -> None:
@@ -35,6 +36,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.dataset_file = Path(dataset_file)
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
+        self.conditioning_source = conditioning_source
 
         # Load JSON metadata
         json_path = self.dataset_file.with_suffix(".json")
@@ -89,6 +91,7 @@ class ManiSkillTrajectoryDataset(Dataset):
 
                 self.slices.append((traj_idx, obs_start, obs_end, act_start, act_end, L))
 
+        # TODO: improve this logging
         print(f"Dataset initialized: {len(self.slices)} temporal windows extracted.")
 
     def _slice_and_pad(self, data, start, end, L):
@@ -121,9 +124,15 @@ class ManiSkillTrajectoryDataset(Dataset):
         env_seq = self._slice_and_pad(traj["env_states"], obs_start, obs_end, L)
         action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
+        if self.conditioning_source == "env_states":
+            cond_seq = env_seq
+        elif self.conditioning_source == "obs":
+            cond_seq = obs_seq
+        else:  # "both"
+            cond_seq = {"env_states": env_seq, "obs": obs_seq}
+
         return {
-            "obs_seq": to_tensor(obs_seq),
-            "env_seq": to_tensor(env_seq),
+            "cond_seq": to_tensor(cond_seq),
             "action_seq": to_tensor(action_seq),
         }
 
@@ -137,6 +146,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
+        conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
     ):
         super().__init__()
         self.dataset_file = Path(dataset_file)
@@ -145,6 +155,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
+        self.conditioning_source = conditioning_source
 
         # Prepare train and val split sets
         self.train_set: Dataset | None = None
@@ -156,6 +167,22 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.env_state_dim: int | dict[str, Any]
         self.obs_dim: int | dict[str, Any]
         self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
+
+    @property
+    def cond_dim(self) -> int | dict[str, Any]:
+        """The dimensionality of the conditioning signal exposed to the policy.
+
+        Returns the shape information for the source selected by ``conditioning_source``:
+        - ``"env_states"`` → ``env_state_dim``
+        - ``"obs"`` → ``obs_dim``
+        - ``"both"`` → merged dict containing both ``env_states`` and ``obs`` sub-trees
+        """
+        if self.conditioning_source == "env_states":
+            return self.env_state_dim
+        elif self.conditioning_source == "obs":
+            return self.obs_dim
+        else:  # "both"
+            return {"env_states": self.env_state_dim, "obs": self.obs_dim}
 
     def _peek_dimensions(self):
         """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
@@ -190,7 +217,10 @@ class ManiSkillDataModule(L.LightningDataModule):
     def setup(self, stage=None):
         if self.train_set is None:
             full_dataset = ManiSkillTrajectoryDataset(
-                self.dataset_file, self.obs_horizon, self.pred_horizon
+                self.dataset_file,
+                self.obs_horizon,
+                self.pred_horizon,
+                conditioning_source=self.conditioning_source,
             )
 
             val_size = int(len(full_dataset) * self.val_split)

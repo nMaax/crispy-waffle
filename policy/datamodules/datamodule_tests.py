@@ -54,7 +54,6 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def dataloader(self, datamodule: DataModuleType, stage: RunningStage) -> DataLoader:
-
         # NOTE: This fixture is class-scoped, so it executes BEFORE the function-scoped
         # 'seed' fixture in conftest.py. We must manually pin the seed here to ensure
         # that randomness inside setup() (like random_split) is deterministic across
@@ -79,7 +78,6 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def batch(self, dataloader: DataLoader):
-
         # NOTE: This fixture is class-scoped, so it executes BEFORE the function-scoped
         # 'seed' fixture in conftest.py. We must manually pin the seed here to ensure
         # that randomness inside setup() (like random_split) is deterministic across

@@ -11,7 +11,7 @@ def test_unet1d_instantiates_and_runs():
     batch_size = 128
     horizon = 16  # Number of timesteps to predict/diffuse upon
     input_dim = 8  # Dimensionality of each element in the sequence being diffused
-    global_cond_dim = 67  # Usually obs_lenght * obs_dim
+    global_cond_dim = 67  # Usually obs_lenght * cond_dim
 
     # Inject the dimensions directly into instantiate
     network = hydra_zen.instantiate(cfg, input_dim=input_dim, global_cond_dim=global_cond_dim)

@@ -58,18 +58,16 @@ class DiffusionPolicy(L.LightningModule):
         self.act_horizon = act_horizon
         self.act_dim = self.datamodule.action_dim
 
-        # TODO: not really that good to put env as obs, I am mixing terminology here, later re-order
-        # Should also find a solution for naming convention, as sometimes you write act_dim and sometimes action_dim, obs_dim vs env_state_dim, etc.
-        # Maybe we can just unify everything as obs and action, and then in the datamodule we can have some logic to extract the right dimensions from the right places, and then in the policy we just use obs_dim and action_dim without caring about where they come from?
-        raw_obs_dim = (
-            self.datamodule.env_state_dim
-        )  # Grab the extracted shapes from the datamodule
-        if isinstance(raw_obs_dim, dict):
+        # The conditioning signal fed to the network is determined by the datamodule's
+        # conditioning_source. We use cond_dim as the single source of truth so that the
+        # policy never needs to know whether it comes from env_states, obs, or both.
+        raw_cond_dim = self.datamodule.cond_dim
+        if isinstance(raw_cond_dim, dict):
             # Recursive helper to sum the last element of every 'shape' tuple
-            self.obs_dim = sum_shapes(raw_obs_dim)
+            self.cond_dim = sum_shapes(raw_cond_dim)
         else:
             # Fallback in case it's already an integer
-            self.obs_dim = cast(int, raw_obs_dim)
+            self.cond_dim = cast(int, raw_cond_dim)
 
         self.predict_noise = predict_noise
 
@@ -79,7 +77,7 @@ class DiffusionPolicy(L.LightningModule):
             return
 
         # Here our conditioning is the flatten observation sequence, so we compute the dimension accordingly
-        global_cond_dim = self.obs_horizon * self.obs_dim
+        global_cond_dim = self.obs_horizon * self.cond_dim
 
         # Use hydra_zen to instantiate, injecting computed dimensions
         self.network = hydra_zen.instantiate(
@@ -110,7 +108,7 @@ class DiffusionPolicy(L.LightningModule):
         else:
             return optimizer
 
-    def _compute_loss(self, obs_seq, action_seq):
+    def _compute_loss(self, cond_seq, action_seq):
         """Loss calculation logic."""
 
         if self.network is None:
@@ -128,8 +126,8 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before computing loss."
             )
 
-        B = get_batch_size(obs_seq)
-        obs_cond = flatten_tensor_dict(obs_seq)
+        B = get_batch_size(cond_seq)
+        obs_cond = flatten_tensor_dict(cond_seq)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -157,7 +155,7 @@ class DiffusionPolicy(L.LightningModule):
 
     def _shared_step(self, batch, batch_idx, phase: str):
         "Main step logic, it doesn't differ between training and validation except for the logging."
-        loss = self._compute_loss(batch["env_seq"], batch["action_seq"])
+        loss = self._compute_loss(batch["cond_seq"], batch["action_seq"])
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
@@ -181,7 +179,7 @@ class DiffusionPolicy(L.LightningModule):
 
         self.ema.step(self.network.parameters())
 
-    def get_action(self, obs_seq):
+    def get_action(self, cond_seq):
         """Used during inference/evaluation in the environment."""
 
         if self.network is None:
@@ -199,13 +197,13 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(obs_seq)
+        B = get_batch_size(cond_seq)
 
         # Temporarily copy EMA weights in the model
         self.ema.copy_to(self.network.parameters())
 
         with torch.no_grad():
-            obs_cond = flatten_tensor_dict(obs_seq)
+            obs_cond = flatten_tensor_dict(cond_seq)
             noisy_action_seq = torch.randn(
                 (B, self.pred_horizon, self.act_dim), device=self.device
             )

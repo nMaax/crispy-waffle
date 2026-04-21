@@ -27,6 +27,7 @@ datamodule:
   obs_horizon: 2
   pred_horizon: 16
   batch_size: 256
+  conditioning_source: "env_states"
 
 trainer:
   limit_val_batches: null # Re-enable validation

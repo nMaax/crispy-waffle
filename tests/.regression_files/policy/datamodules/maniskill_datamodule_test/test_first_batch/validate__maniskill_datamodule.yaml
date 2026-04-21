@@ -8,7 +8,7 @@ action_seq:
   - 16
   - 8
   sum: 948.3656005859375
-env_seq.actors.cubeA:
+cond_seq.actors.cubeA:
   device: cpu
   max: 4.177993297576904
   mean: 0.05704519525170326
@@ -18,7 +18,7 @@ env_seq.actors.cubeA:
   - 2
   - 13
   sum: 189.84640502929688
-env_seq.actors.cubeB:
+cond_seq.actors.cubeB:
   device: cpu
   max: 0.999995768070221
   mean: 0.05531974136829376
@@ -28,7 +28,7 @@ env_seq.actors.cubeB:
   - 2
   - 13
   sum: 184.10409545898438
-env_seq.actors.table-workspace:
+cond_seq.actors.table-workspace:
   device: cpu
   max: 0.7071068286895752
   mean: 0.028813133016228676
@@ -38,7 +38,7 @@ env_seq.actors.table-workspace:
   - 2
   - 13
   sum: 95.89010620117188
-env_seq.articulations.panda_wristcam:
+cond_seq.articulations.panda_wristcam:
   device: cpu
   max: 2.9082717895507812
   mean: 0.029860969632864

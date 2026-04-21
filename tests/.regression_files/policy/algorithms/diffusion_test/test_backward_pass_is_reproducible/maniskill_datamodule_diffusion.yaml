@@ -8,7 +8,7 @@ batch.action_seq:
   - 16
   - 8
   sum: 925.634033203125
-batch.env_seq.actors.cubeA:
+batch.cond_seq.actors.cubeA:
   device: cuda:0
   max: 4.317232131958008
   mean: 0.06350778043270111
@@ -18,7 +18,7 @@ batch.env_seq.actors.cubeA:
   - 2
   - 13
   sum: 211.3538818359375
-batch.env_seq.actors.cubeB:
+batch.cond_seq.actors.cubeB:
   device: cuda:0
   max: 0.9999920725822449
   mean: 0.053797341883182526
@@ -28,7 +28,7 @@ batch.env_seq.actors.cubeB:
   - 2
   - 13
   sum: 179.0375518798828
-batch.env_seq.actors.table-workspace:
+batch.cond_seq.actors.table-workspace:
   device: cuda:0
   max: 0.7071068286895752
   mean: 0.028813133016228676
@@ -38,7 +38,7 @@ batch.env_seq.actors.table-workspace:
   - 2
   - 13
   sum: 95.89010620117188
-batch.env_seq.articulations.panda_wristcam:
+batch.cond_seq.articulations.panda_wristcam:
   device: cuda:0
   max: 2.973768711090088
   mean: 0.03279152140021324
