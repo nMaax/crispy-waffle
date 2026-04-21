@@ -39,10 +39,10 @@ class RolloutEvaluationCallback(L.Callback):
         # Put model in eval mode
         pl_module.eval()
 
-        # Cast to PolicyProtocol so we can access get_action and obs_horizon without
+        # Cast to PolicyProtocol so we can access get_action and cond_horizon without
         # depending on a specific implementation class.
         policy = cast(PolicyProtocol, pl_module)
-        obs_horizon: int = policy.obs_horizon
+        obs_horizon: int = policy.cond_horizon
 
         # Inject arbitrary base seeds to avoid using those at training
         base_seed = BASE_SEED_VAL if phase == "val" else BASE_SEED_TEST
@@ -62,10 +62,10 @@ class RolloutEvaluationCallback(L.Callback):
                 obs_tensor = torch.tensor(
                     stacked_obs, dtype=torch.float32, device=pl_module.device
                 ).unsqueeze(0)
-                cond_seq = {"state": obs_tensor}
+                obs_seq = {"state": obs_tensor}
 
                 # Get action from the policy using the casted object
-                action_seq = policy.get_action(cond_seq)
+                action_seq = policy.get_action(obs_seq)
                 action = action_seq[0, 0].cpu().numpy()
 
                 obs, reward, terminated, truncated, info = env.step(action)

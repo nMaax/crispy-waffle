@@ -26,7 +26,7 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        obs_horizon: int,
+        cond_horizon: int,
         pred_horizon: int,
         conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
         load_count: int = -1,
@@ -34,7 +34,7 @@ class ManiSkillTrajectoryDataset(Dataset):
     ) -> None:
         super().__init__()
         self.dataset_file = Path(dataset_file)
-        self.obs_horizon = obs_horizon
+        self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
         self.conditioning_source = conditioning_source
 
@@ -82,14 +82,14 @@ class ManiSkillTrajectoryDataset(Dataset):
             # Loop over every timestep. `t` represents the CURRENT frame.
             for t in range(L):
                 # Observations: history leading up to and including `t`
-                obs_start = t - self.obs_horizon + 1
-                obs_end = t + 1
+                cond_start = t - self.cond_horizon + 1
+                cond_end = t + 1
 
                 # Actions: future execution starting exactly at `t`
                 act_start = t
                 act_end = t + self.pred_horizon
 
-                self.slices.append((traj_idx, obs_start, obs_end, act_start, act_end, L))
+                self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
 
         # TODO: improve this logging
         print(f"Dataset initialized: {len(self.slices)} temporal windows extracted.")
@@ -117,11 +117,11 @@ class ManiSkillTrajectoryDataset(Dataset):
         return len(self.slices)
 
     def __getitem__(self, idx):
-        traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]
+        traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
-        obs_seq = self._slice_and_pad(traj["obs"], obs_start, obs_end, L)
-        env_seq = self._slice_and_pad(traj["env_states"], obs_start, obs_end, L)
+        obs_seq = self._slice_and_pad(traj["obs"], cond_start, cond_end, L)
+        env_seq = self._slice_and_pad(traj["env_states"], cond_start, cond_end, L)
         action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
         if self.conditioning_source == "env_states":
@@ -141,7 +141,7 @@ class ManiSkillDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_file: str | Path,
-        obs_horizon: int = 2,
+        cond_horizon: int = 2,
         pred_horizon: int = 16,
         batch_size: int = 256,
         num_workers: int = 4,
@@ -150,7 +150,7 @@ class ManiSkillDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.dataset_file = Path(dataset_file)
-        self.obs_horizon = obs_horizon
+        self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -218,7 +218,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         if self.train_set is None:
             full_dataset = ManiSkillTrajectoryDataset(
                 self.dataset_file,
-                self.obs_horizon,
+                self.cond_horizon,
                 self.pred_horizon,
                 conditioning_source=self.conditioning_source,
             )
@@ -266,10 +266,10 @@ if __name__ == "__main__":
     h5_path = (
         Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
     )
-    obs_horizon = 8
+    cond_horizon = 8
     pred_horizon = 4
     # Load a datamodule instead of a dataset and get the action, obs and env shapes
-    datamodule = ManiSkillDataModule(h5_path, obs_horizon, pred_horizon)
+    datamodule = ManiSkillDataModule(h5_path, cond_horizon, pred_horizon)
     print(datamodule.action_dim)
     print(datamodule.env_state_dim)
     print(datamodule.obs_dim)

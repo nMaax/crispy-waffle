@@ -134,7 +134,7 @@ class ConditionalUnet1D(nn.Module):
         """
         input_dim: Dim of actions.
         global_cond_dim: Dim of global conditioning applied with FiLM
-          in addition to diffusion step embedding. This is usually obs_horizon * cond_dim
+          in addition to diffusion step embedding. This is usually cond_horizon * cond_dim
         diffusion_step_embed_dim: Dimensionality of  encoding for time / diffusion iteration k
         down_dims: Channel size for each UNet level.
           The length of this array determines number of levels.

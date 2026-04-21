@@ -46,7 +46,7 @@ class DiffusionPolicy(L.LightningModule):
         )
 
         self.datamodule = datamodule
-        self.obs_horizon = self.datamodule.obs_horizon
+        self.cond_horizon = self.datamodule.cond_horizon
         self.pred_horizon = self.datamodule.pred_horizon
 
         self.optimizer_config = optimizer
@@ -77,7 +77,7 @@ class DiffusionPolicy(L.LightningModule):
             return
 
         # Here our conditioning is the flatten observation sequence, so we compute the dimension accordingly
-        global_cond_dim = self.obs_horizon * self.cond_dim
+        global_cond_dim = self.cond_horizon * self.cond_dim
 
         # Use hydra_zen to instantiate, injecting computed dimensions
         self.network = hydra_zen.instantiate(
@@ -127,7 +127,6 @@ class DiffusionPolicy(L.LightningModule):
             )
 
         B = get_batch_size(cond_seq)
-        obs_cond = flatten_tensor_dict(cond_seq)
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -143,13 +142,15 @@ class DiffusionPolicy(L.LightningModule):
 
         # Here we do noise-prediction (as in DDPM), not data prediction
 
+        flatten_cond = flatten_tensor_dict(cond_seq)
+
+        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
+        prediction = self.network(noisy_action_seq, timesteps, global_cond=flatten_cond)
+
         if self.predict_noise:
             target = noise
         else:
             target = action_seq
-
-        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
-        prediction = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
 
         return F.mse_loss(prediction, target)
 
@@ -203,7 +204,7 @@ class DiffusionPolicy(L.LightningModule):
         self.ema.copy_to(self.network.parameters())
 
         with torch.no_grad():
-            obs_cond = flatten_tensor_dict(cond_seq)
+            flatten_cond = flatten_tensor_dict(cond_seq)
             noisy_action_seq = torch.randn(
                 (B, self.pred_horizon, self.act_dim), device=self.device
             )
@@ -214,7 +215,7 @@ class DiffusionPolicy(L.LightningModule):
                 noise_pred = self.network(
                     sample=noisy_action_seq,
                     timestep=k,
-                    global_cond=obs_cond,
+                    global_cond=flatten_cond,
                 )
                 output = self.noise_scheduler.step(
                     model_output=noise_pred,
@@ -224,6 +225,6 @@ class DiffusionPolicy(L.LightningModule):
 
                 noisy_action_seq = output.prev_sample
 
-        start = self.obs_horizon - 1
+        start = self.cond_horizon - 1
         end = start + self.act_horizon
         return noisy_action_seq[:, start:end]
