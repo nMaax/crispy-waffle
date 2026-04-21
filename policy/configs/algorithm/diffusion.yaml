@@ -3,6 +3,7 @@ defaults:
   - optimizer: AdamW
   - noise_scheduler: ddpm
   - ema: default
+  - lr_scheduler: CosineAnnealingLR
   - _self_
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
@@ -31,3 +32,6 @@ ema:
 noise_scheduler:
   beta_schedule: "linear"
   num_inference_timesteps: 100
+
+lr_scheduler:
+  T_max: ${trainer.max_steps} # TODO: Not so sure about this

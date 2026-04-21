@@ -24,7 +24,7 @@ class DiffusionPolicy(L.LightningModule):
         ema: HydraConfigFor[EMAModel],
         datamodule: ManiSkillDataModule,
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
-        scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         act_horizon: int = 8,
         predict_noise: bool = True,
     ):
@@ -52,8 +52,8 @@ class DiffusionPolicy(L.LightningModule):
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None
 
-        self.scheduler_config = scheduler
-        self.scheduler: LRScheduler | None = None
+        self.lr_scheduler_config = lr_scheduler
+        self.lr_scheduler: LRScheduler | None = None
 
         self.act_horizon = act_horizon
         self.act_dim = self.datamodule.action_dim
@@ -93,7 +93,7 @@ class DiffusionPolicy(L.LightningModule):
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self):
-        """Creates the optimizers and LR schedulers."""
+        """Creates the optimizer and LR scheduler."""
 
         # NOTE: Optimizers and schedulers could actually be made in one shot, without partial,
         # however I prefer to follow the template prescription, just for coherence
@@ -103,10 +103,10 @@ class DiffusionPolicy(L.LightningModule):
         optimizer = optimizer_partial(self.parameters())
 
         # Instantiate the scheduler config, if provided
-        if self.scheduler_config is not None:
-            scheduler_partial = hydra_zen.instantiate(self.scheduler_config)
-            scheduler = scheduler_partial(optimizer)
-            return [optimizer], [scheduler]
+        if self.lr_scheduler_config is not None:
+            lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
+            lr_scheduler = lr_scheduler_partial(optimizer)
+            return [optimizer], [lr_scheduler]
         else:
             return optimizer
 

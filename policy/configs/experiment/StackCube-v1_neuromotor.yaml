@@ -3,6 +3,7 @@ defaults:
   - override /algorithm: diffusion
   - override /datamodule: maniskill_datamodule
   - override /algorithm/optimizer: custom_AdamW
+  - override /algorithm/lr_scheduler: CosineAnnealingLR
   - override /trainer: default # Redundant since the primary config.yaml already does it, but just for completeness
   - _self_
 
@@ -23,6 +24,9 @@ datamodule:
 
 optimizer:
   lr: 1e-3
+
+lr_scheduler:
+  T_max: ${trainer.max_steps} # TODO: Not so sure about this
 
 trainer:
   limit_val_batches: null # Re-enable validation
