@@ -28,3 +28,18 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
             "during the training step. Inference is handled iteratively via multiple calls (see `get_action`)."
             "Thus, we skip this test as it is not applicable to the DiffusionPolicy architecture."
         )
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        # Use the cond_seq from the training batch as input
+        cond_seq = training_step_content.batch["cond_seq"]
+        out = algorithm.get_action(cond_seq)
+        # Check output is a torch.Tensor
+        assert isinstance(out, type(cond_seq))
+        # Check output shape: (batch, act_horizon, act_dim)
+        assert out.shape[0] == cond_seq.shape[0]
+        assert out.shape[1] == algorithm.act_horizon
+        assert out.shape[2] == algorithm.act_dim
