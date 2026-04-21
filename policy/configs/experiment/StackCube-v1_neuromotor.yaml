@@ -24,7 +24,7 @@ algorithm:
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 # Maybe move this to experiments? But only once you truly need it
-  obs_horizon: 2
+  cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
   conditioning_source: "env_states"

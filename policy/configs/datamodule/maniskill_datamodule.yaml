@@ -1,6 +1,6 @@
 _target_: policy.datamodules.maniskill_datamodule.ManiSkillDataModule
 dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
-obs_horizon: 2
+cond_horizon: 2
 pred_horizon: 16
 batch_size: 128
 num_workers: 4
