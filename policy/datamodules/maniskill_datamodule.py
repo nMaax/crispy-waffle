@@ -91,8 +91,10 @@ class ManiSkillTrajectoryDataset(Dataset):
 
                 self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
 
-        # TODO: improve this logging
-        print(f"Dataset initialized: {len(self.slices)} temporal windows extracted.")
+        print(
+            f"Dataset initialized: {len(self.slices)} temporal windows \
+            from {len(self.trajectories)} episodes "
+        )
 
     def _slice_and_pad(self, data, start, end, L):
         if isinstance(data, dict):
