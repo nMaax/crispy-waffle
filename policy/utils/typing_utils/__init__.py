@@ -8,7 +8,7 @@ from typing import Any, NewType, TypeGuard
 from hydra_zen.typing import Builds
 from typing_extensions import TypeVar
 
-from .protocols import DataModule
+from .protocols import DataModule, PolicyProtocol
 
 # These are used to show which dim is which.
 C = NewType("C", int)
@@ -47,4 +47,5 @@ def is_mapping_of(object: Any, key_type: type[K], value_type: type[V]) -> TypeGu
 
 __all__ = [
     "DataModule",
+    "PolicyProtocol",
 ]

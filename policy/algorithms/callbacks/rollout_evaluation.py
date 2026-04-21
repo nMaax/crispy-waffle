@@ -6,7 +6,7 @@ import lightning as L
 import numpy as np
 import torch
 
-from policy.algorithms import DiffusionPolicy
+from policy.utils.typing_utils import PolicyProtocol
 
 BASE_SEED_VAL = 42000
 BASE_SEED_TEST = 67000
@@ -34,9 +34,8 @@ class RolloutEvaluationCallback(L.Callback):
         # Put model in eval mode
         pl_module.eval()
 
-        # Explicitly tell Pyright to stop assuming custom attributes are Tensors/Modules, but the DiffusionPolicy itself.
-        # TODO: Maybe I can find some more general Type that is not fixed to DiffusionPolicy, maybe a Protocol for all my IL approached
-        policy = cast(DiffusionPolicy, pl_module)
+        # Explicitly tell Pyright to stop assuming custom attributes are Tensors/Modules, but a Policy itself.
+        policy = cast(PolicyProtocol, pl_module)
         obs_horizon: int = policy.obs_horizon
 
         # Inject arbitrary base seeds to avoid using those at training

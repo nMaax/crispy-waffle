@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import typing
-from typing import Literal, ParamSpec, Protocol, TypeVar, runtime_checkable
+from collections.abc import Mapping
+from typing import Any, Literal, ParamSpec, Protocol, TypeVar, runtime_checkable
+
+import torch
 
 if typing.TYPE_CHECKING:
     from torch import nn
@@ -50,3 +53,29 @@ class DataModule(Protocol[BatchType]):
     def setup(self, stage: Literal["fit", "validate", "test", "predict"]) -> None: ...
 
     def train_dataloader(self) -> DataLoader[BatchType]: ...
+
+
+@runtime_checkable
+class PolicyProtocol(Protocol):
+    """Protocol for imitation-learning policies that can be used during rollout evaluation.
+
+    Any LightningModule that satisfies this interface can be used by the
+    :class:`RolloutEvaluationCallback` without depending on a specific implementation.
+    """
+
+    obs_horizon: int
+    """Number of past observations used to build the conditioning window."""
+
+    device: torch.device
+    """Device on which the policy parameters live."""
+
+    def get_action(self, obs_seq: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
+        """Return a sequence of actions given a (batched) conditioning window.
+
+        Args:
+            obs_seq: Either a float tensor of shape ``(B, obs_horizon, obs_dim)`` or a
+                nested dict of such tensors, depending on the conditioning source.
+        Returns:
+            Action tensor of shape ``(B, act_horizon, act_dim)``.
+        """
+        ...
