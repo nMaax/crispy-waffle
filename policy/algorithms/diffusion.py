@@ -135,7 +135,8 @@ class DiffusionPolicy(L.LightningModule):
 
         timesteps = torch.randint(
             0,
-            self.noise_scheduler.num_diffusion_iters,
+            # TODO: what about num_dffusion_timesteps for inference? Maybe I should use this in get_action?
+            self.noise_scheduler.num_train_timesteps,
             (B,),
             device=self.device,
             dtype=torch.int32,

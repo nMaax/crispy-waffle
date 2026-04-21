@@ -38,7 +38,7 @@ This is used to check that all the experiment configs are covered by tests.
 """
 
 experiment_commands_to_test: list[str | ParameterSet] = [
-    "experiment=diffusion trainer.max_epochs=1"
+    "experiment=StackCube-v1_neuromotor trainer.max_epochs=1"
 ]
 """List of experiment commands to run for testing.
 

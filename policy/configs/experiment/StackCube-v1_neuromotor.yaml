@@ -13,20 +13,20 @@ name: StackCube-v1_neuromotor_run
 # --- OVERRIDEs  ---
 
 algorithm:
-  num_diffusion_iters: 100
   act_horizon: 8 # Must be smaller than datamodule pred_horizon!
+  predict_noise: true # Whether to predict noise or the sample itself
+
+  optimizer:
+    lr: 1e-3
+
+  lr_scheduler:
+    T_max: ${trainer.max_steps} # TODO: Not so sure about this
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 # Maybe move this to experiments? But only once you truly need it
   obs_horizon: 2
   pred_horizon: 16
   batch_size: 256
-
-optimizer:
-  lr: 1e-3
-
-lr_scheduler:
-  T_max: ${trainer.max_steps} # TODO: Not so sure about this
 
 trainer:
   limit_val_batches: null # Re-enable validation
