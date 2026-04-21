@@ -54,6 +54,7 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def dataloader(self, datamodule: DataModuleType, stage: RunningStage) -> DataLoader:
+        lightning.seed_everything(42, workers=True)
         datamodule.prepare_data()
         if stage == RunningStage.TRAINING:
             datamodule.setup("fit")
