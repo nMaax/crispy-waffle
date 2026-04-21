@@ -4,13 +4,15 @@ main is powered by Hydra.
 Compose your configuration from those groups (group=option)
 
 algorithm: diffusion, no_op
+algorithm/ema: default
 algorithm/lr_scheduler: CosineAnnealingLR, StepLR
 algorithm/network: unet1d
-algorithm/optimizer: Adam, AdamW, SGD, custom_adam
+algorithm/noise_scheduler: ddpm
+algorithm/optimizer: Adam, AdamW, SGD, custom_AdamW
 datamodule: maniskill_datamodule
-experiment: diffusion
+experiment: StackCube-v1_neuromotor
 trainer: cpu, debug, default, overfit_one_batch
-trainer/callbacks: default, early_stopping, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar
+trainer/callbacks: default, early_stopping, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation
 trainer/logger: tensorboard, wandb
 
 
@@ -53,17 +55,17 @@ trainer:
       max_depth: 2
     rich_progress_bar:
       _target_: lightning.pytorch.callbacks.RichProgressBar
+    rollout_evaluation:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      env_id: PickCube-v1
+      num_val_episodes: 10
+      num_test_episodes: 100
     lr_monitor:
       _target_: lightning.pytorch.callbacks.LearningRateMonitor
     device_utilisation:
       _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
     throughput:
       _target_: policy.algorithms.callbacks.samples_per_second.MeasureSamplesPerSecondCallback
-    rollout_evaluation:
-      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
-      env_id: PickCube-v1
-      num_val_episodes: 10
-      num_test_episodes: 100
   _target_: lightning.Trainer
   accelerator: auto
   strategy: auto
