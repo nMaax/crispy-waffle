@@ -1,9 +1,15 @@
 from collections import deque
+from typing import cast
 
 import gymnasium as gym
 import lightning as L
 import numpy as np
 import torch
+
+from policy.algorithms import DiffusionPolicy
+
+BASE_SEED_VAL = 42000
+BASE_SEED_TEST = 67000
 
 
 class RolloutEvaluationCallback(L.Callback):
@@ -28,13 +34,23 @@ class RolloutEvaluationCallback(L.Callback):
         # Put model in eval mode
         pl_module.eval()
 
-        for _ in range(num_episodes):
+        # Explicitly tell Pyright to stop assuming custom attributes are Tensors/Modules, but the DiffusionPolicy itself.
+        # TODO: Maybe I can find some more general Type that is not fixed to DiffusionPolicy
+        policy = cast(DiffusionPolicy, pl_module)
+        obs_horizon: int = policy.obs_horizon
+
+        # Inject arbitrary base seeds to avoid using those at training
+        base_seed = BASE_SEED_VAL if phase == "val" else BASE_SEED_TEST
+
+        for i in range(num_episodes):
             # TODO: as in diffusion, how to generalize to handle either (or both) obs and env_states?
-            obs, _ = env.reset()
+            # Pass the seed based on the episode index
+            seed = base_seed + i
+            obs, info = env.reset(seed=seed)
             done = False
 
             # Setup observation history
-            obs_deque = deque([obs] * pl_module.obs_horizon, maxlen=pl_module.obs_horizon)
+            obs_deque = deque([obs] * obs_horizon, maxlen=obs_horizon)
 
             while not done:
                 stacked_obs = np.stack(obs_deque)
@@ -44,8 +60,8 @@ class RolloutEvaluationCallback(L.Callback):
                 ).unsqueeze(0)
                 obs_seq_dict = {"state": obs_tensor}
 
-                # Get action from the policy
-                action_seq = pl_module.get_action(obs_seq_dict)
+                # Get action from the policy using the casted object
+                action_seq = policy.get_action(obs_seq_dict)
                 action = action_seq[0, 0].cpu().numpy()
 
                 obs, reward, terminated, truncated, info = env.step(action)
