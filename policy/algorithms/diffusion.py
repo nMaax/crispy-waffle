@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
+from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
@@ -21,9 +22,10 @@ class DiffusionPolicy(L.LightningModule):
         network: HydraConfigFor[nn.Module],
         noise_scheduler: HydraConfigFor[DDPMScheduler],
         ema: HydraConfigFor[EMAModel],
-        optimizer: HydraConfigFor[functools.partial[Optimizer]],
         datamodule: ManiSkillDataModule,
-        act_horizon: int,
+        optimizer: HydraConfigFor[functools.partial[Optimizer]],
+        scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        act_horizon: int = 8,
     ):
         super().__init__()
 
@@ -42,16 +44,17 @@ class DiffusionPolicy(L.LightningModule):
             self.noise_scheduler_config
         )
 
-        self.optimizer_config = optimizer
-        self.optimizer: Optimizer | None = None
-
         self.datamodule = datamodule
         self.obs_horizon = self.datamodule.obs_horizon
         self.pred_horizon = self.datamodule.pred_horizon
 
-        self.act_horizon = act_horizon
+        self.optimizer_config = optimizer
+        self.optimizer: Optimizer | None = None
 
-        # Extract these from the datamodule
+        self.scheduler_config = scheduler
+        self.scheduler: LRScheduler | None = None
+
+        self.act_horizon = act_horizon
         self.act_dim = self.datamodule.action_dim
 
         # TODO: not really that good to put env as obs, I am mixing terminology here, later re-order
@@ -87,21 +90,22 @@ class DiffusionPolicy(L.LightningModule):
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self):
-        """Creates the optimizers."""
+        """Creates the optimizers and LR schedulers."""
 
-        # TODO: Can Lighting configure a LR scheduler too?
-
-        # NOTE: Optimizers and schedulers could actually be made in one shot, without partial, for how they are handles here
+        # NOTE: Optimizers and schedulers could actually be made in one shot, without partial,
         # however I prefer to follow the template prescription, just for coherence
 
-        # Instantiate the optimizer config into a functools.partial object
+        # Instantiate the optimizer config
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
-
-        # Call the functools.partial object, passing the parameters as an argument
         optimizer = optimizer_partial(self.parameters())
 
-        # This then returns the optimizer
-        return optimizer
+        # Instantiate the scheduler config, if provided
+        if self.scheduler_config is not None:
+            scheduler_partial = hydra_zen.instantiate(self.scheduler_config)
+            scheduler = scheduler_partial(optimizer)
+            return [optimizer], [scheduler]
+        else:
+            return optimizer
 
     def _compute_loss(self, obs_seq, action_seq):
         """Loss calculation logic."""

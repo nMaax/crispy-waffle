@@ -35,7 +35,7 @@ class RolloutEvaluationCallback(L.Callback):
         pl_module.eval()
 
         # Explicitly tell Pyright to stop assuming custom attributes are Tensors/Modules, but the DiffusionPolicy itself.
-        # TODO: Maybe I can find some more general Type that is not fixed to DiffusionPolicy
+        # TODO: Maybe I can find some more general Type that is not fixed to DiffusionPolicy, maybe a Protocol for all my IL approached
         policy = cast(DiffusionPolicy, pl_module)
         obs_horizon: int = policy.obs_horizon
 
