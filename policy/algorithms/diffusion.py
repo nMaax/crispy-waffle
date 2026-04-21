@@ -26,6 +26,7 @@ class DiffusionPolicy(L.LightningModule):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         act_horizon: int = 8,
+        predict_noise: bool = True,
     ):
         super().__init__()
 
@@ -69,6 +70,8 @@ class DiffusionPolicy(L.LightningModule):
         else:
             # Fallback in case it's already an integer
             self.obs_dim = cast(int, raw_obs_dim)
+
+        self.predict_noise = predict_noise
 
     def configure_model(self):
         """Lightning calls this before training starts to initialize weights safely."""
@@ -140,11 +143,16 @@ class DiffusionPolicy(L.LightningModule):
         timesteps = cast(torch.IntTensor, timesteps)
 
         # Here we do noise-prediction (as in DDPM), not data prediction
-        # TODO: Maybe in the future we could generalize noise pred vs action pred as hyperparameters in the DiffusionPolicy class?
-        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
-        noise_pred = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
 
-        return F.mse_loss(noise_pred, noise)
+        if self.predict_noise:
+            target = noise
+        else:
+            target = action_seq
+
+        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
+        prediction = self.network(noisy_action_seq, timesteps, global_cond=obs_cond)
+
+        return F.mse_loss(prediction, target)
 
     def _shared_step(self, batch, batch_idx, phase: str):
         "Main step logic, it doesn't differ between training and validation except for the logging."
