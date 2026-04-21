@@ -42,7 +42,7 @@ class RolloutEvaluationCallback(L.Callback):
         # Cast to PolicyProtocol so we can access get_action and cond_horizon without
         # depending on a specific implementation class.
         policy = cast(PolicyProtocol, pl_module)
-        obs_horizon: int = policy.cond_horizon
+        obs_horizon = policy.cond_horizon
 
         # Inject arbitrary base seeds to avoid using those at training
         base_seed = BASE_SEED_VAL if phase == "val" else BASE_SEED_TEST
