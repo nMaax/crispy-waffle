@@ -155,7 +155,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.conditioning_source = conditioning_source
+        self.conditioning_source: Literal["env_states", "obs", "both"] = conditioning_source
 
         # Prepare train and val split sets
         self.train_set: Dataset | None = None
