@@ -54,6 +54,12 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def dataloader(self, datamodule: DataModuleType, stage: RunningStage) -> DataLoader:
+
+        # NOTE: This fixture is class-scoped, so it executes BEFORE the function-scoped
+        # 'seed' fixture in conftest.py. We must manually pin the seed here to ensure
+        # that randomness inside setup() (like random_split) is deterministic across
+        # different test runs.
+
         lightning.seed_everything(42, workers=True)
         datamodule.prepare_data()
         if stage == RunningStage.TRAINING:
@@ -73,8 +79,12 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
 
     @pytest.fixture(scope="class")
     def batch(self, dataloader: DataLoader):
-        # Pin the random seed right before iterating to guarantee the RandomSampler
-        # generates the exact same sequence of indices every time.
+
+        # NOTE: This fixture is class-scoped, so it executes BEFORE the function-scoped
+        # 'seed' fixture in conftest.py. We must manually pin the seed here to ensure
+        # that randomness inside setup() (like random_split) is deterministic across
+        # different test runs.
+
         lightning.seed_everything(42, workers=True)
         iterator = iter(dataloader)
         batch = next(iterator)
