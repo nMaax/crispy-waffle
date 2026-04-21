@@ -1,7 +1,9 @@
 import pytest
+import torch
 
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
+from policy.utils import get_batch_size
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
@@ -34,12 +36,47 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm,
         training_step_content,
     ):
-        # Use the cond_seq from the training batch as input
+        """Check that get_action produces a finite tensor of the expected shape and device on a
+        sample batch."""
+        # Prepare model for inference and sync devices
+        algorithm.eval()
+        batch_device = training_step_content.batch["action_seq"].device
+        algorithm.to(batch_device)
+
+        # Execute inference
         cond_seq = training_step_content.batch["cond_seq"]
-        out = algorithm.get_action(cond_seq)
-        # Check output is a torch.Tensor
-        assert isinstance(out, type(cond_seq))
-        # Check output shape: (batch, act_horizon, act_dim)
-        assert out.shape[0] == cond_seq.shape[0]
-        assert out.shape[1] == algorithm.act_horizon
-        assert out.shape[2] == algorithm.act_dim
+        with torch.no_grad():
+            out = algorithm.get_action(cond_seq)
+
+        # Assert instance, finiteness, device, and shape of the output
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            get_batch_size(cond_seq),
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
+    def test_get_action_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        """Check that get_action produces the same action tensor given a fixed random seed."""
+        #  Prepare model for inference and sync devices
+        algorithm.eval()
+        batch_device = training_step_content.batch["action_seq"].device
+        algorithm.to(batch_device)
+
+        cond_seq = training_step_content.batch["cond_seq"]
+        with torch.no_grad():
+            out = algorithm.get_action(cond_seq)
+
+        # Regression check
+        tensor_regression.check(
+            {"action": out},
+            default_tolerance={"rtol": 1e-5, "atol": 1e-6},
+            include_gpu_name_in_stats=False,
+        )

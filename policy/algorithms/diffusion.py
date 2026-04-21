@@ -210,7 +210,7 @@ class DiffusionPolicy(L.LightningModule):
             )
 
             for k in self.noise_scheduler.timesteps:
-                k = cast(int, k.item())
+                k = int(k.item())
 
                 noise_pred = self.network(
                     sample=noisy_action_seq,
