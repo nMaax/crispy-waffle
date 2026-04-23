@@ -99,4 +99,5 @@ class RolloutEvaluationCallback(L.Callback):
         success_rate = successes / num_episodes
 
         # Log the metric directly to the module
+        # TODO: this is not logging the last/avg computed success rate on the training bar, maybe it is sneaked inside the validation one which anyway disappears after the validation ends.
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
