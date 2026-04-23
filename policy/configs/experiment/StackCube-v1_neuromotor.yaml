@@ -46,6 +46,8 @@ trainer:
       num_val_episodes: 10
       num_test_episodes: 100
 
+    early_stopping: null # Disable early stopping at all
+
     model_checkpoint:
       monitor: "val/success_rate" # name of the logged metric which determines when model is improving
       mode: "max" # "max" means higher metric value is better, can be also "min"
