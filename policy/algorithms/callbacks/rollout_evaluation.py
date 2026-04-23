@@ -3,6 +3,7 @@ from typing import cast
 
 import gymnasium as gym
 import lightning as L
+import mani_skill.envs  # noqa: F401 (registers environments silently, ruff must ignore this)
 import numpy as np
 import torch
 
