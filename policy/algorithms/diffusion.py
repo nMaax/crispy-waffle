@@ -137,7 +137,8 @@ class DiffusionPolicy(L.LightningModule):
 
         timesteps = torch.randint(
             0,
-            self.noise_scheduler.num_train_timesteps,
+            # Accessing num_train_timesteps directly is deprecated, must use config instead
+            self.noise_scheduler.config.num_train_timesteps,
             (B,),
             device=self.device,
             dtype=torch.int32,
@@ -151,7 +152,8 @@ class DiffusionPolicy(L.LightningModule):
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
         prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
 
-        if self.noise_scheduler.prediction_type == "epsilon":
+        # Accessing prediction_type directly is deprecated, use config instead
+        if self.noise_scheduler.config.prediction_type == "epsilon":
             target = noise
         else:
             target = action_seq
