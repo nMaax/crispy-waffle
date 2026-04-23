@@ -38,6 +38,8 @@ trainer:
   limit_test_batches: null # Re-enable testing
   val_check_interval: 200 # Run the rollout callback every 50 steps
 
+  num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
+
   callbacks:
     rollout_evaluation:
       env_id: StackCube-v1
@@ -54,5 +56,5 @@ trainer:
       mode: "max" # "max" means higher metric value is better, can be also "min"
       save_top_k: 1 # save k best models (determined by above metric)
       save_last: true # additionally always save model from last epoch
-      every_n_train_steps: 200 # Pass something to overwrite the every_n_train_steps: null and every_n_epochs:null, which would have defaulted to every_n_epochs=1 with Hydra
+      # every_n_train_steps: 200 # Overwrite the every_n_train_steps: null and every_n_epochs:null, which would have defaulted to every_n_epochs=1 with Hydra
       verbose: false

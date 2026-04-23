@@ -99,4 +99,4 @@ class RolloutEvaluationCallback(L.Callback):
         success_rate = successes / num_episodes
 
         # Log the metric directly to the module
-        pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True)
+        pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
