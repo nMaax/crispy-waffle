@@ -23,22 +23,33 @@ algorithm:
     T_max: ${trainer.max_steps}
 
 datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 # Maybe move this to experiments? But only once you truly need it
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
+  conditioning_source: ${cond_source}
   cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
-  conditioning_source: ${cond_source}
 
 trainer:
+  min_epochs: -1 # -1 disables epoch limits
+  max_epochs: -1 # -1 disables epoch limits
+  max_steps: 100000 # Train for exactly 100,000 iterations (batches)
+
   limit_val_batches: null # Re-enable validation
   limit_test_batches: null # Re-enable testing
-  val_check_interval: 10 # Run the rollout callback every 10 steps
+  val_check_interval: 200 # Run the rollout callback every 50 steps
 
   callbacks:
     rollout_evaluation:
-      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       env_id: StackCube-v1
+      control_mode: "pd_joint_delta_pos"
+      conditioning_source: ${cond_source}
       num_val_episodes: 10
       num_test_episodes: 100
-      conditioning_source: ${cond_source} # Dynamically grab the setting from the datamodule so they never mismatch!
-      control_mode: "pd_joint_delta_pos"
+
+    model_checkpoint:
+      monitor: "val/success_rate" # name of the logged metric which determines when model is improving
+      mode: "max" # "max" means higher metric value is better, can be also "min"
+      save_top_k: 1 # save k best models (determined by above metric)
+      save_last: true # additionally always save model from last epoch
+      every_n_train_steps: 200 # Pass something to overwrite the every_n_train_steps: null and every_n_epochs:null, which would have defaulted to every_n_epochs=1 with Hydra
+      verbose: false
