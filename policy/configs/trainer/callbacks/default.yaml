@@ -35,6 +35,6 @@ throughput:
 
 rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
-  env_id: "PickCube-v1" # Or whatever your ManiSkill env is
+  env_id: "StackCube-v1"
   num_val_episodes: 10
   num_test_episodes: 100
