@@ -12,7 +12,7 @@ _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false
 
 act_horizon: 8 # Must ensure this is less than pred_horizon in the datamodule!
-predict_noise: True # Whether to predict noise or the sample itself
+prediction_type: "epsilon" # Whether to predict noise or the sample itself
 
 # --- OVERRIDES ---
 

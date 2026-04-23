@@ -1,5 +1,5 @@
 import functools
-from typing import cast
+from typing import Literal, cast
 
 import hydra_zen
 import lightning as L
@@ -15,9 +15,10 @@ from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
-# NOTE: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
+# TODO: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
 # on the API based on the diffusers' DDPM implementation and DDPM themselves.
 # e.g. I do not call set_timesteps() on the DDPM at inference (get_action()) since DDPM should not do that
+# e.g. I suppose predicting type as one of the Literals allowed by DDPM
 # Maybe some generalization could be needed in the future if we want
 # to introduce DDIM or Flow Matching, e.g. introducing a set_timesteps() at inference, where with DDPM defaults to the same as training timesteps
 
@@ -32,6 +33,7 @@ class DiffusionPolicy(L.LightningModule):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         act_horizon: int = 8,
+        prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
         super().__init__()
 
@@ -47,7 +49,7 @@ class DiffusionPolicy(L.LightningModule):
 
         self.noise_scheduler_config = noise_scheduler
         self.noise_scheduler: DDPMScheduler | None = hydra_zen.instantiate(
-            self.noise_scheduler_config
+            self.noise_scheduler_config, prediction_type=prediction_type
         )
 
         self.datamodule = datamodule

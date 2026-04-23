@@ -14,7 +14,7 @@ name: StackCube-v1_neuromotor_run
 
 algorithm:
   act_horizon: 8 # Must be smaller than datamodule pred_horizon!
-  predict_noise: true # Whether to predict noise or the sample itself
+  prediction_type: "epsilon" # Whether to predict noise or the sample itself
 
   optimizer:
     lr: 1e-3
