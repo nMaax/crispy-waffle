@@ -34,4 +34,4 @@ noise_scheduler:
   num_train_timesteps: 100
 
 lr_scheduler:
-  T_max: ${trainer.max_steps} # TODO: Not so sure about this
+  T_max: ${trainer.max_steps}

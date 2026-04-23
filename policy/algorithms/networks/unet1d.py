@@ -21,6 +21,11 @@ import torch.nn as nn
 
 
 class SinusoidalPosEmb(nn.Module):
+    """Positional embedding for diffusion (time) step k.
+
+    Similar to the one used in the original transformer paper.
+    """
+
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -36,6 +41,8 @@ class SinusoidalPosEmb(nn.Module):
 
 
 class Downsample1d(nn.Module):
+    """Downsamples the input by a factor of 2 with a strided convolution."""
+
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
@@ -45,6 +52,8 @@ class Downsample1d(nn.Module):
 
 
 class Upsample1d(nn.Module):
+    """Upsamples the input by a factor of 2 with a transposed convolution."""
+
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
@@ -54,7 +63,10 @@ class Upsample1d(nn.Module):
 
 
 class Conv1dBlock(nn.Module):
-    """Conv1d --> GroupNorm --> Mish."""
+    """A basic block for convolutional processing in the UNet.
+
+    Operates: Conv1d --> GroupNorm --> Mish.
+    """
 
     def __init__(self, inp_channels, out_channels, kernel_size, n_groups=8):
         super().__init__()
@@ -70,7 +82,10 @@ class Conv1dBlock(nn.Module):
 
 
 class ConditionalResidualBlock1D(nn.Module):
-    """Conv1dBlock --> FiLM conditioning --> Conv1dBlock with residual connection."""
+    """A wrapper of the basic block that applies FiLM conditioning and a residual connection.
+
+    Operates: Conv1dBlock --> FiLM conditioning --> Conv1dBlock with residual connection.
+    """
 
     def __init__(self, in_channels, out_channels, cond_dim, kernel_size=3, n_groups=8):
         super().__init__()
@@ -90,7 +105,7 @@ class ConditionalResidualBlock1D(nn.Module):
             nn.Mish(), nn.Linear(cond_dim, cond_channels), nn.Unflatten(-1, (-1, 1))
         )
 
-        # make sure dimensions compatible
+        # Make sure dimensions are compatible
         self.residual_conv = (
             nn.Conv1d(in_channels, out_channels, 1)
             if in_channels != out_channels
@@ -99,11 +114,12 @@ class ConditionalResidualBlock1D(nn.Module):
 
     def forward(self, x, cond):
         """
-        x : [ batch_size x in_channels x horizon ]
-        cond : [ batch_size x cond_dim]
+        parameters:
+            x : [ batch_size x in_channels x horizon ]
+            cond : [ batch_size x cond_dim]
 
         returns:
-        out : [ batch_size x out_channels x horizon ]
+            out : [ batch_size x out_channels x horizon ]
         """
         # First Conv1d Block
         out = self.blocks[0](x)
@@ -122,24 +138,34 @@ class ConditionalResidualBlock1D(nn.Module):
 
 
 class ConditionalUnet1D(nn.Module):
+    """The UNet architecture for noise prediction.
+
+    Takes in the noisy sample, diffusion step, and global conditioning to predict the noise
+    component in the input sample.
+    """
+
     def __init__(
         self,
         input_dim,
-        global_cond_dim,  # TODO: improve naming, as well as docstrings
+        external_cond_dim,
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
         kernel_size=5,
         n_groups=8,
     ):
         """
-        input_dim: Dim of actions.
-        global_cond_dim: Dim of global conditioning applied with FiLM
-          in addition to diffusion step embedding. This is usually cond_horizon * cond_dim
-        diffusion_step_embed_dim: Dimensionality of  encoding for time / diffusion iteration k
-        down_dims: Channel size for each UNet level.
-          The length of this array determines number of levels.
-        kernel_size: Conv kernel size
-        n_groups: Number of groups for GroupNorm
+        parameters:
+            input_dim: Dim of actions.
+            external_cond_dim: Dim of global conditioning applied with FiLM
+            in addition to diffusion step embedding. This is usually cond_horizon * cond_dim
+            diffusion_step_embed_dim: Dimensionality of  encoding for time / diffusion iteration k
+            down_dims: Channel size for each UNet level.
+            The length of this array determines number of levels.
+            kernel_size: Conv kernel size
+            n_groups: Number of groups for GroupNorm
+
+        returns:
+            The Unet for noise prediction in the diffusion model.
         """
 
         super().__init__()
@@ -153,7 +179,7 @@ class ConditionalUnet1D(nn.Module):
             nn.Mish(),
             nn.Linear(dsed * 4, dsed),
         )
-        cond_dim = dsed + global_cond_dim
+        cond_dim = dsed + external_cond_dim
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]
@@ -243,13 +269,15 @@ class ConditionalUnet1D(nn.Module):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
-        global_cond=None,
+        external_cond=None,
     ):
         """
-        x: (B,T,input_dim)
-        timestep: (B,) or int, diffusion step
-        global_cond: (B,global_cond_dim)
-        output: (B,T,input_dim)
+        parameters:
+            x: [batch_size × horizon × input_dim], the noisy sample to denoise
+            timestep: [batch_size,] or int, diffusion step
+            external_cond: [batch_size × external_cond_dim], the global conditioning applied with FiLM in the residual blocks. This is usually cond_horizon * cond_dim
+        returns:
+            denoised_x: [batch_size × horizon × input_dim], the denoised sample after passing through the UNet
         """
         # (B,T,C) -> (B,C,T)
         sample = sample.moveaxis(-1, -2)
@@ -270,8 +298,8 @@ class ConditionalUnet1D(nn.Module):
         global_feature = self.diffusion_step_encoder(timesteps)
 
         # Concatenate time embedding with the (eventually provided) global conditioning
-        if global_cond is not None:
-            global_feature = torch.cat([global_feature, global_cond], dim=-1)
+        if external_cond is not None:
+            global_feature = torch.cat([global_feature, external_cond], dim=-1)
 
         # Prepare variables to pass and track Unet features for skip connections
         x = sample  # Working variable that we will pass through the UNet

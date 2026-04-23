@@ -15,6 +15,12 @@ from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
+# NOTE: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
+# on the API based on the diffusers' DDPM implementation and DDPM themselves.
+# e.g. I do not call set_timesteps() on the DDPM at inference (get_action()) since DDPM should not do that
+# Maybe some generalization could be needed in the future if we want
+# to introduce DDIM or Flow Matching, e.g. introducing a set_timesteps() at inference, where with DDPM defaults to the same as training timesteps
+
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
@@ -26,7 +32,6 @@ class DiffusionPolicy(L.LightningModule):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         act_horizon: int = 8,
-        predict_noise: bool = True,
     ):
         super().__init__()
 
@@ -69,19 +74,17 @@ class DiffusionPolicy(L.LightningModule):
             # Fallback in case it's already an integer
             self.cond_dim = cast(int, raw_cond_dim)
 
-        self.predict_noise = predict_noise
-
     def configure_model(self):
         """Lightning calls this before training starts to initialize weights safely."""
         if self.network is not None:
             return
 
         # Here our conditioning is the flatten observation sequence, so we compute the dimension accordingly
-        global_cond_dim = self.cond_horizon * self.cond_dim
+        external_cond_dim = self.cond_horizon * self.cond_dim
 
         # Use hydra_zen to instantiate, injecting computed dimensions
         self.network = hydra_zen.instantiate(
-            self.network_config, input_dim=self.act_dim, global_cond_dim=global_cond_dim
+            self.network_config, input_dim=self.act_dim, external_cond_dim=external_cond_dim
         )
 
         if self.ema is not None:
@@ -132,7 +135,6 @@ class DiffusionPolicy(L.LightningModule):
 
         timesteps = torch.randint(
             0,
-            # TODO: what about num_dffusion_timesteps for inference? Maybe I should use this in get_action?
             self.noise_scheduler.num_train_timesteps,
             (B,),
             device=self.device,
@@ -145,9 +147,9 @@ class DiffusionPolicy(L.LightningModule):
         flatten_cond = flatten_tensor_dict(cond_seq)
 
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
-        prediction = self.network(noisy_action_seq, timesteps, global_cond=flatten_cond)
+        prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
 
-        if self.predict_noise:
+        if self.noise_scheduler.prediction_type == "epsilon":
             target = noise
         else:
             target = action_seq
@@ -215,7 +217,7 @@ class DiffusionPolicy(L.LightningModule):
                 noise_pred = self.network(
                     sample=noisy_action_seq,
                     timestep=k,
-                    global_cond=flatten_cond,
+                    external_cond=flatten_cond,
                 )
                 output = self.noise_scheduler.step(
                     model_output=noise_pred,

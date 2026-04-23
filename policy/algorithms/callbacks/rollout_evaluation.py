@@ -19,12 +19,14 @@ class RolloutEvaluationCallback(L.Callback):
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         obs_mode: str = "state",
+        control_mode: str = "pd_ee_delta_pose",
     ):
         super().__init__()
         self.env_id = env_id
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
         self.obs_mode = obs_mode
+        self.control_mode = control_mode
 
     def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(pl_module, self.num_val_episodes, "val")
@@ -33,7 +35,7 @@ class RolloutEvaluationCallback(L.Callback):
         self._run_rollouts(pl_module, self.num_test_episodes, "test")
 
     def _run_rollouts(self, pl_module: L.LightningModule, num_episodes: int, phase: str):
-        env = gym.make(self.env_id, obs_mode=self.obs_mode, control_mode="pd_ee_delta_pose")
+        env = gym.make(self.env_id, obs_mode=self.obs_mode, control_mode=self.control_mode)
         successes = 0
 
         # Put model in eval mode
