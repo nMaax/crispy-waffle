@@ -55,3 +55,6 @@ class Config:
 
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
+
+    cond_source: str = "obs"
+    """The source of the conditioning signal (e.g., 'obs' or 'env_states')."""

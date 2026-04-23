@@ -7,8 +7,8 @@ defaults:
   - override /trainer: default # Redundant since the primary config.yaml already does it, but just for completeness
   - _self_
 
-# The name of the experiment (for logging)
-name: StackCube-v1_neuromotor_run
+name: StackCube-v1_neuromotor_run # The name of the experiment (for logging)
+cond_source: "env_states" # Where to evaluate? obs or env_states?
 
 # --- OVERRIDEs  ---
 
@@ -27,9 +27,17 @@ datamodule:
   cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
-  conditioning_source: "env_states"
+  conditioning_source: ${cond_source}
 
 trainer:
   limit_val_batches: null # Re-enable validation
   limit_test_batches: null # Re-enable testing
   val_check_interval: 5000 # Run the rollout callback every 5000 steps
+
+  callbacks:
+    rollout_evaluation:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      env_id: StackCube-v1
+      num_val_episodes: 10
+      num_test_episodes: 100
+      conditioning_source: ${cond_source} # Dynamically grab the setting from the datamodule so they never mismatch!
