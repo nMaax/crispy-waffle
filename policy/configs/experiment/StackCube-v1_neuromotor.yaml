@@ -32,7 +32,7 @@ datamodule:
 trainer:
   limit_val_batches: null # Re-enable validation
   limit_test_batches: null # Re-enable testing
-  val_check_interval: 5000 # Run the rollout callback every 5000 steps
+  val_check_interval: 10 # Run the rollout callback every 10 steps
 
   callbacks:
     rollout_evaluation:

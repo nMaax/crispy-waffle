@@ -26,17 +26,17 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
+        conditioning_source: Literal["env_states", "obs", "both"],
         cond_horizon: int,
         pred_horizon: int,
-        conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
         load_count: int = -1,
         success_only: bool = False,
     ) -> None:
         super().__init__()
         self.dataset_file = Path(dataset_file)
+        self.conditioning_source = conditioning_source
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
-        self.conditioning_source = conditioning_source
 
         # Load JSON metadata
         json_path = self.dataset_file.with_suffix(".json")
@@ -219,10 +219,10 @@ class ManiSkillDataModule(L.LightningDataModule):
     def setup(self, stage=None):
         if self.train_set is None:
             full_dataset = ManiSkillTrajectoryDataset(
-                self.dataset_file,
-                self.cond_horizon,
-                self.pred_horizon,
+                dataset_file=self.dataset_file,
                 conditioning_source=self.conditioning_source,
+                cond_horizon=self.cond_horizon,
+                pred_horizon=self.pred_horizon,
             )
 
             val_size = int(len(full_dataset) * self.val_split)

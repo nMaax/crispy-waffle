@@ -17,11 +17,11 @@ class RolloutEvaluationCallback(L.Callback):
     def __init__(
         self,
         env_id: str,
+        control_mode: str,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         conditioning_source: Literal["obs", "env_states"] = "obs",
         obs_mode: str = "state",
-        control_mode: str = "pd_ee_delta_pose",
     ):
         super().__init__()
         self.env_id = env_id
