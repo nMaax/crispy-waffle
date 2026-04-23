@@ -41,3 +41,4 @@ trainer:
       num_val_episodes: 10
       num_test_episodes: 100
       conditioning_source: ${cond_source} # Dynamically grab the setting from the datamodule so they never mismatch!
+      control_mode: "pd_joint_delta_pos"

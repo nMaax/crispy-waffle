@@ -82,7 +82,7 @@ class RolloutEvaluationCallback(L.Callback):
 
                 # Get action from the policy using the casted object
                 action_seq = policy.get_action(obs_seq)
-                action = action_seq[0, 0].cpu().numpy()
+                action = action_seq[:, 0].cpu().numpy()
 
                 obs, reward, terminated, truncated, info = env.step(action)
 
