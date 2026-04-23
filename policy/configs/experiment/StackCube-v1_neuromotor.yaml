@@ -38,7 +38,7 @@ trainer:
   limit_test_batches: null # Re-enable testing
   val_check_interval: 200 # Run the rollout callback every 50 steps
 
-  num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
+  num_sanity_val_steps: 0 # TODO: seems like it is not working, Avoid sanity check, tho this should not be done...
 
   callbacks:
     rollout_evaluation:
