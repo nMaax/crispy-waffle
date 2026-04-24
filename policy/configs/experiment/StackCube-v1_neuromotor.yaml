@@ -41,6 +41,11 @@ trainer:
   num_sanity_val_steps: 0 # TODO: seems like it is not working, Avoid sanity check, tho this should not be done...
 
   callbacks:
+
+    rich_progress_bar: null  # This disables the rich progress bar specifically
+    tqdm_progress_bar:       # This adds the standard one
+      _target_: lightning.pytorch.callbacks.TQDMProgressBar
+
     rollout_evaluation:
       env_id: StackCube-v1
       control_mode: "pd_joint_delta_pos"
