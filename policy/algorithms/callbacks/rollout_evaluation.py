@@ -40,6 +40,9 @@ class RolloutEvaluationCallback(L.Callback):
         self.val_seed = seed + self.BASE_SEED_VAL
         self.test_seed = seed + self.BASE_SEED_TEST
 
+        # XXX: Debug
+        print(f"Valuation seed: {self.val_seed}, Test seed: {self.test_seed}")
+
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
         if self.conditioning_source == "env_states":

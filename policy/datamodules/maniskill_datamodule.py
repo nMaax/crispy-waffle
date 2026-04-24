@@ -9,7 +9,7 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-from policy.utils import extract_h5_shapes, load_h5_data, to_tensor
+from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
 
 # NOTE: The use of DummyDataset is a bit hacky (and smelly, ngl)
 # but it allows us to trigger the Lightning loops for validation and testing without needing
@@ -100,6 +100,7 @@ class ManiSkillTrajectoryDataset(Dataset):
             f"Dataset initialized: {len(self.slices)} temporal windows \
             from {len(self.trajectories)} episodes "
         )
+        print_dict_tree(self.trajectories[0])
 
     def _slice_and_pad(self, data, start, end, L):
         if isinstance(data, dict):
