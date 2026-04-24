@@ -39,7 +39,7 @@ trainer:
   val_check_interval: 5000 # Run the rollout callback every 50 steps
   check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 
-  num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
+  # num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
 
   callbacks:
     rich_progress_bar: null # This disables the rich progress bar specifically
