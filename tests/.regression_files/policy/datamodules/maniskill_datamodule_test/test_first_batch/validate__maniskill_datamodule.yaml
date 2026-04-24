@@ -1,5 +1,6 @@
 action_seq:
   device: cpu
+  dtype: torch.float32
   max: 2.8783912658691406
   mean: 0.05788364261388779
   min: -2.6465795040130615
@@ -10,6 +11,7 @@ action_seq:
   sum: 948.3656005859375
 cond_seq.actors.cubeA:
   device: cpu
+  dtype: torch.float32
   max: 4.177993297576904
   mean: 0.05704519525170326
   min: -2.232494831085205
@@ -20,6 +22,7 @@ cond_seq.actors.cubeA:
   sum: 189.84640502929688
 cond_seq.actors.cubeB:
   device: cpu
+  dtype: torch.float32
   max: 0.999995768070221
   mean: 0.05531974136829376
   min: -0.9994999766349792
@@ -30,6 +33,7 @@ cond_seq.actors.cubeB:
   sum: 184.10409545898438
 cond_seq.actors.table-workspace:
   device: cpu
+  dtype: torch.float32
   max: 0.7071068286895752
   mean: 0.028813133016228676
   min: -0.9196429252624512
@@ -40,6 +44,7 @@ cond_seq.actors.table-workspace:
   sum: 95.89010620117188
 cond_seq.articulations.panda_wristcam:
   device: cpu
+  dtype: torch.float32
   max: 2.9082717895507812
   mean: 0.029860969632864
   min: -2.505074977874756
