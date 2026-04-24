@@ -46,13 +46,13 @@ class RolloutEvaluationCallback(L.Callback):
         return step_obs
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(pl_module, trainer, self.num_val_episodes, "val")
+        self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(pl_module, trainer, self.num_test_episodes, "test")
+        self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
 
     def _run_rollouts(
-        self, pl_module: L.LightningModule, trainer: L.Trainer, num_episodes: int, phase: str
+        self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
         env = gym.make(self.env_id, obs_mode=self.obs_mode, control_mode=self.control_mode)
         successes = 0
