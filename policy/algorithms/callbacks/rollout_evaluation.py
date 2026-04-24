@@ -12,15 +12,17 @@ from tqdm import tqdm
 
 from policy.utils.typing_utils import PolicyProtocol
 
-BASE_SEED_VAL = 42000
-BASE_SEED_TEST = 67000
-
 
 class RolloutEvaluationCallback(L.Callback):
+    # Offset validation and test
+    BASE_SEED_VAL: int = 42000
+    BASE_SEED_TEST: int = 67000
+
     def __init__(
         self,
         env_id: str,
         control_mode: str,
+        seed: int,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         conditioning_source: Literal["obs", "env_states"] = "obs",
@@ -33,6 +35,10 @@ class RolloutEvaluationCallback(L.Callback):
         self.conditioning_source = conditioning_source
         self.obs_mode = obs_mode
         self.control_mode = control_mode
+
+        # Inject arbitrary base seeds to avoid using those at training
+        self.val_seed = seed + self.BASE_SEED_VAL
+        self.test_seed = seed + self.BASE_SEED_TEST
 
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
@@ -68,9 +74,6 @@ class RolloutEvaluationCallback(L.Callback):
         policy = cast(PolicyProtocol, pl_module)
         obs_horizon = policy.cond_horizon
 
-        # Inject arbitrary base seeds to avoid using those at training
-        base_seed = BASE_SEED_VAL if phase == "val" else BASE_SEED_TEST
-
         # Check if we are using RichProgressBar or TQDMProgressBar
         is_rich = isinstance(trainer.progress_bar_callback, RichProgressBar)
         pbar: Any = None
@@ -93,7 +96,8 @@ class RolloutEvaluationCallback(L.Callback):
             )  # leave=False ensures the bar clears up after completion, position=2 to avoid overwriting other bars
 
         # Reset the parallel environment. 'obs' is directly a batched PyTorch Tensor.
-        obs, info = env.reset(seed=base_seed)
+        seed = self.val_seed if phase == "val" else self.test_seed
+        obs, info = env.reset(seed=seed)
         policy_input = self._get_policy_input(env, obs)
 
         # Populate dequeue with batched GPU tensors
