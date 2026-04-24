@@ -11,6 +11,11 @@ from tqdm import tqdm
 
 from policy.utils import extract_h5_shapes, load_h5_data, to_tensor
 
+# NOTE: The use of DummyDataset is a bit hacky (and smelly, ngl)
+# but it allows us to trigger the Lightning loops for validation and testing without needing
+# actual data loading logic in those phases.The RolloutEvaluationCallback will handle the real evaluation logic in simulation,
+# so we just need a placeholder here to satisfy the DataLoader interface.
+
 
 class DummyDataset(Dataset):
     """A minimal dataset to trigger Lightning loops for simulation-only phases."""
@@ -260,18 +265,3 @@ class ManiSkillDataModule(L.LightningDataModule):
         # Testing is done strictly via simulation in the Callback.
         # We return a dummy batch just to trigger the Callback logic.
         return DataLoader(DummyDataset(), batch_size=1)
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    h5_path = (
-        Path.home() / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
-    )
-    cond_horizon = 8
-    pred_horizon = 4
-    # Load a datamodule instead of a dataset and get the action, obs and env shapes
-    datamodule = ManiSkillDataModule(h5_path, cond_horizon, pred_horizon)
-    print(datamodule.action_dim)
-    print(datamodule.env_state_dim)
-    print(datamodule.obs_dim)
