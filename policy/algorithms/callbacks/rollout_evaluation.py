@@ -1,3 +1,4 @@
+import random
 from collections import deque
 from typing import Any, Literal, cast
 
@@ -22,11 +23,11 @@ class RolloutEvaluationCallback(L.Callback):
         self,
         env_id: str,
         control_mode: str,
-        seed: int,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         conditioning_source: Literal["obs", "env_states"] = "obs",
         obs_mode: str = "state",
+        seed: int | None = None,
     ):
         super().__init__()
         self.env_id = env_id
@@ -37,8 +38,9 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = control_mode
 
         # Inject arbitrary base seeds to avoid using those at training
-        self.val_seed = seed + self.BASE_SEED_VAL
-        self.test_seed = seed + self.BASE_SEED_TEST
+        main_seed = seed if seed is not None else random.randint(0, int(1e5))
+        self.val_seed = main_seed + self.BASE_SEED_VAL
+        self.test_seed = main_seed + self.BASE_SEED_TEST
 
         # XXX: Debug
         print(f"Valuation seed: {self.val_seed}, Test seed: {self.test_seed}")
