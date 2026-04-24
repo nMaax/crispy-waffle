@@ -1,11 +1,15 @@
 from collections import deque
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import gymnasium as gym
 import lightning as L
 import mani_skill.envs  # noqa: F401 (registers environments silently, ruff must ignore this)
 import numpy as np
 import torch
+from lightning.pytorch.callbacks import RichProgressBar
+from lightning.pytorch.utilities import rank_zero_info
+from rich.progress import Progress
+from tqdm import tqdm
 
 from policy.utils.typing_utils import PolicyProtocol
 
@@ -42,12 +46,14 @@ class RolloutEvaluationCallback(L.Callback):
         return step_obs
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(pl_module, self.num_val_episodes, "val")
+        self._run_rollouts(pl_module, trainer, self.num_val_episodes, "val")
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(pl_module, self.num_test_episodes, "test")
+        self._run_rollouts(pl_module, trainer, self.num_test_episodes, "test")
 
-    def _run_rollouts(self, pl_module: L.LightningModule, num_episodes: int, phase: str):
+    def _run_rollouts(
+        self, pl_module: L.LightningModule, trainer: L.Trainer, num_episodes: int, phase: str
+    ):
         env = gym.make(self.env_id, obs_mode=self.obs_mode, control_mode=self.control_mode)
         successes = 0
 
@@ -61,6 +67,24 @@ class RolloutEvaluationCallback(L.Callback):
 
         # Inject arbitrary base seeds to avoid using those at training
         base_seed = BASE_SEED_VAL if phase == "val" else BASE_SEED_TEST
+
+        # Check if we are using RichProgressBar or TQDMProgressBar
+        is_rich = isinstance(trainer.progress_bar_callback, RichProgressBar)
+        pbar: Any = None
+        task_id: Any = None
+
+        if is_rich:
+            pbar = Progress(
+                transient=True
+            )  # transient=True ensures the bar clears up after completion
+            task_id = pbar.add_task(
+                f"[cyan][{phase.capitalize()}] Rollout Eval...", total=num_episodes
+            )
+            pbar.start()
+        else:
+            pbar = tqdm(
+                total=num_episodes, desc=f"[{phase.capitalize()}] Rollout Eval", leave=False
+            )  # leave=False ensures the bar clears up after completion
 
         for i in range(num_episodes):
             # Pass the seed based on the episode index
@@ -95,11 +119,23 @@ class RolloutEvaluationCallback(L.Callback):
                     successes += 1
                     break
 
+            if is_rich:
+                pbar.update(task_id, advance=1)
+            else:
+                pbar.update(1)
+
+        if is_rich:
+            pbar.stop()
+        else:
+            pbar.close()
+
         env.close()
         success_rate = successes / num_episodes
 
         # Log the metric directly to the module
-        # TODO: this is not logging the last/avg computed success rate on the training bar, maybe it is sneaked inside the validation one which anyway disappears after the validation ends.
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
 
-        print(f"✔ {phase.capitalize()} Rollout Success Rate: {success_rate * 100:.2f}%")
+        # And as a separate line itself
+        rank_zero_info(
+            f"Epoch {trainer.current_epoch} - {phase} rollout success rate: {success_rate:.2%}"
+        )
