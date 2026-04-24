@@ -83,8 +83,11 @@ class RolloutEvaluationCallback(L.Callback):
             pbar.start()
         else:
             pbar = tqdm(
-                total=num_episodes, desc=f"[{phase.capitalize()}] Rollout Eval", leave=False
-            )  # leave=False ensures the bar clears up after completion
+                total=num_episodes,
+                desc=f"[{phase.capitalize()}] Rollout Eval",
+                leave=False,
+                position=2,
+            )  # leave=False ensures the bar clears up after completion, position=2 to avoid overwriting other bars
 
         for i in range(num_episodes):
             # Pass the seed based on the episode index
@@ -136,6 +139,12 @@ class RolloutEvaluationCallback(L.Callback):
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
 
         # And as a separate line itself
-        rank_zero_info(
-            f"Epoch {trainer.current_epoch} - {phase} rollout success rate: {success_rate:.2%}"
-        )
+        if trainer.is_global_zero:  # If multiple GPUs are running, only log the success rate message from the main process to avoid duplicates
+            msg = (
+                f"Epoch {trainer.current_epoch} - {phase} rollout success rate: {success_rate:.2%}"
+            )
+            if is_rich:
+                rank_zero_info(msg)
+            else:
+                # tqdm.write pushes the message above the progress bars securely
+                tqdm.write(msg)
