@@ -42,8 +42,10 @@ class RolloutEvaluationCallback(L.Callback):
         self.val_seed = main_seed + self.BASE_SEED_VAL
         self.test_seed = main_seed + self.BASE_SEED_TEST
 
-        # XXX: Debug
-        print(f"Valuation seed: {self.val_seed}, Test seed: {self.test_seed}")
+        # Debug
+        print(
+            f"Seeds for Maniskill simulations fetched from main seed {main_seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
+        )
 
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
