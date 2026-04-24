@@ -37,7 +37,6 @@ class RolloutEvaluationCallback(L.Callback):
 
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
-        # TODO: should also rename the obs_deque in a more general way?
         if self.conditioning_source == "env_states":
             # Bypass obs_mode completely and fetch the raw physics state
             return env.unwrapped.get_state()
