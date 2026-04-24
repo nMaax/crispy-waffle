@@ -41,10 +41,10 @@ class RolloutEvaluationCallback(L.Callback):
         # Default to whatever observation the env returned (e.g. obs_mode="state")
         return step_obs
 
-    def on_validation_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+    def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(pl_module, self.num_val_episodes, "val")
 
-    def on_test_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+    def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(pl_module, self.num_test_episodes, "test")
 
     def _run_rollouts(self, pl_module: L.LightningModule, num_episodes: int, phase: str):
