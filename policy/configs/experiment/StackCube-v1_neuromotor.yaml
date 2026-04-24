@@ -50,7 +50,6 @@ trainer:
       env_id: StackCube-v1
       control_mode: "pd_joint_delta_pos"
       conditioning_source: ${cond_source}
-      num_envs: 4
       num_val_episodes: 10
       num_test_episodes: 100
 
