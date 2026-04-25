@@ -23,7 +23,7 @@ algorithm:
     T_max: ${trainer.max_steps}
 
 datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.none.pd_joint_delta_pos.physx_cpu.h5
   conditioning_source: ${cond_source}
   seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
   cond_horizon: 2
@@ -51,7 +51,7 @@ trainer:
 
     rollout_evaluation:
       env_id: StackCube-v1
-      control_mode: "pd_joint_pos"
+      control_mode: "pd_joint_delta_pos"
       conditioning_source: ${cond_source}
       seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
       num_val_episodes: 20

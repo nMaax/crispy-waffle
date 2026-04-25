@@ -1,6 +1,6 @@
 rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
   env_id: "StackCube-v1" # The ManiSkill environment ID
-  control_mode: "pd_joint_pos" # Corresponding control_mode, this depends on the file you train on, check its .json
+  control_mode: "pd_joint_delta_pos" # Corresponding control_mode, this depends on the file you train on, check its .json
   num_val_episodes: 10 # Number of episodes for validation
   num_test_episodes: 100 # Number of episodes for testing

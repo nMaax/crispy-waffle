@@ -4,7 +4,7 @@
 [![pytorch](https://img.shields.io/badge/PyTorch_2.5+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
 [![lightning](https://img.shields.io/badge/-Lightning_2.4+-792ee5?logo=pytorchlightning&logoColor=white)](https://pytorchlightning.ai/)
 [![hydra](https://img.shields.io/badge/Config-Hydra_1.3-89b8cd)](https://hydra.cc/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)   
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Copier](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/copier-org/copier/master/img/badge/badge-grayscale-inverted-border-teal.json)](https://github.com/mila-iqia/ResearchTemplate)
 
 crispy-waffle: A new research project at VANDAL.
@@ -26,6 +26,23 @@ python policy/main.py --help
 
 ```bash
 uv run python -m mani_skill.utils.download_demo "StackCube-v1"
+```
+
+```bash
+uv run python -m mani_skill.trajectory.replay_trajectory \
+  --traj-path ~/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 \
+  -b "physx_cpu" \
+  -c pd_ee_delta_pose \
+  -o state \
+  --save-traj
+```
+
+```bash
+uv run python -m mani_skill.trajectory.replay_trajectory \
+  --traj-path ~/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pose.physx_cpu.h5 \
+  --use-first-env-state \
+  -b "physx_cuda" \
+  --save-traj
 ```
 
 ### Git Hooks Setup
