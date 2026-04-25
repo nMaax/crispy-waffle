@@ -109,7 +109,13 @@ class DiffusionPolicy(L.LightningModule):
         if self.lr_scheduler_config is not None:
             lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
             lr_scheduler = lr_scheduler_partial(optimizer)
-            return [optimizer], [lr_scheduler]
+
+            lr_scheduler_wrapper = {
+                "scheduler": lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+            }
+            return [optimizer], [lr_scheduler_wrapper]
         else:
             return optimizer
 

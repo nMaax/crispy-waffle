@@ -17,7 +17,7 @@ algorithm:
   prediction_type: "epsilon" # Whether to predict noise or the sample itself
 
   optimizer:
-    lr: 1e-3
+    lr: 1e-4
 
   lr_scheduler:
     T_max: ${trainer.max_steps}
