@@ -138,7 +138,7 @@ class DiffusionPolicy(L.LightningModule):
         timesteps = torch.randint(
             0,
             # Accessing num_train_timesteps directly is deprecated, must use config instead
-            self.noise_scheduler.config.num_train_timesteps,  # pyright: ignore[reportAttributeAccessIssue]
+            self.noise_scheduler.config.num_train_timesteps,
             (B,),
             device=self.device,
             dtype=torch.int32,
@@ -153,7 +153,7 @@ class DiffusionPolicy(L.LightningModule):
         prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
 
         # Accessing prediction_type directly is deprecated, use config instead
-        if self.noise_scheduler.config.prediction_type == "epsilon":  # pyright: ignore[reportAttributeAccessIssue]
+        if self.noise_scheduler.config.prediction_type == "epsilon":
             target = noise
         else:
             target = action_seq
@@ -206,6 +206,9 @@ class DiffusionPolicy(L.LightningModule):
 
         B = get_batch_size(cond_seq)
 
+        # Store main network weights
+        self.ema.store(self.network.parameters())
+
         # Temporarily copy EMA weights in the model
         self.ema.copy_to(self.network.parameters())
 
@@ -230,6 +233,8 @@ class DiffusionPolicy(L.LightningModule):
                 )
 
                 noisy_action_seq = output.prev_sample
+
+        self.ema.restore(self.network.parameters())
 
         start = self.cond_horizon - 1
         end = start + self.act_horizon
