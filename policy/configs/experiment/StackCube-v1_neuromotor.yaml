@@ -51,7 +51,7 @@ trainer:
 
     rollout_evaluation:
       env_id: StackCube-v1
-      control_mode: "pd_joint_delta_pos"
+      control_mode: "pd_joint_pos"
       conditioning_source: ${cond_source}
       seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
       num_val_episodes: 20
