@@ -12,9 +12,9 @@ from tqdm import tqdm
 
 from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
 
-# NOTE: The use of DummyDataset is a bit hacky (and smelly, ngl)
+# NOTE: The use of DummyDataset is a bit smelly, ngl
 # but it allows us to trigger the Lightning loops for validation and testing without needing
-# actual data loading logic in those phases.The RolloutEvaluationCallback will handle the real evaluation logic in simulation,
+# actual data loading logic in those phases. The RolloutEvaluationCallback will handle the real evaluation logic in simulation,
 # so we just need a placeholder here to satisfy the DataLoader interface.
 
 
@@ -35,10 +35,22 @@ class ManiSkillTrajectoryDataset(Dataset):
         conditioning_source: Literal["env_states", "obs", "both"],
         cond_horizon: int,
         pred_horizon: int,
-        episodes: list[dict] | None = None,  # NEW: Accept pre-filtered episodes
+        episodes: list[dict] | None = None,
         load_count: int = -1,
         success_only: bool = False,
     ) -> None:
+        """
+        Dataset for loading ManiSkill trajectories from HDF5 files.
+
+        parameters:
+            - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
+            - conditioning_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
+            - cond_horizon: Number of past time steps to include in the conditioning sequence.
+            - pred_horizon: Number of future time steps to include in the action sequence.
+            - episodes: Optional list of episode metadata dicts to use. If None, the dataset oads all episodes from the JSON file.
+            - load_count: If > 0, limits the number of episodes to load into memory (for faster debugging). If -1, loads all episodes.
+            - success_only: If True, only loads episodes marked as successful in the JSON metadata
+        """
         super().__init__()
         self.dataset_file = Path(dataset_file)
         self.conditioning_source = conditioning_source
@@ -59,8 +71,9 @@ class ManiSkillTrajectoryDataset(Dataset):
         if load_count == -1:
             load_count = len(self.episodes)
 
-        # Load data into RAM (WARNING: Only do this for state-based observations!
-        # For visual observations, you should lazily load from disk inside __getitem__)
+        # TODO: Address the warning
+        # Load data into RAM: WARNING: Only do this for state-based observations!
+        # For visual observations, you should lazily load from disk inside __getitem__
         with h5py.File(self.dataset_file, "r") as data:
             print(f"Loading {load_count} episodes into memory...")
             for eps_id in tqdm(range(load_count), desc="Loading HDF5"):
@@ -160,8 +173,21 @@ class ManiSkillDataModule(L.LightningDataModule):
         num_workers: int = 4,
         val_split: float = 0.1,
         conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
-        seed: int | None = None,  # NEW: Seed for reproducible splits
+        seed: int | None = None,
     ):
+        """
+        DataModule for loading ManiSkill trajectories from HDF5 files.
+
+        parameters:
+            - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
+            - cond_horizon: Number of past time steps to include in the conditioning sequence.
+            - pred_horizon: Number of future time steps to include in the action sequence.
+            - batch_size: Number of samples per batch for training and validation.
+            - num_workers: Number of subprocesses to use for data loading.
+            - val_split: Fraction of episodes to reserve for validation (e.g. 0.1 for 10% validation).
+            - conditioning_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
+            - seed: An optional main seed to ensure reproducible train/val splits. If None, a random seed will be generated.
+        """
         super().__init__()
         self.dataset_file = Path(dataset_file)
         self.cond_horizon = cond_horizon

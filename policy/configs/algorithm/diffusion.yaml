@@ -1,8 +1,9 @@
 defaults:
+  # Many of these below are redundant, but I like to specify them for clarity
   - network: unet1d
-  - optimizer: AdamW
   - noise_scheduler: ddpm
   - ema: default
+  - optimizer: AdamW
   - lr_scheduler: CosineAnnealingLR
   - _self_
 
@@ -15,23 +16,27 @@ act_horizon: 8 # Must ensure this is less than pred_horizon in the datamodule!
 prediction_type: "epsilon" # Whether to predict noise or the sample itself
 
 # --- OVERRIDES ---
+# Many of these below are redundant, but I like to specify them for clarity
 
 # Overrides network/unet1d.yaml
 network:
-  down_dims: [128, 256, 512] # Changes just the dims, keeps kernel_size etc. from unet1d.yaml
+  down_dims: [256, 512, 1024]
+  kernel_size: 5
+
+# Overrides noise_scheduler/ddpm.yaml
+noise_scheduler:
+  beta_schedule: "linear"
+  num_train_timesteps: 100
+
+# Overrides ema/default.yaml
+ema:
+  decay: 0.9999
 
 # Overrides optimizer/AdamW.yaml
 optimizer:
   weight_decay: 1e-5 # Overrides the weight decay in AdamW.yaml
 
-# Overwrite ema/default.yaml
-ema:
-  decay: 0.9999
-
-# Overwrite noise_scheduler/ddpm.yaml
-noise_scheduler:
-  beta_schedule: "linear"
-  num_train_timesteps: 100
-
+# Overrides lr_scheduler/CosineAnnealingLR.yaml
 lr_scheduler:
   T_max: ${trainer.max_steps}
+  eta_min: 1e-5

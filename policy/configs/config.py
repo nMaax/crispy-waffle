@@ -30,6 +30,12 @@ class Config:
     See the [MNISTDataModule][policy.datamodules.image_classification.mnist.MNISTDataModule] for an example.
     """
 
+    cond_source: str = "obs"
+    """The source of the conditioning signal (e.g., 'obs' or 'env_states')."""
+
+    obs_mode: str = "state"
+    """The observation mode to use when creating the environment (e.g., 'state' or 'pointcloud'). Ignored if `cond_source` is 'env_states'."""
+
     trainer: dict = field(default_factory=dict)
     """Configuration for the 'Trainer'."""
 
@@ -55,6 +61,3 @@ class Config:
 
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
-
-    cond_source: str = "obs"
-    """The source of the conditioning signal (e.g., 'obs' or 'env_states')."""

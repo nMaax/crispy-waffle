@@ -1,20 +1,32 @@
 # @package _global_
 defaults:
+  # Many of these below are redundant, but I like to specify them for clarity
   - override /algorithm: diffusion
-  - override /datamodule: maniskill_datamodule
-  - override /algorithm/optimizer: custom_AdamW
+  - override /algorithm/noise_scheduler: ddpm
+  - override /algorithm/ema: default
+  - override /algorithm/optimizer: AdamW
   - override /algorithm/lr_scheduler: CosineAnnealingLR
-  - override /trainer: default # Redundant since the primary config.yaml already does it, but just for completeness
+  - override /datamodule: maniskill_datamodule
+  - override /trainer: default
   - _self_
 
 name: StackCube-v1_neuromotor_run # The name of the experiment (for logging)
-cond_source: "env_states" # Where to evaluate? obs or env_states?
+cond_source: "obs" # Where do we work? observations `obs`` or raw physics engine states `env_states`?
+obs_mode: "state" # Only if cond_source is "obs",
 
 # --- OVERRIDEs  ---
+# Many of these below are redundant, but I like to specify them for clarity
 
 algorithm:
   act_horizon: 8 # Must be smaller than datamodule pred_horizon!
-  prediction_type: "epsilon" # Whether to predict noise or the sample itself
+  prediction_type: "epsilon" # Do we predict noise `epsilon`? Can be "epsilon", "sample", or "v_prediction"
+
+  ema:
+    decay: 0.9999
+
+  noise_scheduler:
+    beta_schedule: "linear"
+    num_train_timesteps: 100
 
   optimizer:
     lr: 1e-4
@@ -23,52 +35,55 @@ algorithm:
     T_max: ${trainer.max_steps}
 
 datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.none.pd_joint_delta_pos.physx_cpu.h5
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pose.physx_cpu.h5
   conditioning_source: ${cond_source}
-  seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
   cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
+  val_split: 0.1
+  seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
 
 trainer:
   min_epochs: -1 # -1 disables epoch limits
   max_epochs: -1 # -1 disables epoch limits
   max_steps: 100000 # Train for exactly 100,000 iterations (batches)
 
-  limit_val_batches: null # Re-enable validation
-  limit_test_batches: null # Re-enable testing
-  val_check_interval: 1000 # Run the rollout callback every 50 steps
+  limit_val_batches: null # Re-enable validation (0 as default)
+  limit_test_batches: null # Re-enable testing (0 as default)
+
+  val_check_interval: 1000 # Run the validation (loss) + rollout callback every x steps
   check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 
-  # num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
+  num_sanity_val_steps: 2 # Set to 0 to avoid sanity check, tho this should not be done...
 
   callbacks:
-    # This disables the rich progress bar specifically
+    # Disables the rich progress bar specifically
     rich_progress_bar: null
-    # This adds the standard tqdm one
+    # This adds the tqdm one instead
     tqdm_progress_bar:
       _target_: lightning.pytorch.callbacks.TQDMProgressBar
 
     rollout_evaluation:
       env_id: StackCube-v1
-      control_mode: "pd_joint_delta_pos"
+      control_mode: "pd_ee_delta_pose"
       conditioning_source: ${cond_source}
-      seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
+      obs_mode: "state"
       num_val_episodes: 20
       num_test_episodes: 100
+      seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
 
     early_stopping:
-      monitor: "val/loss" # quantity to be monitored, must be specified !!!
+      monitor: "val/loss" # quantity to be monitored
       min_delta: 1e-5 # minimum change in the monitored quantity to qualify as an improvement
       patience: 10 # number of checks with no improvement after which training will be stopped
       mode: "min" # "max" means higher metric value is better, can be also "min"
       strict: true # whether to crash the training if monitor is not found in the validation metrics
+      verbose: false
 
     model_checkpoint:
-      filename: "step_{step:06d}" # Overwrite default filename (which is based on epochs)
+      filename: "step_{step:06d}" # Overwrite default filename (which was based on epochs)
       monitor: "val/success_rate" # name of the logged metric which determines when model is improving
       mode: "max" # "max" means higher metric value is better, can be also "min"
       save_top_k: 1 # save k best models (determined by above metric)
       save_last: true # additionally always save model from last epoch
-      # every_n_train_steps: 200 # Overwrite the every_n_train_steps: null and every_n_epochs:null, which would have defaulted to every_n_epochs=1 with Hydra
       verbose: false

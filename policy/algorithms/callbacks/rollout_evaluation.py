@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 
 import gymnasium as gym
 import lightning as L
-import mani_skill.envs  # noqa: F401 (registers environments silently, ruff must ignore this)
+import mani_skill.envs  # noqa: F401
 import torch
 from lightning.pytorch.callbacks import RichProgressBar
 from lightning.pytorch.utilities import rank_zero_info
@@ -29,6 +29,18 @@ class RolloutEvaluationCallback(L.Callback):
         obs_mode: str = "state",
         seed: int | None = None,
     ):
+        """
+        Deploys the policy in a parallelized environment for testing.
+
+        parameters:
+            - env_id: str, the Gym environment ID to create (e.g. "LiftCube-v0")
+            - control_mode: str, the control mode to use for the environment (e.g. "pd_joint_pos", "pd_ee_delta_pose")
+            - num_val_episodes: int, how many parallel episodes to run during validation
+            - num_test_episodes: int, how many parallel episodes to run during testing
+            - conditioning_source: whether to condition the policy on the raw physics engine states ("env_states") or the observations returned by the env ("obs")
+            - obs_mode: str, the obs_mode to pass when creating the environment (e.g. "state" or "pointcloud"). Ignored if conditioning_source="env_states".
+            - seed: int or None, an optional main seed to derive the validation and test seeds from. If None, random seeds will be generated.
+        """
         super().__init__()
         self.env_id = env_id
         self.control_mode = control_mode
@@ -65,7 +77,7 @@ class RolloutEvaluationCallback(L.Callback):
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
-        # 1. Instantiate parallel GPU environments by specifying num_envs
+        # Instantiate parallel GPU environments by specifying num_envs
         env = gym.make(
             self.env_id,
             obs_mode=self.obs_mode,
@@ -90,24 +102,22 @@ class RolloutEvaluationCallback(L.Callback):
             pbar = Progress(
                 transient=True
             )  # transient=True ensures the bar clears up after completion
-            task_id = pbar.add_task(
-                f"[cyan][{phase.capitalize()}] Rollout Eval...", total=num_episodes
-            )
+            task_id = pbar.add_task(f"  [{phase.capitalize()}] Rollout", total=num_episodes)
             pbar.start()
         else:
             pbar = tqdm(
                 total=num_episodes,
-                desc=f"[{phase.capitalize()}] Rollout Eval",
+                desc=f"  [{phase.capitalize()}] Rollout",
                 leave=False,
                 position=2,
             )  # leave=False ensures the bar clears up after completion, position=2 to avoid overwriting other bars
 
-        # Reset the parallel environment. 'obs' is directly a batched PyTorch Tensor.
+        # Reset the environment, 'obs' is directly a batched PyTorch Tensor
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
         policy_input = self._get_policy_input(env, obs)
 
-        # Populate dequeue with batched GPU tensors
+        # Populate dequeue
         policy_inputs_deque = deque([policy_input] * obs_horizon, maxlen=obs_horizon)
 
         # Track completions
@@ -141,6 +151,7 @@ class RolloutEvaluationCallback(L.Callback):
                 # Update the success status
                 successes[just_finished] = success_tensor[just_finished]
 
+            # Update dones with the new completions from this step
             dones = dones | env_is_done
 
             # Update progress bar with how many new envs finished in this step
@@ -164,15 +175,11 @@ class RolloutEvaluationCallback(L.Callback):
         # Calculate success rate from the batched successes tensor
         success_rate = successes.float().mean().item()
 
+        # Log it to the main logger (e.g. WandB)
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
 
-        # And as a separate line itself
-        if trainer.is_global_zero:  # If multiple GPUs are running, only log the success rate message from the main process to avoid duplicates
-            msg = (
-                f"Epoch {trainer.current_epoch} - {phase} rollout success rate: {success_rate:.2%}"
-            )
-            if is_rich:
-                rank_zero_info(msg)
-            else:
-                # tqdm.write pushes the message above the progress bars safely
-                tqdm.write(msg)
+        # And as a separate line itself on the terminal
+        # TODO: this causes the TQDM bars to dont clean from the terminal and persists
+        # TODO: another thing is that after a few epichs there is too much info next to the bar
+        msg = f"\n  [{phase.capitalize()} | Epoch {trainer.current_epoch}] Rollout Success Rate: {success_rate:.2%}\n"
+        rank_zero_info(msg)

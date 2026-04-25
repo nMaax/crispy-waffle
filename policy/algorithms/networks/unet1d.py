@@ -138,12 +138,6 @@ class ConditionalResidualBlock1D(nn.Module):
 
 
 class ConditionalUnet1D(nn.Module):
-    """The UNet architecture for noise prediction.
-
-    Takes in the noisy sample, diffusion step, and global conditioning to predict the noise
-    component in the input sample.
-    """
-
     def __init__(
         self,
         input_dim,
@@ -154,6 +148,8 @@ class ConditionalUnet1D(nn.Module):
         n_groups=8,
     ):
         """
+        The UNet architecture for noise prediction.
+
         parameters:
             input_dim: Dim of actions.
             external_cond_dim: Dim of global conditioning applied with FiLM
@@ -163,9 +159,6 @@ class ConditionalUnet1D(nn.Module):
             The length of this array determines number of levels.
             kernel_size: Conv kernel size
             n_groups: Number of groups for GroupNorm
-
-        returns:
-            The Unet for noise prediction in the diffusion model.
         """
 
         super().__init__()

@@ -16,14 +16,10 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
 # TODO: Major fixes
-# - [ ] Move to use pd_joint_delta_pos and delta data in general
-#   - [ ] Make some scripts / guide in the README to cleanly download and fetch the correct data
-#   - [ ] Maybe you should generalize the fetching of this parameter and make it automatically detected by the DiffusionPolicy peaking inside data?
-#       - Same for seeding? Like it should be fetched automatically, not by Hydra?
+# - [ ] Maybe you should generalize the fetching of control_mode, obs_mode and cond_source making them automatically detected by the DiffusionPolicy peaking inside data?
+# - [ ] Same for seeding? Like it should be fetched automatically, not by Hydra?
 # - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range
-#   - [ ] Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
-# - [ ] Switch to obs instead of env_states
-# - [ ] Increase network size to [256, 512, 1024]
+#   - Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
 
 # TODO: Minor details
 #   - [ ] solve pyryghit issues and remove "type: ignore" amap
@@ -32,7 +28,8 @@ from policy.utils.typing_utils import HydraConfigFor
 #   - [ ] review whole template to ensure it works
 #   - [ ] re-run episodes and use observations by maniskill
 
-# TODO:the use of noise_schduler here is strictly tied to a DDPM, making assumptions
+# TODO: Address this note
+# NOTE: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
 # on the API based on the diffusers' DDPM implementation and DDPM themselves.
 # e.g. I do not call set_timesteps() on the DDPM at inference (get_action()) since DDPM should not do that
 # e.g. I suppose predicting type as one of the Literals allowed by DDPM
@@ -52,6 +49,17 @@ class DiffusionPolicy(L.LightningModule):
         act_horizon: int = 8,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
+        """Implements a diffusion policy based on the DDPM architecture and training procedure.
+        parameters:
+            - network: a Hydra config for the policy network architecture
+            - noise_scheduler: a Hydra config for the noise scheduler
+            - ema: a Hydra config for the EMA model
+            - datamodule: the ManiSkillDataModule instance that will provide the training and validation
+            - optimizer: a Hydra config for the optimizer
+            - lr_scheduler: an optional Hydra config for the learning rate scheduler
+            - act_horizon: the number of future actions to predict
+            - prediction_type: the type of prediction the noise scheduler is configured for. Should be one of "epsilon", "sample", or "v_prediction".
+        """
         super().__init__()
 
         # Saves all the arguments to self.hparams and logs them to W&B
