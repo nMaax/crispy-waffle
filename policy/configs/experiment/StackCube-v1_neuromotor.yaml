@@ -25,6 +25,7 @@ algorithm:
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5
   conditioning_source: ${cond_source}
+  seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
   cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
@@ -42,8 +43,10 @@ trainer:
   # num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
 
   callbacks:
-    rich_progress_bar: null # This disables the rich progress bar specifically
-    tqdm_progress_bar: # This adds the standard one
+    # This disables the rich progress bar specifically
+    rich_progress_bar: null
+    # This adds the standard tqdm one
+    tqdm_progress_bar:
       _target_: lightning.pytorch.callbacks.TQDMProgressBar
 
     rollout_evaluation:

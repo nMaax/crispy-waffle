@@ -1,12 +1,13 @@
 import json
 import os
+import random
 from pathlib import Path
 from typing import Any, Literal
 
 import h5py
 import lightning as L
 import numpy as np
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
@@ -34,6 +35,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         conditioning_source: Literal["env_states", "obs", "both"],
         cond_horizon: int,
         pred_horizon: int,
+        episodes: list[dict] | None = None,  # NEW: Accept pre-filtered episodes
         load_count: int = -1,
         success_only: bool = False,
     ) -> None:
@@ -43,12 +45,15 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
 
-        # Load JSON metadata
-        json_path = self.dataset_file.with_suffix(".json")
-        with open(json_path) as f:
-            self.json_data = json.load(f)
+        # Load JSON metadata if episodes aren't provided explicitly
+        if episodes is not None:
+            self.episodes = episodes
+        else:
+            json_path = self.dataset_file.with_suffix(".json")
+            with open(json_path) as f:
+                self.json_data = json.load(f)
+            self.episodes = self.json_data["episodes"]
 
-        self.episodes = self.json_data["episodes"]
         self.trajectories = []
 
         if load_count == -1:
@@ -155,6 +160,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         num_workers: int = 4,
         val_split: float = 0.1,
         conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
+        seed: int | None = None,  # NEW: Seed for reproducible splits
     ):
         super().__init__()
         self.dataset_file = Path(dataset_file)
@@ -165,15 +171,21 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.val_split = val_split
         self.conditioning_source: Literal["env_states", "obs", "both"] = conditioning_source
 
+        main_seed = seed if seed is not None else random.randint(0, int(1e5))
+        self.seed = main_seed
+
+        # Debug
+        print(f"Seeds for episodes datasplit fetched from main seed: {main_seed}")
+
         # Prepare train and val split sets
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
 
         # Fetch dimensions instantly without loading the full dataset into RAM
-        # Otherwise these may had to be set to None and wait for setup() to be called
         self.action_dim: int
         self.env_state_dim: int | dict[str, Any]
         self.obs_dim: int | dict[str, Any]
+
         self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
     @property
@@ -224,17 +236,43 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def setup(self, stage=None):
         if self.train_set is None:
-            full_dataset = ManiSkillTrajectoryDataset(
+            # Read the JSON metadata directly to get the episodes
+            json_path = self.dataset_file.with_suffix(".json")
+            with open(json_path) as f:
+                all_episodes = json.load(f)["episodes"]
+
+            # Shuffle episodes
+            rng = random.Random(self.seed)
+            rng.shuffle(all_episodes)
+
+            # Calculate split index
+            val_size = int(len(all_episodes) * self.val_split)
+            train_size = len(all_episodes) - val_size
+
+            # Partition the episode lists
+            train_episodes = all_episodes[:train_size]
+            val_episodes = all_episodes[train_size:]
+
+            # Create distinct datasets for train and validation
+            print(
+                f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
+            )
+
+            self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 conditioning_source=self.conditioning_source,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
+                episodes=train_episodes,
             )
 
-            val_size = int(len(full_dataset) * self.val_split)
-            train_size = len(full_dataset) - val_size
-
-            self.train_set, self.val_set = random_split(full_dataset, [train_size, val_size])
+            self.val_set = ManiSkillTrajectoryDataset(
+                dataset_file=self.dataset_file,
+                conditioning_source=self.conditioning_source,
+                cond_horizon=self.cond_horizon,
+                pred_horizon=self.pred_horizon,
+                episodes=val_episodes,
+            )
 
     def train_dataloader(self):
         if self.train_set is None:
@@ -246,7 +284,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=True,  # Speeds up GPU transfer
+            pin_memory=True,
         )
 
     def val_dataloader(self):
