@@ -31,11 +31,11 @@ class RolloutEvaluationCallback(L.Callback):
     ):
         super().__init__()
         self.env_id = env_id
+        self.control_mode = control_mode
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
         self.conditioning_source = conditioning_source
         self.obs_mode = obs_mode
-        self.control_mode = control_mode
 
         # Inject arbitrary base seeds to avoid using those at training
         main_seed = seed if seed is not None else random.randint(0, int(1e5))

@@ -37,7 +37,7 @@ trainer:
 
   limit_val_batches: null # Re-enable validation
   limit_test_batches: null # Re-enable testing
-  val_check_interval: 5000 # Run the rollout callback every 50 steps
+  val_check_interval: 1000 # Run the rollout callback every 50 steps
   check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 
   # num_sanity_val_steps: 0 # Avoid sanity check, tho this should not be done...
@@ -54,10 +54,15 @@ trainer:
       control_mode: "pd_joint_delta_pos"
       conditioning_source: ${cond_source}
       seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
-      num_val_episodes: 10
+      num_val_episodes: 20
       num_test_episodes: 100
 
-    early_stopping: null # Disable early stopping at all
+    early_stopping:
+      monitor: "val/loss" # quantity to be monitored, must be specified !!!
+      min_delta: 1e-5 # minimum change in the monitored quantity to qualify as an improvement
+      patience: 10 # number of checks with no improvement after which training will be stopped
+      mode: "min" # "max" means higher metric value is better, can be also "min"
+      strict: true # whether to crash the training if monitor is not found in the validation metrics
 
     model_checkpoint:
       filename: "step_{step:06d}" # Overwrite default filename (which is based on epochs)

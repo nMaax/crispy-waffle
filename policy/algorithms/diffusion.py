@@ -15,7 +15,24 @@ from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
-# TODO: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
+# TODO: Major fixes
+# - [ ] Move to use pd_joint_delta_pos and delta data in general
+#   - [ ] Make some scripts / guide in the README to cleanly download and fetch the correct data
+#   - [ ] Maybe you should generalize the fetching of this parameter and make it automatically detected by the DiffusionPolicy peaking inside data?
+#       - Same for seeding? Like it should be fetched automatically, not by Hydra?
+# - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range
+#   - [ ] Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
+# - [ ] Switch to obs instead of env_states
+# - [ ] Increase network size to [256, 512, 1024]
+
+# TODO: Minor details
+#   - [ ] solve pyryghit issues and remove "type: ignore" amap
+#   - [ ] make maniskill datamodule and rollout evaluation fetch seed by default via configs, i.e., also for tests
+#   - [ ] re-run tests
+#   - [ ] review whole template to ensure it works
+#   - [ ] re-run episodes and use observations by maniskill
+
+# TODO:the use of noise_schduler here is strictly tied to a DDPM, making assumptions
 # on the API based on the diffusers' DDPM implementation and DDPM themselves.
 # e.g. I do not call set_timesteps() on the DDPM at inference (get_action()) since DDPM should not do that
 # e.g. I suppose predicting type as one of the Literals allowed by DDPM
