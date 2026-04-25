@@ -28,7 +28,7 @@ from policy.utils.typing_utils import HydraConfigFor
 # TODO: Minor details
 #   - [ ] solve pyryghit issues and remove "type: ignore" amap
 #   - [ ] make maniskill datamodule and rollout evaluation fetch seed by default via configs, i.e., also for tests
-#   - [ ] re-run tests
+#   - [ ] re-run tests, maybe improve them with checks on the rollouts?
 #   - [ ] review whole template to ensure it works
 #   - [ ] re-run episodes and use observations by maniskill
 
