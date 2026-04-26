@@ -32,7 +32,7 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        conditioning_source: Literal["env_states", "obs", "both"],
+        cond_source: Literal["env_states", "obs", "both"],
         cond_horizon: int,
         pred_horizon: int,
         episodes: list[dict] | None = None,
@@ -44,7 +44,7 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         parameters:
             - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
-            - conditioning_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
+            - cond_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
             - cond_horizon: Number of past time steps to include in the conditioning sequence.
             - pred_horizon: Number of future time steps to include in the action sequence.
             - episodes: Optional list of episode metadata dicts to use. If None, the dataset oads all episodes from the JSON file.
@@ -53,7 +53,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         """
         super().__init__()
         self.dataset_file = Path(dataset_file)
-        self.conditioning_source = conditioning_source
+        self.cond_source = cond_source
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
 
@@ -150,9 +150,9 @@ class ManiSkillTrajectoryDataset(Dataset):
         env_seq = self._slice_and_pad(traj["env_states"], cond_start, cond_end, L)
         action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
-        if self.conditioning_source == "env_states":
+        if self.cond_source == "env_states":
             cond_seq = env_seq
-        elif self.conditioning_source == "obs":
+        elif self.cond_source == "obs":
             cond_seq = obs_seq
         else:  # "both"
             cond_seq = {"env_states": env_seq, "obs": obs_seq}
@@ -172,7 +172,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
-        conditioning_source: Literal["env_states", "obs", "both"] = "env_states",
+        cond_source: Literal["env_states", "obs", "both"] = "env_states",
         seed: int | None = None,
     ):
         """
@@ -185,7 +185,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             - batch_size: Number of samples per batch for training and validation.
             - num_workers: Number of subprocesses to use for data loading.
             - val_split: Fraction of episodes to reserve for validation (e.g. 0.1 for 10% validation).
-            - conditioning_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
+            - cond_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
             - seed: An optional main seed to ensure reproducible train/val splits. If None, a random seed will be generated.
         """
         super().__init__()
@@ -195,7 +195,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.conditioning_source: Literal["env_states", "obs", "both"] = conditioning_source
+        self.cond_source: Literal["env_states", "obs", "both"] = cond_source
 
         main_seed = seed if seed is not None else random.randint(0, int(1e5))
         self.seed = main_seed
@@ -218,14 +218,14 @@ class ManiSkillDataModule(L.LightningDataModule):
     def cond_dim(self) -> int | dict[str, Any]:
         """The dimensionality of the conditioning signal exposed to the policy.
 
-        Returns the shape information for the source selected by ``conditioning_source``:
+        Returns the shape information for the source selected by ``cond_source``:
         - ``"env_states"`` → ``env_state_dim``
         - ``"obs"`` → ``obs_dim``
         - ``"both"`` → merged dict containing both ``env_states`` and ``obs`` sub-trees
         """
-        if self.conditioning_source == "env_states":
+        if self.cond_source == "env_states":
             return self.env_state_dim
-        elif self.conditioning_source == "obs":
+        elif self.cond_source == "obs":
             return self.obs_dim
         else:  # "both"
             return {"env_states": self.env_state_dim, "obs": self.obs_dim}
@@ -286,7 +286,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                conditioning_source=self.conditioning_source,
+                cond_source=self.cond_source,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
@@ -294,7 +294,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.val_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                conditioning_source=self.conditioning_source,
+                cond_source=self.cond_source,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,

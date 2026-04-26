@@ -91,7 +91,7 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = self.datamodule.action_dim
 
         # The conditioning signal fed to the network is determined by the datamodule's
-        # conditioning_source. We use cond_dim as the single source of truth so that the
+        # cond_source. We use cond_dim as the single source of truth so that the
         # policy never needs to know whether it comes from env_states, obs, or both.
         raw_cond_dim = self.datamodule.cond_dim
         if isinstance(raw_cond_dim, dict):

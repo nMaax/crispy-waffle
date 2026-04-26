@@ -36,7 +36,7 @@ algorithm:
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pose.physx_cpu.h5
-  conditioning_source: ${cond_source}
+  cond_source: ${cond_source}
   cond_horizon: 2
   pred_horizon: 16
   batch_size: 256
@@ -66,7 +66,7 @@ trainer:
     rollout_evaluation:
       env_id: StackCube-v1
       control_mode: "pd_ee_delta_pose"
-      conditioning_source: ${cond_source}
+      cond_source: ${cond_source}
       obs_mode: "state"
       num_val_episodes: 20
       num_test_episodes: 100
