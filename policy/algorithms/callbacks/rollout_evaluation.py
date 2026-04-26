@@ -150,9 +150,9 @@ class RolloutEvaluationCallback(L.Callback):
             current_seed = (self.val_seed if phase == "val" else self.test_seed) + iteration
 
             obs, info = env.reset(seed=current_seed)
-            policy_input = self._get_policy_input(env, obs)
+            policy_conditioning = self._get_policy_input(env, obs)
 
-            obs_seq = policy_input.unsqueeze(1).repeat(1, obs_horizon, 1)
+            cond_seq = policy_conditioning.unsqueeze(1).repeat(1, obs_horizon, 1)
 
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
@@ -161,19 +161,18 @@ class RolloutEvaluationCallback(L.Callback):
             # Step until all environments within this batch have concluded
             while not dones.all():
                 with torch.no_grad():
-                    action_seq = policy.get_action(obs_seq)
+                    action_seq = policy.get_action(cond_seq)
                     action = action_seq[:, 0]
 
                 action = action if is_cuda else action.cpu()
 
                 obs, reward, terminated, truncated, info = env.step(action)
 
-                policy_input = self._get_policy_input(env, obs)
+                policy_conditioning = self._get_policy_input(env, obs)
 
                 # Shift the buffer and insert the new observation
-                # TODO: should rename obs_seq to cond_seq or policy_input_buffers or something
-                obs_seq = torch.roll(obs_seq, shifts=-1, dims=1)
-                obs_seq[:, -1] = policy_input
+                cond_seq = torch.roll(cond_seq, shifts=-1, dims=1)
+                cond_seq[:, -1] = policy_conditioning
 
                 env_is_done = torch.as_tensor(
                     terminated | truncated, dtype=torch.bool, device=pl_module.device
