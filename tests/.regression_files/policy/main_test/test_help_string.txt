@@ -57,10 +57,9 @@ trainer:
       _target_: lightning.pytorch.callbacks.RichProgressBar
     rollout_evaluation:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
-      env_id: StackCube-v1
-      control_mode: pd_joint_pos
       num_val_episodes: 10
       num_test_episodes: 100
+      seed: ${seed}
     lr_monitor:
       _target_: lightning.pytorch.callbacks.LearningRateMonitor
     device_utilisation:
@@ -87,7 +86,6 @@ name: default
 debug: false
 verbose: false
 ckpt_path: null
-cond_source: obs
 
 
 Powered by Hydra (https://hydra.cc)
