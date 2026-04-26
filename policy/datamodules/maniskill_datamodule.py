@@ -1,13 +1,13 @@
 import json
 import os
 import random
-import warnings
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, cast
 
 import h5py
 import lightning as L
 import numpy as np
+from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -200,7 +200,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.json_path = self.dataset_file.with_suffix(".json")
         if not self.json_path.exists():
             raise FileNotFoundError(
-                f"Metadata file not found: {json_path}. "
+                f"Metadata file not found: {self.json_path}. "
                 "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
             )
 
@@ -252,15 +252,13 @@ class ManiSkillDataModule(L.LightningDataModule):
         env_info = meta.get("env_info", {})
         env_kwargs = env_info.get("env_kwargs", {})
 
-        env_id = env_info.get("env_id", None)
-
+        env_id = env_info.get("env_id", "StackCube-v1")
         obs_mode = env_kwargs.get("obs_mode", "state")
         control_mode = env_kwargs.get("control_mode", "pd_joint_pos")
         physx_backend = env_kwargs.get("sim_backend", "physx_cpu")
 
         if physx_backend == "auto":
-            # TODO: Is it correct to use warning or I should use rank_zero_warn here?
-            warnings.warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'. ")
+            rank_zero_warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'.")
             physx_backend = "physx_cpu"
 
         use_phsyx_env_states = obs_mode == "none"
@@ -282,13 +280,15 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         first_episode_id = json_data["episodes"][0]["episode_id"]
 
-        with h5py.File(self.dataset_file, "r") as data:
-            traj_data = data[f"traj_{first_episode_id}"]
+        # NOTE: h5py can return .shape without loading into memory
 
-            # NOTE: h5py can return .shape without loading into memory
-            act_dim = traj_data["actions"].shape[-1]
+        with h5py.File(self.dataset_file, "r") as data:
+            traj_data = cast(h5py.Group, data[f"traj_{first_episode_id}"])
+            actions_ds = cast(h5py.Dataset, traj_data["actions"])
+
+            act_dim = actions_ds.shape[-1]
             env_state_dim = extract_h5_shapes(traj_data["env_states"])
-            obs_dim = extract_h5_shapes(traj_data["obs"])  # type: ignore
+            obs_dim = extract_h5_shapes(traj_data["obs"])
 
         if act_dim is None or env_state_dim is None or obs_dim is None:
             raise ValueError(

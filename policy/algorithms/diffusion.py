@@ -21,11 +21,8 @@ from policy.utils.typing_utils import HydraConfigFor
 #   - Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
 
 # TODO: Minor details
-#   - [ ] solve pyryghit issues and remove "type: ignore" amap
-#   - [ ] make maniskill datamodule and rollout evaluation fetch seed by default via configs, i.e., also for tests
 #   - [ ] re-run tests, maybe improve them with checks on the rollouts?
 #   - [ ] review whole template to ensure it works
-#   - [ ] re-run episodes and use observations by maniskill
 
 # TODO: Address this note
 # NOTE: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
@@ -134,12 +131,14 @@ class DiffusionPolicy(L.LightningModule):
             lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
             lr_scheduler = lr_scheduler_partial(optimizer)
 
-            lr_scheduler_wrapper = {
-                "scheduler": lr_scheduler,
-                "interval": "step",
-                "frequency": 1,
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": lr_scheduler,
+                    "interval": "step",
+                    "frequency": 1,
+                },
             }
-            return [optimizer], [lr_scheduler_wrapper]
         else:
             return optimizer
 
@@ -165,17 +164,15 @@ class DiffusionPolicy(L.LightningModule):
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
+        # Accessing prediction_type directly is deprecated, use config instead
         timesteps = torch.randint(
             0,
-            # Accessing num_train_timesteps directly is deprecated, must use config instead
-            self.noise_scheduler.config.num_train_timesteps,
+            self.noise_scheduler.config["num_train_timesteps"],
             (B,),
             device=self.device,
             dtype=torch.int32,
         )
         timesteps = cast(torch.IntTensor, timesteps)
-
-        # Here we do noise-prediction (as in DDPM), not data prediction
 
         flatten_cond = flatten_tensor_dict(cond_seq)
 
@@ -183,7 +180,7 @@ class DiffusionPolicy(L.LightningModule):
         prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
 
         # Accessing prediction_type directly is deprecated, use config instead
-        if self.noise_scheduler.config.prediction_type == "epsilon":
+        if self.noise_scheduler.config["prediction_type"] == "epsilon":
             target = noise
         else:
             target = action_seq
@@ -218,7 +215,6 @@ class DiffusionPolicy(L.LightningModule):
 
     def get_action(self, cond_seq):
         """Used during inference/evaluation in the environment."""
-
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -256,13 +252,15 @@ class DiffusionPolicy(L.LightningModule):
                     timestep=k,
                     external_cond=flatten_cond,
                 )
+
                 output = self.noise_scheduler.step(
                     model_output=noise_pred,
                     timestep=k,
                     sample=noisy_action_seq,
+                    return_dict=False,
                 )
 
-                noisy_action_seq = output.prev_sample
+                noisy_action_seq = output[0]
 
         self.ema.restore(self.network.parameters())
 

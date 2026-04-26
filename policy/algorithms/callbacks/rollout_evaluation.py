@@ -1,6 +1,4 @@
-import random
-from collections import deque
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import gymnasium as gym
 import lightning as L
@@ -54,16 +52,21 @@ class RolloutEvaluationCallback(L.Callback):
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
         """Called when fit, validate, test, predict, or tune begins."""
-        datamodule = trainer.datamodule
+        datamodule = getattr(trainer, "datamodule", None)
 
         if datamodule is None:
             raise ValueError("A datamodule must be attached to the trainer to use this callback.")
+
+        if datamodule.env_id is None:
+            raise ValueError("The datamodule must specify an env_id to use this callback.")
 
         self.env_id = datamodule.env_id
 
         # Double check that the environment is actually registered and available to use
         if self.env_id not in gym.envs.registry:
-            raise RuntimeError(f"Environment '{self.env_id}' is not registered in Gymnasium.")
+            raise RuntimeError(
+                f"Environment '{self.env_id}' is not registered in Gymnasium + Maniskill."
+            )
 
         self.obs_mode = datamodule.obs_mode
         self.control_mode = datamodule.control_mode
@@ -102,6 +105,10 @@ class RolloutEvaluationCallback(L.Callback):
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
+
+        if self.env_id is None:
+            raise ValueError("env_id is not set. This should have been set during setup().")
+
         is_cuda = self.physx_backend is not None and "cuda" in self.physx_backend.lower()
 
         # In CUDA, batch environments together. In CPU, execute 1 at a time sequentially

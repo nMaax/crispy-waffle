@@ -1,5 +1,3 @@
-from typing import Any
-
 import h5py
 
 
@@ -14,7 +12,7 @@ def load_h5_data(data):
     return out
 
 
-def extract_h5_shapes(data: Any):
+def extract_h5_shapes(data: h5py.Group | h5py.Dataset | h5py.Datatype | None):
     """Recursively extracts shapes from h5py objects without loading into RAM."""
     if isinstance(data, h5py.Group):
         return {k: extract_h5_shapes(data[k]) for k in data.keys()}
