@@ -38,7 +38,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.obs_mode = None
         self.control_mode = None
         self.physx_backend = None
-        self.cond_source = None
+        self.use_phsyx_env_states = None
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
@@ -64,7 +64,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.obs_mode = datamodule.obs_mode
         self.control_mode = datamodule.control_mode
         self.physx_backend = datamodule.physx_backend
-        self.cond_source = datamodule.cond_source
+        self.use_phsyx_env_states = datamodule.use_phsyx_env_states
 
         if self.physx_backend == "physix_cuda" and not torch.cuda.is_available():
             raise RuntimeError(
@@ -85,7 +85,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
-        if self.cond_source == "env_states":
+        if self.use_phsyx_env_states:
             # Bypass obs_mode completely and fetch the raw physics state
             return env.unwrapped.get_state()
 
@@ -147,7 +147,7 @@ class RolloutEvaluationCallback(L.Callback):
         while not dones.all():
             # Stack tensors along the time dimension (dim=1), dim=0 is the batch dimension
             stacked_obs = torch.stack(list(policy_inputs_deque), dim=1)
-            obs_seq = {self.cond_source: stacked_obs}
+            obs_seq = {self.use_phsyx_env_states: stacked_obs}
 
             with torch.no_grad():
                 action_seq = policy.get_action(obs_seq)

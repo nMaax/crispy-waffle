@@ -16,7 +16,7 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
 # TODO: Major fixes
-# - [ ] Maybe you should generalize the fetching of control_mode, obs_mode and cond_source making them automatically detected by the DiffusionPolicy peaking inside data?
+# - [ ] Maybe you should generalize the fetching of control_mode, obs_mode and use_phsyx_env_states making them automatically detected by the DiffusionPolicy peaking inside data?
 # - [ ] Same for seeding? Like it should be fetched automatically, not by Hydra?
 # - [ ] Double check we are passing action/seq pairs synchronized between train and eval (see if slicing use the right indices)
 # - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range
@@ -92,7 +92,7 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = self.datamodule.action_dim
 
         # The conditioning signal fed to the network is determined by the datamodule's
-        # cond_source. We use cond_dim as the single source of truth so that the
+        # use_phsyx_env_states. We use cond_dim as the single source of truth so that the
         # policy never needs to know whether it comes from env_states, obs, or both.
         raw_cond_dim = self.datamodule.cond_dim
         if isinstance(raw_cond_dim, dict):

@@ -33,7 +33,7 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        cond_source: Literal["env_states", "obs"],
+        use_phsyx_env_states: bool,
         cond_horizon: int,
         pred_horizon: int,
         episodes: list[dict] | None = None,
@@ -45,7 +45,7 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         parameters:
             - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
-            - cond_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
+            - use_phsyx_env_states: Whether to condition the policy on raw states of the physical engine (ignoring observaions).
             - cond_horizon: Number of past time steps to include in the conditioning sequence.
             - pred_horizon: Number of future time steps to include in the action sequence.
             - episodes: Optional list of episode metadata dicts to use. If None, the dataset oads all episodes from the JSON file.
@@ -54,7 +54,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         """
         super().__init__()
         self.dataset_file = Path(dataset_file)
-        self.cond_source = cond_source
+        self.use_phsyx_env_states = use_phsyx_env_states
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
 
@@ -151,12 +151,10 @@ class ManiSkillTrajectoryDataset(Dataset):
         obs_seq = self._slice_and_pad(traj["obs"], cond_start, cond_end, L)
         action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
-        if self.cond_source == "env_states":
+        if self.use_phsyx_env_states:
             cond_seq = env_seq
-        elif self.cond_source == "obs":
-            cond_seq = obs_seq
         else:
-            raise ValueError(f"Invalid cond_source: {self.cond_source}")
+            cond_seq = obs_seq
 
         return {
             "cond_seq": to_tensor(cond_seq),
@@ -212,9 +210,13 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.val_split = val_split
 
-        self.env_id, self.obs_mode, self.control_mode, self.physx_backend, self.cond_source = (
-            self._load_metadata_from_json()
-        )
+        (
+            self.env_id,
+            self.obs_mode,
+            self.control_mode,
+            self.physx_backend,
+            self.use_phsyx_env_states,
+        ) = self._load_metadata_from_json()
 
         # Fetch dimensions instantly without loading the full dataset into RAM
         self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
@@ -232,18 +234,11 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     @property
     def cond_dim(self) -> int | dict[str, Any]:
-        """The dimensionality of the conditioning signal exposed to the policy.
-
-        Returns the shape information for the source selected by cond_source:
-        - `"env_states"` → `env_state_dim`
-        - `"obs"` → `obs_dim`
-        """
-        if self.cond_source == "env_states":
+        """The dimensionality of the conditioning signal exposed to the policy. Selected by use_phsyx_env_states."""
+        if self.use_phsyx_env_states:
             return self.env_state_dim
-        elif self.cond_source == "obs":
-            return self.obs_dim
         else:
-            raise ValueError(f"Invalid cond_source: {self.cond_source}")
+            return self.obs_dim
 
     def _load_metadata_from_json(self):
         """
@@ -267,9 +262,9 @@ class ManiSkillDataModule(L.LightningDataModule):
             warnings.warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'. ")
             physx_backend = "physx_cpu"
 
-        cond_source = "env_states" if obs_mode == "none" else "obs"
+        use_phsyx_env_states = obs_mode == "none"
 
-        return env_id, obs_mode, control_mode, physx_backend, cond_source
+        return env_id, obs_mode, control_mode, physx_backend, use_phsyx_env_states
 
     def _peek_dimensions(self):
         """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
@@ -320,12 +315,9 @@ class ManiSkillDataModule(L.LightningDataModule):
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
 
-            if self.cond_source != "env_states" and self.cond_source != "obs":
-                raise ValueError(f"Invalid cond_source: {self.cond_source}")
-
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                cond_source=self.cond_source,
+                use_phsyx_env_states=self.use_phsyx_env_states,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
@@ -333,7 +325,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.val_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                cond_source=self.cond_source,
+                use_phsyx_env_states=self.use_phsyx_env_states,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
