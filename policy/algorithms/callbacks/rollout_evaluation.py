@@ -43,14 +43,14 @@ class RolloutEvaluationCallback(L.Callback):
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
 
-        # Inject arbitrary base seeds to avoid using those at training
-        main_seed = seed if seed is not None else random.randint(0, int(1e5))
-        self.val_seed = main_seed + self.BASE_SEED_VAL
-        self.test_seed = main_seed + self.BASE_SEED_TEST
+        if seed is None:
+            raise ValueError("seed must be provided.")
+        self.val_seed = seed + self.BASE_SEED_VAL
+        self.test_seed = seed + self.BASE_SEED_TEST
 
         # Debug
         print(
-            f"Seeds for Maniskill simulations fetched from main seed {main_seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
+            f"Seeds for Maniskill simulations fetched from main seed {seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
         )
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:

@@ -222,8 +222,9 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
         # Prepare seeds for spliting
-        main_seed = seed if seed is not None else random.randint(0, int(1e5))
-        self.seed = main_seed
+        if seed is None:
+            raise ValueError("seed must be provided.")
+        self.seed = seed
 
         # Debug
         print(f"Seeds for episodes datasplit fetched from main seed: {main_seed}")
