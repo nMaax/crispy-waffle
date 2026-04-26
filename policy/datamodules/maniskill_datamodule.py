@@ -199,8 +199,8 @@ class ManiSkillDataModule(L.LightningDataModule):
                 "ManiSkill datasets must be HDF5 files (.h5 or .hdf5)."
             )
 
-        json_path = self.dataset_file.with_suffix(".json")
-        if not json_path.exists():
+        self.json_path = self.dataset_file.with_suffix(".json")
+        if not self.json_path.exists():
             raise FileNotFoundError(
                 f"Metadata file not found: {json_path}. "
                 "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
@@ -212,9 +212,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.val_split = val_split
 
-        # Fetch data nature from filename
-        self.obs_mode, self.cond_source, self.control_mode, self.physx_backend = (
-            self._parse_dataset_filename()
+        self.env_id, self.obs_mode, self.control_mode, self.physx_backend, self.cond_source = (
+            self._load_metadata_from_json()
         )
 
         # Fetch dimensions instantly without loading the full dataset into RAM
@@ -246,29 +245,31 @@ class ManiSkillDataModule(L.LightningDataModule):
         else:
             raise ValueError(f"Invalid cond_source: {self.cond_source}")
 
-    def _parse_dataset_filename(self):
+    def _load_metadata_from_json(self):
         """
-        Parse the dataset filename to extract cond_source, obs_mode, control_mode, and physx_backend
+        Parse the dataset metadata JSON to extract obs_mode, control_mode, and physx_backend.
         """
-        stem = self.dataset_file.stem.lower()
-        parts = stem.split(".")
-        if len(parts) >= 4:
-            obs_mode = parts[1]
-            control_mode = parts[2]
-            physx_backend = parts[3]
-        else:
-            warnings.warn(
-                f"Dataset filename '{self.dataset_file.name}' does not follow the standard ManiSkill "
-                "format: '[env_id].[obs_mode].[control_mode].[backend]'. "
-                "Falling back to default parsing logic."
-            )
-            obs_mode = "state"
-            control_mode = "pd_joint_pos"
+
+        with open(self.json_path) as f:
+            meta = json.load(f)
+
+        env_info = meta.get("env_info", {})
+        env_kwargs = env_info.get("env_kwargs", {})
+
+        env_id = env_info.get("env_id", None)
+
+        obs_mode = env_kwargs.get("obs_mode", "state")
+        control_mode = env_kwargs.get("control_mode", "pd_joint_pos")
+        physx_backend = env_kwargs.get("sim_backend", "physx_cpu")
+
+        if physx_backend == "auto":
+            # TODO: Is it correct to use warning or I should use rank_zero_warn here?
+            warnings.warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'. ")
             physx_backend = "physx_cpu"
 
         cond_source = "env_states" if obs_mode == "none" else "obs"
 
-        return cond_source, obs_mode, control_mode, physx_backend
+        return env_id, obs_mode, control_mode, physx_backend, cond_source
 
     def _peek_dimensions(self):
         """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""

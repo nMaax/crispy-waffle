@@ -1,8 +1,5 @@
 rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
-  env_id: "StackCube-v1"
-  control_mode: "pd_ee_delta_pose"
   num_val_episodes: 10
   num_test_episodes: 100
-  obs_mode: "state"
   seed: none

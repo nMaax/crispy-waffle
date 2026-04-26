@@ -21,31 +21,27 @@ class RolloutEvaluationCallback(L.Callback):
 
     def __init__(
         self,
-        env_id: str,
-        control_mode: str,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
-        obs_mode: Literal["none", "state", "rgbd", "pointcloud"] = "state",
         seed: int | None = None,
     ):
         """
         Deploys the policy in a parallelized environment for testing.
 
         parameters:
-            - env_id: str, the Gym environment ID to create (e.g. "LiftCube-v0")
-            - control_mode: str, the control mode to use for the environment (e.g. "pd_joint_pos", "pd_ee_delta_pose")
             - num_val_episodes: int, how many parallel episodes to run during validation
             - num_test_episodes: int, how many parallel episodes to run during testing
-            - obs_mode: str, the obs_mode to pass when creating the environment (e.g. "state" or "pointcloud"). If "none" (as a str) uses original physic env_states data.
             - seed: int or None, an optional main seed to derive the validation and test seeds from. If None, random seeds will be generated.
         """
         super().__init__()
-        self.env_id = env_id
-        self.control_mode = control_mode
+        self.env_id = None
+        self.obs_mode = None
+        self.control_mode = None
+        self.physx_backend = None
+        self.cond_source = None
+
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
-        self.obs_mode = obs_mode
-        self.cond_source = "env_states" if obs_mode == "none" else "obs"
 
         # Inject arbitrary base seeds to avoid using those at training
         main_seed = seed if seed is not None else random.randint(0, int(1e5))
@@ -57,6 +53,36 @@ class RolloutEvaluationCallback(L.Callback):
             f"Seeds for Maniskill simulations fetched from main seed {main_seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
         )
 
+    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+        """Called when fit, validate, test, predict, or tune begins."""
+        datamodule = trainer.datamodule
+
+        if datamodule is None:
+            raise ValueError("A datamodule must be attached to the trainer to use this callback.")
+
+        self.env_id = datamodule.env_id
+        self.obs_mode = datamodule.obs_mode
+        self.control_mode = datamodule.control_mode
+        self.physx_backend = datamodule.physx_backend
+        self.cond_source = datamodule.cond_source
+
+        if self.physx_backend == "physix_cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                f"Dataset specifies GPU backend '{self.physx_backend}', "
+                "but CUDA is not available on this machine. Cannot run parallel GPU environments."
+            )
+
+        rank_zero_info(
+            f"Rollout Config synced from Datamodule -> obs_mode: {self.obs_mode}, "
+            f"control_mode: {self.control_mode}, backend: {self.physx_backend}"
+        )
+
+    def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
+
+    def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
+
     def _get_policy_input(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
         if self.cond_source == "env_states":
@@ -65,12 +91,6 @@ class RolloutEvaluationCallback(L.Callback):
 
         # Default to whatever observation the env returned (e.g. obs_mode="state")
         return step_obs
-
-    def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
-
-    def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
 
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
