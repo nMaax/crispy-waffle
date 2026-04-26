@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import warnings
 from pathlib import Path
 from typing import Any, Literal
 
@@ -32,7 +33,7 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        cond_source: Literal["env_states", "obs", "both"],
+        cond_source: Literal["env_states", "obs"],
         cond_horizon: int,
         pred_horizon: int,
         episodes: list[dict] | None = None,
@@ -146,16 +147,16 @@ class ManiSkillTrajectoryDataset(Dataset):
         traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
-        obs_seq = self._slice_and_pad(traj["obs"], cond_start, cond_end, L)
         env_seq = self._slice_and_pad(traj["env_states"], cond_start, cond_end, L)
+        obs_seq = self._slice_and_pad(traj["obs"], cond_start, cond_end, L)
         action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
 
         if self.cond_source == "env_states":
             cond_seq = env_seq
         elif self.cond_source == "obs":
             cond_seq = obs_seq
-        else:  # "both"
-            cond_seq = {"env_states": env_seq, "obs": obs_seq}
+        else:
+            raise ValueError(f"Invalid cond_source: {self.cond_source}")
 
         return {
             "cond_seq": to_tensor(cond_seq),
@@ -172,7 +173,6 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
-        cond_source: Literal["env_states", "obs", "both"] = "env_states",
         seed: int | None = None,
     ):
         """
@@ -185,18 +185,42 @@ class ManiSkillDataModule(L.LightningDataModule):
             - batch_size: Number of samples per batch for training and validation.
             - num_workers: Number of subprocesses to use for data loading.
             - val_split: Fraction of episodes to reserve for validation (e.g. 0.1 for 10% validation).
-            - cond_source: Whether to condition the policy on "env_states" (raw states of the physical engine), "obs" (observations, e.g. "state", "rgbd"), or "both".
             - seed: An optional main seed to ensure reproducible train/val splits. If None, a random seed will be generated.
         """
         super().__init__()
         self.dataset_file = Path(dataset_file)
+
+        if not self.dataset_file.exists():
+            raise FileNotFoundError(f"The dataset file was not found at: {self.dataset_file}")
+
+        if self.dataset_file.suffix not in [".h5", ".hdf5"]:
+            raise ValueError(
+                f"Invalid file extension '{self.dataset_file.suffix}'. "
+                "ManiSkill datasets must be HDF5 files (.h5 or .hdf5)."
+            )
+
+        json_path = self.dataset_file.with_suffix(".json")
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"Metadata file not found: {json_path}. "
+                "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
+            )
+
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.cond_source: Literal["env_states", "obs", "both"] = cond_source
 
+        # Fetch data nature from filename
+        self.obs_mode, self.cond_source, self.control_mode, self.physx_backend = (
+            self._parse_dataset_filename()
+        )
+
+        # Fetch dimensions instantly without loading the full dataset into RAM
+        self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
+
+        # Prepare seeds for spliting
         main_seed = seed if seed is not None else random.randint(0, int(1e5))
         self.seed = main_seed
 
@@ -207,28 +231,44 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
 
-        # Fetch dimensions instantly without loading the full dataset into RAM
-        self.action_dim: int
-        self.env_state_dim: int | dict[str, Any]
-        self.obs_dim: int | dict[str, Any]
-
-        self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
-
     @property
     def cond_dim(self) -> int | dict[str, Any]:
         """The dimensionality of the conditioning signal exposed to the policy.
 
-        Returns the shape information for the source selected by ``cond_source``:
-        - ``"env_states"`` → ``env_state_dim``
-        - ``"obs"`` → ``obs_dim``
-        - ``"both"`` → merged dict containing both ``env_states`` and ``obs`` sub-trees
+        Returns the shape information for the source selected by cond_source:
+        - `"env_states"` → `env_state_dim`
+        - `"obs"` → `obs_dim`
         """
         if self.cond_source == "env_states":
             return self.env_state_dim
         elif self.cond_source == "obs":
             return self.obs_dim
-        else:  # "both"
-            return {"env_states": self.env_state_dim, "obs": self.obs_dim}
+        else:
+            raise ValueError(f"Invalid cond_source: {self.cond_source}")
+
+    def _parse_dataset_filename(self):
+        """
+        Parse the dataset filename to extract cond_source, obs_mode, control_mode, and physx_backend
+        """
+        stem = self.dataset_file.stem.lower()
+        parts = stem.split(".")
+        if len(parts) >= 4:
+            obs_mode = parts[1]
+            control_mode = parts[2]
+            physx_backend = parts[3]
+        else:
+            warnings.warn(
+                f"Dataset filename '{self.dataset_file.name}' does not follow the standard ManiSkill "
+                "format: '[env_id].[obs_mode].[control_mode].[backend]'. "
+                "Falling back to default parsing logic."
+            )
+            obs_mode = "state"
+            control_mode = "pd_joint_pos"
+            physx_backend = "physx_cpu"
+
+        cond_source = "env_states" if obs_mode == "none" else "obs"
+
+        return cond_source, obs_mode, control_mode, physx_backend
 
     def _peek_dimensions(self):
         """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
@@ -248,9 +288,9 @@ class ManiSkillDataModule(L.LightningDataModule):
         with h5py.File(self.dataset_file, "r") as data:
             traj_data = data[f"traj_{first_episode_id}"]
 
-            # h5py can return .shape without loading into memory
-            act_dim = traj_data["actions"].shape[-1]  # type: ignore
-            env_state_dim = extract_h5_shapes(traj_data["env_states"])  # type: ignore
+            # NOTE: h5py can return .shape without loading into memory
+            act_dim = traj_data["actions"].shape[-1]
+            env_state_dim = extract_h5_shapes(traj_data["env_states"])
             obs_dim = extract_h5_shapes(traj_data["obs"])  # type: ignore
 
         if act_dim is None or env_state_dim is None or obs_dim is None:
@@ -262,27 +302,25 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def setup(self, stage=None):
         if self.train_set is None:
-            # Read the JSON metadata directly to get the episodes
             json_path = self.dataset_file.with_suffix(".json")
             with open(json_path) as f:
                 all_episodes = json.load(f)["episodes"]
 
-            # Shuffle episodes
             rng = random.Random(self.seed)
             rng.shuffle(all_episodes)
 
-            # Calculate split index
             val_size = int(len(all_episodes) * self.val_split)
             train_size = len(all_episodes) - val_size
 
-            # Partition the episode lists
             train_episodes = all_episodes[:train_size]
             val_episodes = all_episodes[train_size:]
 
-            # Create distinct datasets for train and validation
             print(
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
+
+            if self.cond_source != "env_states" and self.cond_source != "obs":
+                raise ValueError(f"Invalid cond_source: {self.cond_source}")
 
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
@@ -327,6 +365,4 @@ class ManiSkillDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self):
-        # Testing is done strictly via simulation in the Callback.
-        # We return a dummy batch just to trigger the Callback logic.
         return DataLoader(DummyDataset(), batch_size=1)
