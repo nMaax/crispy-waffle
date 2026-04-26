@@ -16,7 +16,6 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
 # TODO: Major fixes
-# - [ ] Maybe you should generalize the fetching of control_mode, obs_mode and use_phsyx_env_states making them automatically detected by the DiffusionPolicy peaking inside data?
 # - [ ] Same for seeding? Like it should be fetched automatically, not by Hydra?
 # - [ ] Double check we are passing action/seq pairs synchronized between train and eval (see if slicing use the right indices)
 # - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range

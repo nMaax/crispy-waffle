@@ -38,7 +38,6 @@ datamodule:
   pred_horizon: 16
   batch_size: 256
   val_split: 0.1
-  seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
 
 trainer:
   min_epochs: -1 # -1 disables epoch limits
@@ -63,7 +62,6 @@ trainer:
     rollout_evaluation:
       num_val_episodes: 20
       num_test_episodes: 100
-      seed: ${seed} # seed is passed by config.py, if not specified via CLI it is a random integer
 
     early_stopping:
       monitor: "val/loss" # quantity to be monitored
