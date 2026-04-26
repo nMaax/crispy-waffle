@@ -2,3 +2,4 @@ rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
   num_val_episodes: 10
   num_test_episodes: 100
+  seed: ${seed} # Seed is passed by config.py

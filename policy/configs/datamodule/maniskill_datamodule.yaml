@@ -5,3 +5,4 @@ pred_horizon: 16
 batch_size: 128
 num_workers: 4
 val_split: 0.1
+seed: ${seed} # Seed is passed by config.py
