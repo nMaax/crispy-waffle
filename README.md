@@ -51,3 +51,9 @@ To enable automatic linting and formatting on your machine, follow these steps:
 
 1. Run `uv run pre-commit install` to link the hooks to your local Git repository
 2. Verify the setup by running `uv run pre-commit run --all-files`
+
+### Pytest
+
+```bash
+uv run pytest --cov=policy --cov-fail-under=70
+```
