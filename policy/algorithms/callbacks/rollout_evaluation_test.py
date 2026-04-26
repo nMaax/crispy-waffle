@@ -226,3 +226,16 @@ def test_rollout_evaluation_callback_get_policy_conditioning_env_state_path(monk
 
     # When use_phsyx_env_states is True, it should come from env.unwrapped.get_state()
     assert torch.allclose(out, env.unwrapped.get_state())
+
+
+def test_rollout_evaluation_callback_get_policy_conditioning_obs_path():
+    cb = RolloutEvaluationCallback(seed=0)
+    cb.use_phsyx_env_states = False
+
+    env = FakeVectorEnv(num_envs=1)
+    obs, _ = env.reset(seed=0)
+
+    out = cb._get_policy_conditioning(env, obs)
+
+    # When use_phsyx_env_states is False, it should return the observation directly.
+    assert out is obs
