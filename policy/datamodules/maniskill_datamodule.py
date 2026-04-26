@@ -227,7 +227,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.seed = seed
 
         # Debug
-        print(f"Seeds for episodes datasplit fetched from main seed: {main_seed}")
+        print(f"Seeds for episodes datasplit fetched from main seed: {seed}")
 
         # Prepare train and val split sets
         self.train_set: Dataset | None = None
