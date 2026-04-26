@@ -152,7 +152,7 @@ class RolloutEvaluationCallback(L.Callback):
             obs, info = env.reset(seed=current_seed)
             policy_input = self._get_policy_input(env, obs)
 
-            policy_inputs_deque = deque([policy_input] * obs_horizon, maxlen=obs_horizon)
+            obs_seq = policy_input.unsqueeze(1).repeat(1, obs_horizon, 1)
 
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
@@ -160,9 +160,6 @@ class RolloutEvaluationCallback(L.Callback):
 
             # Step until all environments within this batch have concluded
             while not dones.all():
-                obs_seq = torch.stack(list(policy_inputs_deque), dim=1)
-                obs_seq = obs_seq.to(pl_module.device)  # Just in case data was fetched on CPU
-
                 with torch.no_grad():
                     action_seq = policy.get_action(obs_seq)
                     action = action_seq[:, 0]
@@ -172,7 +169,11 @@ class RolloutEvaluationCallback(L.Callback):
                 obs, reward, terminated, truncated, info = env.step(action)
 
                 policy_input = self._get_policy_input(env, obs)
-                policy_inputs_deque.append(policy_input)
+
+                # Shift the buffer and insert the new observation
+                # TODO: should rename obs_seq to cond_seq or policy_input_buffers or something
+                obs_seq = torch.roll(obs_seq, shifts=-1, dims=1)
+                obs_seq[:, -1] = policy_input
 
                 env_is_done = torch.as_tensor(
                     terminated | truncated, dtype=torch.bool, device=pl_module.device

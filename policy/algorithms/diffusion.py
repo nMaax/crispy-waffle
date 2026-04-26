@@ -16,7 +16,6 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import HydraConfigFor
 
 # TODO: Major fixes
-# - [ ] Generalize rollback to use cpu or gpu given the loaded data backend and local resources available
 # - [ ] Double check we are passing action/seq pairs synchronized between train and eval (see if slicing use the right indices)
 # - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range
 #   - Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
