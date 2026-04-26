@@ -1,14 +1,16 @@
 import h5py
+import numpy as np
 
 
-def load_h5_data(data):
+def load_h5_data(data: h5py.Group | h5py.File) -> dict[str, np.ndarray | dict]:
     """Recursively loads h5py data into memory as numpy arrays."""
-    out = dict()
+    out: dict[str, np.ndarray | dict] = dict()
     for k in data.keys():
-        if isinstance(data[k], h5py.Dataset):
-            out[k] = data[k][:]
-        else:
-            out[k] = load_h5_data(data[k])
+        item = data[k]
+        if isinstance(item, h5py.Dataset):
+            out[k] = item[:]
+        elif isinstance(item, h5py.Group):
+            out[k] = load_h5_data(item)
     return out
 
 
