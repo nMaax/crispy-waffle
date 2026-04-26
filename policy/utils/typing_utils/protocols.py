@@ -80,3 +80,38 @@ class PolicyProtocol(Protocol):
             Action tensor of shape ``(B, act_horizon, act_dim)``.
         """
         ...
+
+
+@runtime_checkable
+class DiffusionSchedulerProtocol(Protocol):
+    """Protocol defining the expected interface for diffusion noise schedulers."""
+
+    config: dict[str, Any]
+
+    @property
+    def timesteps(self) -> torch.Tensor: ...
+
+    def set_timesteps(
+        self, num_inference_steps: int, device: str | torch.device | None = None
+    ) -> None: ...
+
+    def scale_model_input(
+        self, sample: torch.Tensor, timestep: int | torch.Tensor
+    ) -> torch.Tensor: ...
+
+    def add_noise(
+        self, original_samples: torch.Tensor, noise: torch.Tensor, timesteps: torch.IntTensor
+    ) -> torch.Tensor: ...
+
+    def get_velocity(
+        self, sample: torch.Tensor, noise: torch.Tensor, timesteps: torch.IntTensor
+    ) -> torch.Tensor: ...
+
+    def step(
+        self,
+        model_output: torch.Tensor,
+        timestep: int | torch.Tensor,
+        sample: torch.Tensor,
+        return_dict: bool = True,
+        **kwargs: Any,
+    ) -> Any | tuple: ...

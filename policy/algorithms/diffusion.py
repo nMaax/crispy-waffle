@@ -6,14 +6,14 @@ import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from diffusers.schedulers.scheduling_utils import SchedulerMixin
 from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
-from policy.utils.typing_utils import HydraConfigFor
+from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Major fixes
 # - [ ] Double check we are passing action/seq pairs synchronized between train and eval (see if slicing use the right indices)
@@ -21,23 +21,14 @@ from policy.utils.typing_utils import HydraConfigFor
 #   - Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
 
 # TODO: Minor details
-#   - [ ] re-run tests, maybe improve them with checks on the rollouts?
 #   - [ ] review whole template to ensure it works
-
-# TODO: Address this note
-# NOTE: the use of noise_schduler here is strictly tied to a DDPM, making assumptions
-# on the API based on the diffusers' DDPM implementation and DDPM themselves.
-# e.g. I do not call set_timesteps() on the DDPM at inference (get_action()) since DDPM should not do that
-# e.g. I suppose predicting type as one of the Literals allowed by DDPM
-# Maybe some generalization could be needed in the future if we want
-# to introduce DDIM or Flow Matching, e.g. introducing a set_timesteps() at inference, where with DDPM defaults to the same as training timesteps
 
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],
-        noise_scheduler: HydraConfigFor[DDPMScheduler],
+        noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
         ema: HydraConfigFor[EMAModel],
         datamodule: ManiSkillDataModule,
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
@@ -45,7 +36,7 @@ class DiffusionPolicy(L.LightningModule):
         act_horizon: int = 8,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
-        """Implements a diffusion policy based on the DDPM architecture and training procedure.
+        """Implements a diffusion policy.
         parameters:
             - network: a Hydra config for the policy network architecture
             - noise_scheduler: a Hydra config for the noise scheduler
@@ -69,7 +60,7 @@ class DiffusionPolicy(L.LightningModule):
         self.ema: EMAModel | None = None
 
         self.noise_scheduler_config = noise_scheduler
-        self.noise_scheduler: DDPMScheduler | None = hydra_zen.instantiate(
+        self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
             self.noise_scheduler_config, prediction_type=prediction_type
         )
 
@@ -179,11 +170,16 @@ class DiffusionPolicy(L.LightningModule):
         noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
         prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
 
-        # Accessing prediction_type directly is deprecated, use config instead
-        if self.noise_scheduler.config["prediction_type"] == "epsilon":
+        pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
+
+        if pred_type == "epsilon":
             target = noise
-        else:
+        elif pred_type == "sample":
             target = action_seq
+        elif pred_type == "v_prediction":
+            target = self.noise_scheduler.get_velocity(action_seq, noise, timesteps)
+        else:
+            raise ValueError(f"Unsupported prediction_type: {pred_type}")
 
         return F.mse_loss(prediction, target)
 
@@ -213,7 +209,7 @@ class DiffusionPolicy(L.LightningModule):
 
         self.ema.step(self.network.parameters())
 
-    def get_action(self, cond_seq):
+    def get_action(self, cond_seq, num_inference_steps: int | None = None):
         """Used during inference/evaluation in the environment."""
         if self.network is None:
             raise ValueError(
@@ -238,24 +234,34 @@ class DiffusionPolicy(L.LightningModule):
         # Temporarily copy EMA weights in the model
         self.ema.copy_to(self.network.parameters())
 
+        if num_inference_steps is None:
+            num_inference_steps = self.noise_scheduler.config["num_train_timesteps"]
+
+        # Initialize the timesteps for the scheduler
+        num_inference_steps = cast(int, num_inference_steps)
+        self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
+
         with torch.no_grad():
             flatten_cond = flatten_tensor_dict(cond_seq)
             noisy_action_seq = torch.randn(
                 (B, self.pred_horizon, self.act_dim), device=self.device
             )
 
-            for k in self.noise_scheduler.timesteps:
-                k = int(k.item())
+            for t in self.noise_scheduler.timesteps:
+                t = t.item()
+                t = cast(int, t)  # TODO: is it okay to use cast() so massively?
 
-                noise_pred = self.network(
-                    sample=noisy_action_seq,
-                    timestep=k,
+                latent_model_input = self.noise_scheduler.scale_model_input(noisy_action_seq, t)
+
+                model_pred = self.network(
+                    sample=latent_model_input,
+                    timestep=t,
                     external_cond=flatten_cond,
                 )
 
                 output = self.noise_scheduler.step(
-                    model_output=noise_pred,
-                    timestep=k,
+                    model_output=model_pred,
+                    timestep=t,
                     sample=noisy_action_seq,
                     return_dict=False,
                 )
