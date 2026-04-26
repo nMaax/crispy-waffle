@@ -90,7 +90,7 @@ class RolloutEvaluationCallback(L.Callback):
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
 
-    def _get_policy_input(self, env, step_obs):
+    def _get_policy_conditioning(self, env, step_obs):
         """Helper to extract the correct conditioning state."""
         if self.use_phsyx_env_states:
             # Bypass obs_mode completely and fetch the raw physics state
@@ -150,7 +150,7 @@ class RolloutEvaluationCallback(L.Callback):
             current_seed = (self.val_seed if phase == "val" else self.test_seed) + iteration
 
             obs, info = env.reset(seed=current_seed)
-            policy_conditioning = self._get_policy_input(env, obs)
+            policy_conditioning = self._get_policy_conditioning(env, obs).to(pl_module.device)
 
             cond_seq = policy_conditioning.unsqueeze(1).repeat(1, obs_horizon, 1)
 
@@ -168,7 +168,7 @@ class RolloutEvaluationCallback(L.Callback):
 
                 obs, reward, terminated, truncated, info = env.step(action)
 
-                policy_conditioning = self._get_policy_input(env, obs)
+                policy_conditioning = self._get_policy_conditioning(env, obs).to(pl_module.device)
 
                 # Shift the buffer and insert the new observation
                 cond_seq = torch.roll(cond_seq, shifts=-1, dims=1)
