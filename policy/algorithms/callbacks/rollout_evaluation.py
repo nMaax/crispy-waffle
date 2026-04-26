@@ -25,8 +25,7 @@ class RolloutEvaluationCallback(L.Callback):
         control_mode: str,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
-        cond_source: Literal["obs", "env_states"] = "obs",
-        obs_mode: str = "state",
+        obs_mode: Literal["none", "state", "rgbd", "pointcloud"] = "state",
         seed: int | None = None,
     ):
         """
@@ -37,8 +36,7 @@ class RolloutEvaluationCallback(L.Callback):
             - control_mode: str, the control mode to use for the environment (e.g. "pd_joint_pos", "pd_ee_delta_pose")
             - num_val_episodes: int, how many parallel episodes to run during validation
             - num_test_episodes: int, how many parallel episodes to run during testing
-            - cond_source: whether to condition the policy on the raw physics engine states ("env_states") or the observations returned by the env ("obs")
-            - obs_mode: str, the obs_mode to pass when creating the environment (e.g. "state" or "pointcloud"). Ignored if cond_source="env_states".
+            - obs_mode: str, the obs_mode to pass when creating the environment (e.g. "state" or "pointcloud"). If "none" (as a str) uses original physic env_states data.
             - seed: int or None, an optional main seed to derive the validation and test seeds from. If None, random seeds will be generated.
         """
         super().__init__()
@@ -46,8 +44,8 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = control_mode
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
-        self.cond_source = cond_source
         self.obs_mode = obs_mode
+        self.cond_source = "env_states" if obs_mode == "none" else "obs"
 
         # Inject arbitrary base seeds to avoid using those at training
         main_seed = seed if seed is not None else random.randint(0, int(1e5))

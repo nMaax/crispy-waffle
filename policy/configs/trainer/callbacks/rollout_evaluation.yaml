@@ -4,6 +4,5 @@ rollout_evaluation:
   control_mode: "pd_ee_delta_pose"
   num_val_episodes: 10
   num_test_episodes: 100
-  cond_source: "obs"
   obs_mode: "state"
   seed: none
