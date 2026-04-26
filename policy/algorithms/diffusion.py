@@ -86,7 +86,7 @@ class DiffusionPolicy(L.LightningModule):
             self.cond_dim = sum_shapes(raw_cond_dim)
         else:
             # Fallback in case it's already an integer
-            self.cond_dim = cast(int, raw_cond_dim)
+            self.cond_dim = raw_cond_dim
 
     def configure_model(self):
         """Lightning calls this before training starts to initialize weights safely."""
@@ -235,10 +235,9 @@ class DiffusionPolicy(L.LightningModule):
         self.ema.copy_to(self.network.parameters())
 
         if num_inference_steps is None:
-            num_inference_steps = self.noise_scheduler.config["num_train_timesteps"]
+            num_inference_steps = int(self.noise_scheduler.config["num_train_timesteps"])
 
         # Initialize the timesteps for the scheduler
-        num_inference_steps = cast(int, num_inference_steps)
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
         with torch.no_grad():
@@ -248,8 +247,7 @@ class DiffusionPolicy(L.LightningModule):
             )
 
             for t in self.noise_scheduler.timesteps:
-                t = t.item()
-                t = cast(int, t)  # TODO: is it okay to use cast() so massively?
+                t = int(t.item())
 
                 latent_model_input = self.noise_scheduler.scale_model_input(noisy_action_seq, t)
 

@@ -125,10 +125,12 @@ class RolloutEvaluationCallback(L.Callback):
         # Put model in eval mode
         pl_module.eval()
 
-        # Cast to PolicyProtocol so we can access get_action and cond_horizon without
-        # depending on a specific implementation class.
-        policy = cast(PolicyProtocol, pl_module)
-        obs_horizon = policy.cond_horizon
+        # Check the policy implements what we need
+        assert isinstance(pl_module, PolicyProtocol), (
+            f"Expected the LightningModule to implement PolicyProtocol, "
+            f"but got {type(pl_module).__name__}."
+        )
+        obs_horizon = pl_module.cond_horizon
 
         # Check if we are using RichProgressBar or TQDMProgressBar
         is_rich = isinstance(trainer.progress_bar_callback, RichProgressBar)
@@ -168,7 +170,7 @@ class RolloutEvaluationCallback(L.Callback):
             # Step until all environments within this batch have concluded
             while not dones.all():
                 with torch.no_grad():
-                    action_seq = policy.get_action(cond_seq)
+                    action_seq = pl_module.get_action(cond_seq)
                     action = action_seq[:, 0]
 
                 action = action if is_cuda else action.cpu()
