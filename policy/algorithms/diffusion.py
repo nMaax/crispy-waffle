@@ -14,16 +14,7 @@ from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
-# TODO: Major fixes
-# - [ ] Normalize observation/env_states
-#   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)
-#   - Then the diffusion policy can load them and apply the normalization using the TensorZNormalizer from utils/normalizer.py
-#   - The Diffusion should correctly select the file related to what we are looking for: cond_source, then select physix_env_states vs obs, and apply the normalization accordingly.
-#   - Thus Diffusion should have access to the datamodule's parameters about cond_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
-#   - Can diffusion access such data? YES, since datamodule is passed in the init
-
-# TODO: Minor details
-#   - [ ] review whole template to ensure it works
+# TODO: Review whole template to ensure it works
 
 
 class DiffusionPolicy(L.LightningModule):
@@ -98,6 +89,13 @@ class DiffusionPolicy(L.LightningModule):
         else:
             # Fallback in case it's already an integer
             self.cond_dim = raw_cond_dim
+
+        # TODO: Normalize observation/env_states
+        #   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)
+        #   - Then the diffusion policy can load them and apply the normalization using the TensorZNormalizer from utils/normalizer.py
+        #   - The Diffusion should correctly select the file related to what we are looking for: cond_source, then select physix_env_states vs obs, and apply the normalization accordingly.
+        #   - Thus Diffusion should have access to the datamodule's parameters about cond_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
+        #   - Can diffusion access such data? YES, since datamodule is passed in the init
 
     def configure_model(self):
         """Lightning calls this before training starts to initialize weights safely."""
