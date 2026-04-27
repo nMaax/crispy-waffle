@@ -6,7 +6,6 @@ import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from diffusers.schedulers.scheduling_utils import SchedulerMixin
 from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
@@ -37,6 +36,7 @@ class DiffusionPolicy(L.LightningModule):
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
         """Implements a diffusion policy.
+
         parameters:
             - network: a Hydra config for the policy network architecture
             - noise_scheduler: a Hydra config for the noise scheduler
@@ -209,7 +209,9 @@ class DiffusionPolicy(L.LightningModule):
 
         self.ema.step(self.network.parameters())
 
-    def get_action(self, cond_seq, num_inference_steps: int | None = None):
+    def get_action(
+        self, cond_seq, num_inference_steps: int | None = None, clamp_denoised: bool = True
+    ):
         """Used during inference/evaluation in the environment."""
         if self.network is None:
             raise ValueError(
@@ -270,4 +272,9 @@ class DiffusionPolicy(L.LightningModule):
 
         start = self.cond_horizon - 1
         end = start + self.act_horizon
-        return noisy_action_seq[:, start:end]
+
+        denoised_action_seq = noisy_action_seq[:, start:end]
+        if clamp_denoised:
+            denoised_action_seq = torch.clamp(denoised_action_seq, -1.0, 1.0)
+
+        return denoised_action_seq
