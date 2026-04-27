@@ -121,10 +121,23 @@ class ManiSkillTrajectoryDataset(Dataset):
                 else:
                     # Load episode tensors into RAM
                     traj_group = data[f"traj_{episode_id}"]
+                    if not isinstance(traj_group, h5py.Group):
+                        raise TypeError(
+                            f"Expected HDF5 group traj_{episode_id}, got {type(traj_group)}"
+                        )
+
+                    # Load the whole episode into RAM
+                    # we will avoid this when lazy
                     trajectory = load_h5_data(traj_group)
 
+                    traj_actions = traj_group["actions"]
+                    if not isinstance(traj_actions, h5py.Dataset):
+                        raise TypeError(
+                            f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(traj_actions)}'
+                        )
+
                     if self.validate_lengths:
-                        h5_L = len(trajectory["actions"])
+                        h5_L = len(traj_actions)
                         if h5_L != L:
                             raise ValueError(
                                 f"Length mismatch for episode {episode_id}: "
@@ -219,15 +232,29 @@ class ManiSkillTrajectoryDataset(Dataset):
         if self.lazy:
             meta = traj
             episode_id = meta["episode_id"]
+
+            # NOTE: we do not use load_h5_data here because
+            # we want to keep the data on disk and read only what needed
+            # for the selected window
+
             h5_traj = self.h5_file[f"traj_{episode_id}"]
+            if not isinstance(h5_traj, h5py.Group):
+                raise TypeError(f"Expected HDF5 group traj_{episode_id}, got {type(h5_traj)}")
+
+            h5_actions = h5_traj["actions"]
+            if not isinstance(h5_actions, h5py.Dataset):
+                raise TypeError(
+                    f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(h5_actions)}'
+                )
 
             if self.validate_lengths:
-                h5_L = len(h5_traj["actions"])
+                h5_L = len(h5_actions)
                 if h5_L != meta["length"]:
                     raise ValueError(
                         f"Length mismatch for episode {episode_id}: "
                         f"JSON elapsed_steps={traj['length']} but H5 len(actions)={h5_L}."
                     )
+
             traj = h5_traj
 
         # Select conditioning source
@@ -235,6 +262,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         act_src = traj["actions"]
 
         # Slice and pad conditinion and action sequences
+        # This is where we actually load the data from disk to memory, but only the needed window!
         cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L)
         act_seq = self._slice_and_pad(act_src, act_start, act_end, L)
 
