@@ -7,6 +7,7 @@ import h5py
 import lightning as L
 import numpy as np
 from lightning.fabric.utilities.rank_zero import rank_zero_warn
+from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
@@ -34,13 +35,16 @@ class ManiSkillTrajectoryDataset(Dataset):
         use_phsyx_env_states: bool,
         cond_horizon: int,
         pred_horizon: int,
+        action_dim: dict[str, Any] | None = None,
+        env_state_dim: dict[str, Any] | None = None,
+        obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
+        validate_lengths: bool = True,
     ) -> None:
-        """
-        Dataset for loading ManiSkill trajectories from HDF5 files.
+        """Dataset for loading ManiSkill trajectories from HDF5 files.
 
         parameters:
             - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
@@ -50,14 +54,18 @@ class ManiSkillTrajectoryDataset(Dataset):
             - episodes: Optional list of episode metadata dicts to use. If None, the dataset loads all episodes from the JSON file.
             - load_count: If > 0, limits the number of episodes to load (for faster debugging). If -1, loads all episodes.
             - success_only: If True, only loads episodes marked as successful in the JSON metadata
-            - lazy_load: If True, do not load trajectories into RAM. Only keep episode_id and read slices from disk in __getitem__.
+            - lazy: If True, do not load trajectories into RAM. Only keep episode_id and read slices from disk in __getitem__.
         """
         super().__init__()
         self.dataset_file = Path(dataset_file)
         self.use_phsyx_env_states = use_phsyx_env_states
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
-        self.lazy_load = lazy
+        self.action_dim = action_dim
+        self.env_state_dim = env_state_dim
+        self.obs_dim = obs_dim
+        self.lazy = lazy
+        self.validate_lengths = validate_lengths
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
@@ -107,7 +115,7 @@ class ManiSkillTrajectoryDataset(Dataset):
                 if first_valid_episode_id is None:
                     first_valid_episode_id = episode_id
 
-                if self.lazy_load:
+                if self.lazy:
                     # Store only what's needed to locate the episode on disk
                     self.trajectories.append({"episode_id": episode_id, "length": L})
                 else:
@@ -115,13 +123,13 @@ class ManiSkillTrajectoryDataset(Dataset):
                     traj_group = data[f"traj_{episode_id}"]
                     trajectory = load_h5_data(traj_group)
 
-                    # Consistency check
-                    h5_L = len(trajectory["actions"])
-                    if h5_L != L:
-                        raise ValueError(
-                            f"Length mismatch for episode {episode_id}: "
-                            f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
-                        )
+                    if self.validate_lengths:
+                        h5_L = len(trajectory["actions"])
+                        if h5_L != L:
+                            raise ValueError(
+                                f"Length mismatch for episode {episode_id}: "
+                                f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
+                            )
 
                     self.trajectories.append(
                         {
@@ -140,30 +148,41 @@ class ManiSkillTrajectoryDataset(Dataset):
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
-            # Peek into the tensors and extract dimensions for later use
-            first_traj = cast(h5py.Group, data[f"traj_{first_valid_episode_id}"])
-            actions_ds = cast(h5py.Dataset, first_traj["actions"])
+            need_peek = (
+                self.action_dim is None or self.env_state_dim is None or self.obs_dim is None
+            )
 
-            self.action_dim = actions_ds.shape[-1]
-            self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
-            self.obs_dim = extract_h5_shapes(first_traj["obs"])
+            # Peek into the tensors and extract dimensions for later use
+            if need_peek:
+                first_traj = cast(h5py.Group, data[f"traj_{first_valid_episode_id}"])
+                actions_ds = cast(h5py.Dataset, first_traj["actions"])
+
+                if self.action_dim is None:
+                    self.action_dim = actions_ds.shape[-1]
+
+                if self.env_state_dim is None:
+                    self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
+
+                if self.obs_dim is None:
+                    self.obs_dim = extract_h5_shapes(first_traj["obs"])
 
         print(
             f"Dataset initialized: {len(self.slices)} temporal windows "
-            f"from {len(self.trajectories)} episodes "
-            f"(lazy_load={self.lazy_load})."
+            f"from {len(self.trajectories)} episodes. "
+            f"{self.lazy=}, {self.use_phsyx_env_states=} "
         )
         print_dict_tree(self.trajectories[0])
 
     @property
     def h5_file(self):
-        """Lazy HDF5 file opener to prevent multiprocessing crashes in PyTorch DataLoaders"""
+        """Lazy HDF5 file opener to prevent multiprocessing crashes in PyTorch DataLoaders."""
         if self._h5_file is None:
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
     def _slice_and_pad(self, data, start, end, L):
-        """Slices the data from start to end, and pads with edge values if the slice goes out of bounds."""
+        """Slices the data from start to end, and pads with edge values if the slice goes out of
+        bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
         if isinstance(data, dict) or isinstance(data, h5py.Group):
             return {k: self._slice_and_pad(data[k], start, end, L) for k in data.keys()}
@@ -186,15 +205,31 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __len__(self):
         return len(self.slices)
 
+    def __del__(self):
+        try:
+            if self._h5_file is not None:
+                self._h5_file.close()
+        except Exception as e:
+            rank_zero_warn(f"Failed to close HDF5 file handle. Got {e}")
+
     def __getitem__(self, idx: int):
         traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
-        if self.lazy_load:
-            episode_id = traj["episode_id"]
-            traj = self.h5_file[f"traj_{episode_id}"]  # Read data on the fly
+        if self.lazy:
+            meta = traj
+            episode_id = meta["episode_id"]
+            h5_traj = self.h5_file[f"traj_{episode_id}"]
 
-        traj = cast(h5py.Group, traj)
+            if self.validate_lengths:
+                h5_L = len(h5_traj["actions"])
+                if h5_L != meta["length"]:
+                    raise ValueError(
+                        f"Length mismatch for episode {episode_id}: "
+                        f"JSON elapsed_steps={traj['length']} but H5 len(actions)={h5_L}."
+                    )
+            traj = h5_traj
+
         # Select conditioning source
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
         act_src = traj["actions"]
@@ -221,8 +256,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
     ):
-        """
-        DataModule for loading ManiSkill trajectories from HDF5 files.
+        """DataModule for loading ManiSkill trajectories from HDF5 files.
 
         parameters:
             - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
@@ -270,13 +304,13 @@ class ManiSkillDataModule(L.LightningDataModule):
         # Fetch dimensions instantly without loading the full dataset into RAM
         self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
-        # Prepare seeds for spliting
+        # Prepare seeds for splitting
         if seed is None:
             raise ValueError("seed must be provided.")
         self.seed = seed
 
         # Debug
-        print(f"Seeds for episodes datasplit fetched from main seed: {seed}")
+        rank_zero_info(f"Seeds for episodes datasplit fetched from main seed: {seed}")
 
         # Prepare train and val split sets
         self.train_set: Dataset | None = None
@@ -284,16 +318,17 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     @property
     def cond_dim(self) -> int | dict[str, Any]:
-        """The dimensionality of the conditioning signal exposed to the policy. Selected by use_phsyx_env_states."""
+        """The dimensionality of the conditioning signal exposed to the policy.
+
+        Selected by use_phsyx_env_states.
+        """
         if self.use_phsyx_env_states:
             return self.env_state_dim
         else:
             return self.obs_dim
 
     def _load_metadata_from_json(self):
-        """
-        Parse the dataset metadata JSON to extract obs_mode, control_mode, and physx_backend.
-        """
+        """Parse the dataset metadata JSON to extract obs_mode, control_mode, and physx_backend."""
 
         with open(self.json_path) as f:
             meta = json.load(f)
@@ -356,26 +391,34 @@ class ManiSkillDataModule(L.LightningDataModule):
             train_episodes = all_episodes[:train_size]
             val_episodes = all_episodes[train_size:]
 
-            print(
+            rank_zero_info(
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
 
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 use_phsyx_env_states=self.use_phsyx_env_states,
+                action_dim=self.action_dim,
+                env_state_dim=self.env_state_dim,
+                obs_dim=self.obs_dim,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
                 lazy=self.lazy,
+                validate_lengths=True,
             )
 
             self.val_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 use_phsyx_env_states=self.use_phsyx_env_states,
+                action_dim=self.action_dim,
+                env_state_dim=self.env_state_dim,
+                obs_dim=self.obs_dim,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
                 lazy=self.lazy,
+                validate_lengths=True,
             )
 
     def train_dataloader(self):
