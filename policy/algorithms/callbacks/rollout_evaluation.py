@@ -4,6 +4,7 @@ import gymnasium as gym
 import lightning as L
 import mani_skill.envs  # noqa: F401
 import torch
+from gymnasium.spaces import Box
 from lightning.pytorch.callbacks import RichProgressBar
 from lightning.pytorch.utilities import rank_zero_info
 from rich.progress import Progress
@@ -118,6 +119,18 @@ class RolloutEvaluationCallback(L.Callback):
             num_envs=num_envs,
         )
 
+        # Cache the action bounds for later clamping
+        action_space = env.action_space
+        if not isinstance(action_space, Box):
+            raise ValueError(f"Expected Box action space, got {type(action_space)}")
+
+        action_low = torch.as_tensor(
+            action_space.low, device=pl_module.device, dtype=torch.float32
+        )
+        action_high = torch.as_tensor(
+            action_space.high, device=pl_module.device, dtype=torch.float32
+        )
+
         # Put model in eval mode
         pl_module.eval()
 
@@ -170,13 +183,9 @@ class RolloutEvaluationCallback(L.Callback):
                     action = action_seq[:, 0]
 
                 # Diffusion is unbounded, we enforce clamping based on the given environment (usually [-1, +1])
-                low = torch.as_tensor(
-                    env.action_space.low, device=action.device, dtype=action.dtype
+                action = torch.clamp(
+                    action, action_low.to(action.dtype), action_high.to(action.dtype)
                 )
-                high = torch.as_tensor(
-                    env.action_space.high, device=action.device, dtype=action.dtype
-                )
-                action = torch.clamp(action, low, high)
 
                 action = action if is_cuda else action.cpu()
 
