@@ -39,6 +39,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
+        delta_action_mask: list[bool] | np.ndarray | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
@@ -67,6 +68,11 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.lazy = lazy
         self.validate_lengths = validate_lengths
 
+        if delta_action_mask is not None:
+            self.delta_action_mask = np.array(delta_action_mask, dtype=bool)
+        else:
+            self.delta_action_mask = None
+
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
 
@@ -89,10 +95,28 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         def append_windows_for_episode(traj_idx: int, L: int) -> None:
             """Append all temporal windows for one episode of length L."""
+
+            # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
+            # to start at the same timestamp as the observation sequence (act_start = cond_start).
+            # By forcing the model to re-predict actions that occurred during the observation
+            # window (the "past"), the result is that the network learns a continuous trajectory where future
+            # plans are physically grounded in recent history.
+            #
+            # More specifically, keep in mind that:
+            # - At Training we do NOT throw away the past predictions; they are included in
+            #   the loss calculation to act as a temporal anchor for the model.
+            # - At Inference instead we discard the past actions (via slicing in get_action) and only
+            #   return the actions intended for the present and future.
+            # - We do NOT need to increase pred_horizon or act_horizon. The past
+            #   actions (cond_horizon - 1) simply occupy the first few slots of the existing
+            #   pred_horizon, which is already large enough to contain both the
+            #   "anchor" steps and the steps we actually execute.
+            #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
+
             for t in range(L):
                 cond_start = t - self.cond_horizon + 1
                 cond_end = t + 1
-                act_start = cond_start  # NOTE: for smoothness, we re-predict already taken actions so that the new ones will keep the momentum
+                act_start = cond_start
                 act_end = act_start + self.pred_horizon
                 self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
 
@@ -193,12 +217,12 @@ class ManiSkillTrajectoryDataset(Dataset):
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
-    def _slice_and_pad(self, data, start, end, L):
+    def _slice_and_pad(self, data, start, end, L, pad_mask=None):
         """Slices the data from start to end, and pads with edge values if the slice goes out of
         bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
         if isinstance(data, dict) or isinstance(data, h5py.Group):
-            return {k: self._slice_and_pad(data[k], start, end, L) for k in data.keys()}
+            return {k: self._slice_and_pad(data[k], start, end, L, pad_mask) for k in data.keys()}
 
         pad_before = max(0, -start)
         pad_after = max(0, end - L)
@@ -209,9 +233,24 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         seq = data[valid_start:valid_end]  # works for numpy arrays and h5py.Dataset
 
-        if pad_before > 0 or pad_after > 0:
-            pad_width = [(pad_before, pad_after)] + [(0, 0)] * (seq.ndim - 1)
+        # We can either pad with zeros or edge values.
+        # Padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
+        # Padding with zeros must be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
+
+        if pad_before > 0:
+            pad_width = [(pad_before, 0)] + [(0, 0)] * (seq.ndim - 1)
             seq = np.pad(seq, pad_width, mode="edge")
+
+        if pad_after > 0:
+            if pad_mask is not None:
+                # pad_mask is True for zeros, False for edge
+                pad_frames = np.zeros((pad_after, *seq.shape[1:]), dtype=seq.dtype)
+                pad_frames[..., ~pad_mask] = seq[-1, ~pad_mask]
+                seq = np.concatenate([seq, pad_frames], axis=0)
+            else:
+                # No mask provided, we do standard edge padding
+                pad_width = [(0, pad_after)] + [(0, 0)] * (seq.ndim - 1)
+                seq = np.pad(seq, pad_width, mode="edge")
 
         return seq
 
@@ -263,8 +302,10 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         # Slice and pad conditinion and action sequences
         # This is where we actually load the data from disk to memory, but only the needed window!
-        cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L)
-        act_seq = self._slice_and_pad(act_src, act_start, act_end, L)
+        cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L, pad_mask=None)
+        act_seq = self._slice_and_pad(
+            act_src, act_start, act_end, L, pad_mask=self.delta_action_mask
+        )
 
         return {
             "cond_seq": to_tensor(cond_seq),
@@ -281,6 +322,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
+        delta_action_mask: list[bool] | None = None,
         lazy: bool = False,
         seed: int | None = None,
     ):
@@ -319,6 +361,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
+        self.delta_action_mask_override = delta_action_mask
         self.lazy = lazy
 
         (
@@ -423,6 +466,29 @@ class ManiSkillDataModule(L.LightningDataModule):
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
 
+            is_delta_mode = "delta" in self.control_mode or "vel" in self.control_mode
+            final_mask = None
+
+            if is_delta_mode:
+                if self.delta_action_mask_override is not None:
+                    # User provided a custom mask, trust them
+                    final_mask = np.array(self.delta_action_mask_override, dtype=bool)
+                    rank_zero_info("Using explicitly provided delta_action_mask from config.")
+                else:
+                    # User didn't provide one, infer the classic 1D gripper default
+                    final_mask = np.ones(self.action_dim, dtype=bool)
+                    final_mask[-1] = False
+                    rank_zero_info(
+                        f"Inferred delta_action_mask for '{self.control_mode}'. Edge padding the last dimension."
+                    )
+            else:
+                if self.delta_action_mask_override is not None:
+                    # User passed a mask for absolute actions! Warn and ignore.
+                    rank_zero_warn(
+                        f"A delta_action_mask was provided, but the control_mode '{self.control_mode}' "
+                        "is not a delta or velocity mode. The mask will be ignored (using standard edge padding)."
+                    )
+
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 use_phsyx_env_states=self.use_phsyx_env_states,
@@ -432,6 +498,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
+                delta_action_mask=final_mask,
                 lazy=self.lazy,
                 validate_lengths=True,
             )
@@ -445,6 +512,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
+                delta_action_mask=final_mask,
                 lazy=self.lazy,
                 validate_lengths=True,
             )
