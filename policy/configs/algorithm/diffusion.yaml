@@ -8,24 +8,22 @@ defaults:
   - _self_
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
+_recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
 
-# Since we instantiate the network and optimizer inside the algorithm, we set this to false to prevent hydra from trying to instantiate them before
-_recursive_: false
-
-act_horizon: 8 # Must ensure this is less than pred_horizon in the datamodule!
-prediction_type: "epsilon" # Whether to predict noise or the sample itself
+act_horizon: 8
+prediction_type: "epsilon"
 
 # --- OVERRIDES ---
 # Many of these below are redundant, but I like to specify them for clarity
 
 # Overrides network/unet1d.yaml
 network:
-  down_dims: [256, 512, 1024]
+  down_dims: [64, 128, 256]
   kernel_size: 5
 
 # Overrides noise_scheduler/ddpm.yaml
 noise_scheduler:
-  beta_schedule: "linear"
+  beta_schedule: "squaredcos_cap_v2"
   num_train_timesteps: 100
 
 # Overrides ema/default.yaml
