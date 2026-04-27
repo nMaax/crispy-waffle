@@ -15,6 +15,7 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Review whole template to ensure it works
+# TODO: Compare with original maniskill code, line by line
 
 
 class DiffusionPolicy(L.LightningModule):
