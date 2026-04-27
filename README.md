@@ -32,14 +32,14 @@ uv run python -m mani_skill.utils.download_demo "StackCube-v1"
 uv run python -m mani_skill.trajectory.replay_trajectory \
   --traj-path ~/.maniskill/demos/StackCube-v1/motionplanning/trajectory.h5 \
   -b "physx_cpu" \
-  -c pd_ee_delta_pose \
+  -c pd_ee_delta_pos \
   -o state \
   --save-traj
 ```
 
 ```bash
 uv run python -m mani_skill.trajectory.replay_trajectory \
-  --traj-path ~/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pose.physx_cpu.h5 \
+  --traj-path ~/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
   --use-first-env-state \
   -b "physx_cuda" \
   --save-traj
