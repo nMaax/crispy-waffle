@@ -48,7 +48,7 @@ trainer:
   limit_val_batches: null # Re-enable validation (0 as default)
   limit_test_batches: null # Re-enable testing (0 as default)
 
-  val_check_interval: 1000 # Run the validation (loss) + rollout callback every x steps
+  val_check_interval: 5000 # Run the validation (loss) + rollout callback every x steps
   check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 
   num_sanity_val_steps: 2 # Set to 0 to avoid sanity check, tho this should not be done...
@@ -61,7 +61,7 @@ trainer:
       _target_: lightning.pytorch.callbacks.TQDMProgressBar
 
     rollout_evaluation:
-      num_val_episodes: 20
+      num_val_episodes: 25
       num_test_episodes: 100
       clamp_action: true
 
