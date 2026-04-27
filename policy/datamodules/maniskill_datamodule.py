@@ -1,5 +1,4 @@
 import json
-import os
 import random
 from pathlib import Path
 from typing import Any, cast
@@ -9,7 +8,6 @@ import lightning as L
 import numpy as np
 from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
 
 from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
 
@@ -94,8 +92,8 @@ class ManiSkillTrajectoryDataset(Dataset):
         first_valid_episode_id: int | None = None
 
         # Open the H5 only once during init:
-        # - eager mode: load selected episodes into RAM
-        # - both modes: peek dims from first valid episode
+        # - not lazy: load selected episodes into RAM
+        # - lazy: peek dims from first valid episode
         with h5py.File(self.dataset_file, "r") as data:
             for i in range(load_count):
                 eps = self.episodes[i]
@@ -118,9 +116,6 @@ class ManiSkillTrajectoryDataset(Dataset):
                     trajectory = load_h5_data(traj_group)
 
                     # Consistency check
-                    # TODO: H5 length may be stored as number of actions; JSON uses elapsed_steps
-                    # If these mismatch in practice, we should decide which to trust
-                    # Here we just assert to catch dataset inconsistencies early
                     h5_L = len(trajectory["actions"])
                     if h5_L != L:
                         raise ValueError(
@@ -145,9 +140,11 @@ class ManiSkillTrajectoryDataset(Dataset):
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
-            # Peek into the tensors and extract dimensions for later use (cheap: uses headers/shapes)
-            first_traj = data[f"traj_{first_valid_episode_id}"]
-            self.action_dim = first_traj["actions"].shape[-1]
+            # Peek into the tensors and extract dimensions for later use
+            first_traj = cast(h5py.Group, data[f"traj_{first_valid_episode_id}"])
+            actions_ds = cast(h5py.Dataset, first_traj["actions"])
+
+            self.action_dim = actions_ds.shape[-1]
             self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
             self.obs_dim = extract_h5_shapes(first_traj["obs"])
 
@@ -165,17 +162,8 @@ class ManiSkillTrajectoryDataset(Dataset):
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
-    def _build_slices_for_traj(self, traj_idx: int, L: int):
-        out = []
-        for t in range(L):
-            cond_start = t - self.cond_horizon + 1
-            cond_end = t + 1
-            act_start = t
-            act_end = t + self.pred_horizon
-            out.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
-        return out
-
     def _slice_and_pad(self, data, start, end, L):
+        """Slices the data from start to end, and pads with edge values if the slice goes out of bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
         if isinstance(data, dict) or isinstance(data, h5py.Group):
             return {k: self._slice_and_pad(data[k], start, end, L) for k in data.keys()}
@@ -204,23 +192,20 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         if self.lazy_load:
             episode_id = traj["episode_id"]
-            # Convert to h5 group on the fly
-            traj = self.h5_file[f"traj_{episode_id}"]
+            traj = self.h5_file[f"traj_{episode_id}"]  # Read data on the fly
 
-        env_src = traj["env_states"]
-        obs_src = traj["obs"]
+        traj = cast(h5py.Group, traj)
+        # Select conditioning source
+        cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
         act_src = traj["actions"]
 
-        env_seq = self._slice_and_pad(env_src, cond_start, cond_end, L)
-        obs_seq = self._slice_and_pad(obs_src, cond_start, cond_end, L)
-        action_seq = self._slice_and_pad(act_src, act_start, act_end, L)
-
-        # Select conditioning source
-        cond_seq = env_seq if self.use_phsyx_env_states else obs_seq
+        # Slice and pad conditinion and action sequences
+        cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L)
+        act_seq = self._slice_and_pad(act_src, act_start, act_end, L)
 
         return {
             "cond_seq": to_tensor(cond_seq),
-            "action_seq": to_tensor(action_seq),
+            "action_seq": to_tensor(act_seq),
         }
 
 
