@@ -179,12 +179,12 @@ class ManiSkillTrajectoryDataset(Dataset):
                 if self.obs_dim is None:
                     self.obs_dim = extract_h5_shapes(first_traj["obs"])
 
-        print(
+        rank_zero_info(
             f"Dataset initialized: {len(self.slices)} temporal windows "
             f"from {len(self.trajectories)} episodes. "
             f"{self.lazy=}, {self.use_phsyx_env_states=} "
         )
-        print_dict_tree(self.trajectories[0])
+        print_dict_tree(self.trajectories[0], use_rank_zero_info=True)
 
     @property
     def h5_file(self):

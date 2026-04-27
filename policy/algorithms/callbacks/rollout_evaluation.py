@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 import gymnasium as gym
 import lightning as L
@@ -23,8 +23,8 @@ class RolloutEvaluationCallback(L.Callback):
         num_test_episodes: int = 100,
         seed: int | None = None,
     ):
-        """
-        Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for testing.
+        """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for
+        testing.
 
         parameters:
             - num_val_episodes: int, total episodes to run during validation
@@ -46,7 +46,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.val_seed = seed + self.BASE_SEED_VAL
         self.test_seed = seed + self.BASE_SEED_TEST
 
-        print(
+        rank_zero_info(
             f"Seeds for Maniskill simulations fetched from main seed {seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
         )
 

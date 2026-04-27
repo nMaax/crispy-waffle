@@ -9,6 +9,7 @@ import rich
 import rich.syntax
 import rich.tree
 import torch
+from lightning_utilities.core.rank_zero import rank_zero_info
 from omegaconf import DictConfig, OmegaConf
 
 logger = get_logger(__name__)
@@ -69,7 +70,9 @@ def print_config(
     #     rich.print(tree, file=file)
 
 
-def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
+def print_dict_tree(
+    data: Mapping[str, Any], indent: str = "", use_rank_zero_info: bool = False
+) -> None:
     """Recursively prints a dictionary as a tree.
 
     Prints .shape and .dtype for atomic elements that possess them.
@@ -79,9 +82,11 @@ def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
         is_last = i == len(items) - 1
         branch = "└── " if is_last else "├── "
 
+        print_wrapper = rank_zero_info if use_rank_zero_info else print
+
         # Branch: If the value is another dictionary, recurse
         if isinstance(value, dict):
-            print(f"{indent}{branch}{key}")
+            print_wrapper(f"{indent}{branch}{key}")
             new_indent = indent + ("    " if is_last else "│   ")
             print_dict_tree(value, new_indent)
 
@@ -89,11 +94,11 @@ def print_dict_tree(data: Mapping[str, Any], indent: str = "") -> None:
         elif hasattr(value, "shape"):
             # Get dtype if it exists, otherwise leave empty
             dtype_str = f", dtype={value.dtype}" if hasattr(value, "dtype") else ""
-            print(f"{indent}{branch}{key}: shape={value.shape}{dtype_str}")
+            print_wrapper(f"{indent}{branch}{key}: shape={value.shape}{dtype_str}")
 
             # Leaf: Basic types
         else:
-            print(f"{indent}{branch}{key}: {type(value).__name__}")
+            print_wrapper(f"{indent}{branch}{key}: {type(value).__name__}")
 
 
 def to_tensor(

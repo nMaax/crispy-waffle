@@ -147,8 +147,7 @@ class ConditionalUnet1D(nn.Module):
         kernel_size=5,
         n_groups=8,
     ):
-        """
-        The UNet architecture for noise prediction.
+        """The UNet architecture for noise prediction.
 
         parameters:
             input_dim: Dim of actions.
@@ -254,9 +253,6 @@ class ConditionalUnet1D(nn.Module):
         self.up_modules = up_modules
         self.down_modules = down_modules
         self.final_conv = final_conv
-
-        n_params = sum(p.numel() for p in self.parameters())
-        print(f"number of parameters: {n_params / 1e6:.2f}M")
 
     def forward(
         self,
