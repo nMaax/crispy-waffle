@@ -77,7 +77,7 @@ class DiffusionPolicy(L.LightningModule):
         self.lr_scheduler: LRScheduler | None = None
 
         self.act_horizon = act_horizon
-        self.act_dim = self.datamodule.action_dim
+        self.act_dim = self.datamodule.act_dim
 
         # The conditioning signal fed to the network is determined by the datamodule's
         # use_phsyx_env_states. We use cond_dim as the single source of truth so that the
@@ -142,7 +142,7 @@ class DiffusionPolicy(L.LightningModule):
         else:
             return optimizer
 
-    def _compute_loss(self, cond_seq, action_seq):
+    def _compute_loss(self, cond_seq, act_seq):
         """Loss calculation logic."""
 
         if self.network is None:
@@ -176,17 +176,17 @@ class DiffusionPolicy(L.LightningModule):
 
         flatten_cond = flatten_tensor_dict(cond_seq)
 
-        noisy_action_seq = self.noise_scheduler.add_noise(action_seq, noise, timesteps)
-        prediction = self.network(noisy_action_seq, timesteps, external_cond=flatten_cond)
+        noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
+        prediction = self.network(noisy_act_seq, timesteps, external_cond=flatten_cond)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 
         if pred_type == "epsilon":
             target = noise
         elif pred_type == "sample":
-            target = action_seq
+            target = act_seq
         elif pred_type == "v_prediction":
-            target = self.noise_scheduler.get_velocity(action_seq, noise, timesteps)
+            target = self.noise_scheduler.get_velocity(act_seq, noise, timesteps)
         else:
             raise ValueError(f"Unsupported prediction_type: {pred_type}")
 
@@ -194,7 +194,7 @@ class DiffusionPolicy(L.LightningModule):
 
     def _shared_step(self, batch, batch_idx, phase: str):
         "Main step logic, it doesn't differ between training and validation except for the logging."
-        loss = self._compute_loss(batch["cond_seq"], batch["action_seq"])
+        loss = self._compute_loss(batch["cond_seq"], batch["act_seq"])
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
@@ -253,14 +253,14 @@ class DiffusionPolicy(L.LightningModule):
 
         with torch.no_grad():
             flatten_cond = flatten_tensor_dict(cond_seq)
-            noisy_action_seq = torch.randn(
+            noisy_act_seq = torch.randn(
                 (B, self.pred_horizon, self.act_dim), device=self.device
             )
 
             for t in self.noise_scheduler.timesteps:
                 t = int(t.item())
 
-                latent_model_input = self.noise_scheduler.scale_model_input(noisy_action_seq, t)
+                latent_model_input = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
                 model_pred = self.network(
                     sample=latent_model_input,
@@ -271,20 +271,20 @@ class DiffusionPolicy(L.LightningModule):
                 output = self.noise_scheduler.step(
                     model_output=model_pred,
                     timestep=t,
-                    sample=noisy_action_seq,
+                    sample=noisy_act_seq,
                     return_dict=False,
                 )
 
-                noisy_action_seq = output[0]
+                noisy_act_seq = output[0]
 
         self.ema.restore(self.network.parameters())
 
         start = self.cond_horizon - 1
         end = start + self.act_horizon
 
-        denoised_action_seq = noisy_action_seq[:, start:end]
+        denoised_act_seq = noisy_act_seq[:, start:end]
         if clamp_range is not None:
             low, high = clamp_range
-            denoised_action_seq = torch.clamp(denoised_action_seq, low, high)
+            denoised_act_seq = torch.clamp(denoised_act_seq, low, high)
 
-        return denoised_action_seq
+        return denoised_act_seq

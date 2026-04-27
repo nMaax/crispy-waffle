@@ -35,7 +35,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         use_phsyx_env_states: bool,
         cond_horizon: int,
         pred_horizon: int,
-        action_dim: dict[str, Any] | None = None,
+        act_dim: dict[str, Any] | None = None,
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
@@ -62,7 +62,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.use_phsyx_env_states = use_phsyx_env_states
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
-        self.action_dim = action_dim
+        self.act_dim = act_dim
         self.env_state_dim = env_state_dim
         self.obs_dim = obs_dim
         self.lazy = lazy
@@ -185,17 +185,15 @@ class ManiSkillTrajectoryDataset(Dataset):
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
-            need_peek = (
-                self.action_dim is None or self.env_state_dim is None or self.obs_dim is None
-            )
+            need_peek = self.act_dim is None or self.env_state_dim is None or self.obs_dim is None
 
             # Peek into the tensors and extract dimensions for later use
             if need_peek:
                 first_traj = cast(h5py.Group, data[f"traj_{first_valid_episode_id}"])
                 actions_ds = cast(h5py.Dataset, first_traj["actions"])
 
-                if self.action_dim is None:
-                    self.action_dim = actions_ds.shape[-1]
+                if self.act_dim is None:
+                    self.act_dim = actions_ds.shape[-1]
 
                 if self.env_state_dim is None:
                     self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
@@ -309,7 +307,7 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         return {
             "cond_seq": to_tensor(cond_seq),
-            "action_seq": to_tensor(act_seq),
+            "act_seq": to_tensor(act_seq),
         }
 
 
@@ -361,7 +359,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.delta_action_mask_override = delta_action_mask
+        self.delta_action_mask = delta_action_mask
         self.lazy = lazy
 
         (
@@ -373,7 +371,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         ) = self._load_metadata_from_json()
 
         # Fetch dimensions instantly without loading the full dataset into RAM
-        self.action_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
+        self.act_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
         # Prepare seeds for splitting
         if seed is None:
@@ -470,19 +468,19 @@ class ManiSkillDataModule(L.LightningDataModule):
             final_mask = None
 
             if is_delta_mode:
-                if self.delta_action_mask_override is not None:
+                if self.delta_action_mask is not None:
                     # User provided a custom mask, trust them
-                    final_mask = np.array(self.delta_action_mask_override, dtype=bool)
+                    final_mask = np.array(self.delta_action_mask, dtype=bool)
                     rank_zero_info("Using explicitly provided delta_action_mask from config.")
                 else:
                     # User didn't provide one, infer the classic 1D gripper default
-                    final_mask = np.ones(self.action_dim, dtype=bool)
+                    final_mask = np.ones(self.act_dim, dtype=bool)
                     final_mask[-1] = False
                     rank_zero_info(
                         f"Inferred delta_action_mask for '{self.control_mode}'. Edge padding the last dimension."
                     )
             else:
-                if self.delta_action_mask_override is not None:
+                if self.delta_action_mask is not None:
                     # User passed a mask for absolute actions! Warn and ignore.
                     rank_zero_warn(
                         f"A delta_action_mask was provided, but the control_mode '{self.control_mode}' "
@@ -492,7 +490,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 use_phsyx_env_states=self.use_phsyx_env_states,
-                action_dim=self.action_dim,
+                act_dim=self.act_dim,
                 env_state_dim=self.env_state_dim,
                 obs_dim=self.obs_dim,
                 cond_horizon=self.cond_horizon,
@@ -506,7 +504,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.val_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
                 use_phsyx_env_states=self.use_phsyx_env_states,
-                action_dim=self.action_dim,
+                act_dim=self.act_dim,
                 env_state_dim=self.env_state_dim,
                 obs_dim=self.obs_dim,
                 cond_horizon=self.cond_horizon,

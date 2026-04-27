@@ -40,7 +40,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         sample batch."""
         # Prepare model for inference and sync devices
         algorithm.eval()
-        batch_device = training_step_content.batch["action_seq"].device
+        batch_device = training_step_content.batch["act_seq"].device
         algorithm.to(batch_device)
 
         # Execute inference
@@ -67,7 +67,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         """Check that get_action produces the same action tensor given a fixed random seed."""
         #  Prepare model for inference and sync devices
         algorithm.eval()
-        batch_device = training_step_content.batch["action_seq"].device
+        batch_device = training_step_content.batch["act_seq"].device
         algorithm.to(batch_device)
 
         cond_seq = training_step_content.batch["cond_seq"]
