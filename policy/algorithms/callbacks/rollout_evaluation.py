@@ -166,8 +166,17 @@ class RolloutEvaluationCallback(L.Callback):
             # Step until all environments within this batch have concluded
             while not dones.all():
                 with torch.no_grad():
-                    action_seq = pl_module.get_action(cond_seq, clamp_action=True)
+                    action_seq = pl_module.get_action(cond_seq)
                     action = action_seq[:, 0]
+
+                # Diffusion is unbounded, we enforce clamping based on the given environment (usually [-1, +1])
+                low = torch.as_tensor(
+                    env.action_space.low, device=action.device, dtype=action.dtype
+                )
+                high = torch.as_tensor(
+                    env.action_space.high, device=action.device, dtype=action.dtype
+                )
+                action = torch.clamp(action, low, high)
 
                 action = action if is_cuda else action.cpu()
 
