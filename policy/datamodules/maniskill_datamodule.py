@@ -39,6 +39,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         episodes: list[dict] | None = None,
         load_count: int = -1,
         success_only: bool = False,
+        lazy: bool = False,
     ) -> None:
         """
         Dataset for loading ManiSkill trajectories from HDF5 files.
@@ -48,15 +49,20 @@ class ManiSkillTrajectoryDataset(Dataset):
             - use_phsyx_env_states: Whether to condition the policy on raw states of the physical engine (ignoring observaions).
             - cond_horizon: Number of past time steps to include in the conditioning sequence.
             - pred_horizon: Number of future time steps to include in the action sequence.
-            - episodes: Optional list of episode metadata dicts to use. If None, the dataset oads all episodes from the JSON file.
-            - load_count: If > 0, limits the number of episodes to load into memory (for faster debugging). If -1, loads all episodes.
+            - episodes: Optional list of episode metadata dicts to use. If None, the dataset loads all episodes from the JSON file.
+            - load_count: If > 0, limits the number of episodes to load (for faster debugging). If -1, loads all episodes.
             - success_only: If True, only loads episodes marked as successful in the JSON metadata
+            - lazy_load: If True, do not load trajectories into RAM. Only keep episode_id and read slices from disk in __getitem__.
         """
         super().__init__()
         self.dataset_file = Path(dataset_file)
         self.use_phsyx_env_states = use_phsyx_env_states
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
+        self.lazy_load = lazy
+
+        # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
+        self._h5_file = None
 
         # Load JSON metadata if episodes aren't provided explicitly
         if episodes is not None:
@@ -67,63 +73,112 @@ class ManiSkillTrajectoryDataset(Dataset):
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
-        self.trajectories = []
-
         if load_count == -1:
             load_count = len(self.episodes)
+        else:
+            load_count = min(load_count, len(self.episodes))
 
-        # TODO: Address the warning
-        # Load data into RAM: WARNING: Only do this for state-based observations!
-        # For visual observations, you should lazily load from disk inside __getitem__
+        self.trajectories: list[dict[str, Any]] = []
+        self.slices: list[tuple[int, int, int, int, int, int]] = []
+
+        def append_windows_for_episode(traj_idx: int, L: int) -> None:
+            """Append all temporal windows for one episode of length L."""
+            for t in range(L):
+                cond_start = t - self.cond_horizon + 1
+                cond_end = t + 1
+                act_start = t
+                act_end = t + self.pred_horizon
+                self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+
+        # Find one valid episode id for shape peeking
+        first_valid_episode_id: int | None = None
+
+        # Open the H5 only once during init:
+        # - eager mode: load selected episodes into RAM
+        # - both modes: peek dims from first valid episode
         with h5py.File(self.dataset_file, "r") as data:
-            print(f"Loading {load_count} episodes into memory...")
-            for eps_id in tqdm(range(load_count), desc="Loading HDF5"):
-                eps = self.episodes[eps_id]
+            for i in range(load_count):
+                eps = self.episodes[i]
+
                 if success_only and not eps.get("success", False):
                     continue
 
-                traj_data = data[f"traj_{eps['episode_id']}"]
-                trajectory = load_h5_data(traj_data)
+                episode_id = int(eps["episode_id"])
+                L = int(eps["elapsed_steps"])  # single source of truth for indexing/windows
 
-                self.trajectories.append(
-                    {
-                        "obs": trajectory["obs"],
-                        "env_states": trajectory["env_states"],
-                        "actions": trajectory["actions"],
-                    }
+                if first_valid_episode_id is None:
+                    first_valid_episode_id = episode_id
+
+                if self.lazy_load:
+                    # Store only what's needed to locate the episode on disk
+                    self.trajectories.append({"episode_id": episode_id, "length": L})
+                else:
+                    # Load episode tensors into RAM
+                    traj_group = data[f"traj_{episode_id}"]
+                    trajectory = load_h5_data(traj_group)
+
+                    # Consistency check
+                    # TODO: H5 length may be stored as number of actions; JSON uses elapsed_steps
+                    # If these mismatch in practice, we should decide which to trust
+                    # Here we just assert to catch dataset inconsistencies early
+                    h5_L = len(trajectory["actions"])
+                    if h5_L != L:
+                        raise ValueError(
+                            f"Length mismatch for episode {episode_id}: "
+                            f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
+                        )
+
+                    self.trajectories.append(
+                        {
+                            "episode_id": episode_id,
+                            "obs": trajectory["obs"],
+                            "env_states": trajectory["env_states"],
+                            "actions": trajectory["actions"],
+                        }
+                    )
+
+                traj_idx = len(self.trajectories) - 1
+                append_windows_for_episode(traj_idx, L)
+
+            if first_valid_episode_id is None:
+                raise ValueError(
+                    f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
-        # Peak into the tensors and extract dimensions for later use
-        self.action_dim = self.trajectories[0]["actions"].shape[-1]
-        self.env_state_dim = extract_h5_shapes(self.trajectories[0]["env_states"])
-        self.obs_dim = extract_h5_shapes(self.trajectories[0]["obs"])
-
-        # Pre-compute sliding windows centered around time step `t`
-        self.slices = []
-        for traj_idx, traj in enumerate(self.trajectories):
-            L = len(traj["actions"])
-
-            # Loop over every timestep. `t` represents the CURRENT frame.
-            for t in range(L):
-                # Observations: history leading up to and including `t`
-                cond_start = t - self.cond_horizon + 1
-                cond_end = t + 1
-
-                # Actions: future execution starting exactly at `t`
-                act_start = t
-                act_end = t + self.pred_horizon
-
-                self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+            # Peek into the tensors and extract dimensions for later use (cheap: uses headers/shapes)
+            first_traj = data[f"traj_{first_valid_episode_id}"]
+            self.action_dim = first_traj["actions"].shape[-1]
+            self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
+            self.obs_dim = extract_h5_shapes(first_traj["obs"])
 
         print(
-            f"Dataset initialized: {len(self.slices)} temporal windows \
-            from {len(self.trajectories)} episodes "
+            f"Dataset initialized: {len(self.slices)} temporal windows "
+            f"from {len(self.trajectories)} episodes "
+            f"(lazy_load={self.lazy_load})."
         )
         print_dict_tree(self.trajectories[0])
 
+    @property
+    def h5_file(self):
+        """Lazy HDF5 file opener to prevent multiprocessing crashes in PyTorch DataLoaders"""
+        if self._h5_file is None:
+            self._h5_file = h5py.File(self.dataset_file, "r")
+        return self._h5_file
+
+    def _build_slices_for_traj(self, traj_idx: int, L: int):
+        out = []
+        for t in range(L):
+            cond_start = t - self.cond_horizon + 1
+            cond_end = t + 1
+            act_start = t
+            act_end = t + self.pred_horizon
+            out.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+        return out
+
     def _slice_and_pad(self, data, start, end, L):
-        if isinstance(data, dict):
-            return {k: self._slice_and_pad(v, start, end, L) for k, v in data.items()}
+        # Treat HDF5 groups like dicts (lazy nested observations)
+        if isinstance(data, dict) or isinstance(data, h5py.Group):
+            return {k: self._slice_and_pad(data[k], start, end, L) for k in data.keys()}
 
         pad_before = max(0, -start)
         pad_after = max(0, end - L)
@@ -132,7 +187,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         valid_start = max(0, min(L, start))
         valid_end = max(0, min(L, end))
 
-        seq = data[valid_start:valid_end]
+        seq = data[valid_start:valid_end]  # works for numpy arrays and h5py.Dataset
 
         if pad_before > 0 or pad_after > 0:
             pad_width = [(pad_before, pad_after)] + [(0, 0)] * (seq.ndim - 1)
@@ -143,18 +198,25 @@ class ManiSkillTrajectoryDataset(Dataset):
     def __len__(self):
         return len(self.slices)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
-        env_seq = self._slice_and_pad(traj["env_states"], cond_start, cond_end, L)
-        obs_seq = self._slice_and_pad(traj["obs"], cond_start, cond_end, L)
-        action_seq = self._slice_and_pad(traj["actions"], act_start, act_end, L)
+        if self.lazy_load:
+            episode_id = traj["episode_id"]
+            # Convert to h5 group on the fly
+            traj = self.h5_file[f"traj_{episode_id}"]
 
-        if self.use_phsyx_env_states:
-            cond_seq = env_seq
-        else:
-            cond_seq = obs_seq
+        env_src = traj["env_states"]
+        obs_src = traj["obs"]
+        act_src = traj["actions"]
+
+        env_seq = self._slice_and_pad(env_src, cond_start, cond_end, L)
+        obs_seq = self._slice_and_pad(obs_src, cond_start, cond_end, L)
+        action_seq = self._slice_and_pad(act_src, act_start, act_end, L)
+
+        # Select conditioning source
+        cond_seq = env_seq if self.use_phsyx_env_states else obs_seq
 
         return {
             "cond_seq": to_tensor(cond_seq),
@@ -171,6 +233,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
+        lazy: bool = False,
         seed: int | None = None,
     ):
         """
@@ -209,6 +272,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
+        self.lazy = lazy
 
         (
             self.env_id,
@@ -267,11 +331,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def _peek_dimensions(self):
         """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
-        json_path = self.dataset_file.with_suffix(".json")
-        if not os.path.exists(json_path):
-            raise FileNotFoundError(f"JSON file not found: {json_path}")
-
-        with open(json_path) as f:
+        with open(self.json_path) as f:
             json_data = json.load(f)
 
         episodes = json_data.get("episodes")
@@ -299,8 +359,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
     def setup(self, stage=None):
         if self.train_set is None:
-            json_path = self.dataset_file.with_suffix(".json")
-            with open(json_path) as f:
+            with open(self.json_path) as f:
                 all_episodes = json.load(f)["episodes"]
 
             rng = random.Random(self.seed)
@@ -322,6 +381,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
+                lazy=self.lazy,
             )
 
             self.val_set = ManiSkillTrajectoryDataset(
@@ -330,6 +390,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
+                lazy=self.lazy,
             )
 
     def train_dataloader(self):
