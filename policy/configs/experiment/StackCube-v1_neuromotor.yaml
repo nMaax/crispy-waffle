@@ -38,6 +38,7 @@ datamodule:
   pred_horizon: 16
   batch_size: 256
   val_split: 0.1
+  lazy: false
 
 trainer:
   min_epochs: -1 # -1 disables epoch limits
