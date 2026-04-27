@@ -62,6 +62,7 @@ trainer:
     rollout_evaluation:
       num_val_episodes: 20
       num_test_episodes: 100
+      clamp_action: true
 
     early_stopping:
       monitor: "val/loss" # quantity to be monitored

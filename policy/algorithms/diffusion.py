@@ -210,7 +210,7 @@ class DiffusionPolicy(L.LightningModule):
         self.ema.step(self.network.parameters())
 
     def get_action(
-        self, cond_seq, num_inference_steps: int | None = None, clamp_denoised: bool = True
+        self, cond_seq, num_inference_steps: int | None = None, clamp_action: bool = True
     ):
         """Used during inference/evaluation in the environment."""
         if self.network is None:
@@ -274,7 +274,18 @@ class DiffusionPolicy(L.LightningModule):
         end = start + self.act_horizon
 
         denoised_action_seq = noisy_action_seq[:, start:end]
-        if clamp_denoised:
-            denoised_action_seq = torch.clamp(denoised_action_seq, -1.0, 1.0)
+        if clamp_action:
+            low = torch.as_tensor(
+                self.env.action_space.low,
+                device=denoised_action_seq.device,
+                dtype=denoised_action_seq.dtype,
+            )
+            high = torch.as_tensor(
+                self.env.action_space.high,
+                device=denoised_action_seq.device,
+                dtype=denoised_action_seq.dtype,
+            )
+
+            denoised_action_seq = torch.clamp(denoised_action_seq, low, high)
 
         return denoised_action_seq

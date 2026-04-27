@@ -21,16 +21,11 @@ class RolloutEvaluationCallback(L.Callback):
         self,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
+        clamp_action: bool = True,
         seed: int | None = None,
     ):
         """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for
-        testing.
-
-        parameters:
-            - num_val_episodes: int, total episodes to run during validation
-            - num_test_episodes: int, total episodes to run during testing
-            - seed: int or None, an optional main seed to derive the validation and test seeds from.
-        """
+        testing."""
         super().__init__()
         self.env_id = None
         self.obs_mode = None
@@ -40,6 +35,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
+        self.clamp_action = clamp_action
 
         if seed is None:
             raise ValueError("seed must be provided.")
@@ -170,7 +166,7 @@ class RolloutEvaluationCallback(L.Callback):
             # Step until all environments within this batch have concluded
             while not dones.all():
                 with torch.no_grad():
-                    action_seq = pl_module.get_action(cond_seq)
+                    action_seq = pl_module.get_action(cond_seq, clamp_action=True)
                     action = action_seq[:, 0]
 
                 action = action if is_cuda else action.cpu()
