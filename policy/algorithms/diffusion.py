@@ -48,18 +48,6 @@ class DiffusionPolicy(L.LightningModule):
         # Network and optimizer are included as they are passed as Hydra configs
         self.save_hyperparameters(ignore=["datamodule"])
 
-        self.datamodule = datamodule
-        self.cond_horizon = self.datamodule.cond_horizon
-        self.pred_horizon = self.datamodule.pred_horizon
-
-        if self.cond_horizon + self.act_horizon - 1 > self.pred_horizon:
-            raise ValueError(
-                f"Prediction horizon ({self.pred_horizon}) is too short! "
-                f"It must be at least {self.cond_horizon + self.act_horizon - 1} "
-                f"to contain the past actions ({self.cond_horizon - 1}) plus "
-                f"the actions to execute ({self.act_horizon})."
-            )
-
         self.network_config = network
         self.network: torch.nn.Module | None = None
         self.ema_config = ema
@@ -70,6 +58,10 @@ class DiffusionPolicy(L.LightningModule):
             self.noise_scheduler_config, prediction_type=prediction_type
         )
 
+        self.datamodule = datamodule
+        self.cond_horizon = self.datamodule.cond_horizon
+        self.pred_horizon = self.datamodule.pred_horizon
+
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None
 
@@ -78,6 +70,14 @@ class DiffusionPolicy(L.LightningModule):
 
         self.act_horizon = act_horizon
         self.act_dim = self.datamodule.act_dim
+
+        if self.cond_horizon + self.act_horizon - 1 > self.pred_horizon:
+            raise ValueError(
+                f"Prediction horizon ({self.pred_horizon}) is too short! "
+                f"It must be at least {self.cond_horizon + self.act_horizon - 1} "
+                f"to contain the past actions ({self.cond_horizon - 1}) plus "
+                f"the actions to execute ({self.act_horizon})."
+            )
 
         # The conditioning signal fed to the network is determined by the datamodule's
         # use_phsyx_env_states. We use cond_dim as the single source of truth so that the
@@ -253,9 +253,7 @@ class DiffusionPolicy(L.LightningModule):
 
         with torch.no_grad():
             flatten_cond = flatten_tensor_dict(cond_seq)
-            noisy_act_seq = torch.randn(
-                (B, self.pred_horizon, self.act_dim), device=self.device
-            )
+            noisy_act_seq = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
             for t in self.noise_scheduler.timesteps:
                 t = int(t.item())
