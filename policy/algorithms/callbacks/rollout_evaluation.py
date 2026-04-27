@@ -12,6 +12,9 @@ from tqdm import tqdm
 
 from policy.utils.typing_utils import PolicyProtocol
 
+# TODO: when on GPU it tries to use all GPUs however tensor appear on different devices, fix this!
+# And then also scale code to work on double gpus
+
 
 class RolloutEvaluationCallback(L.Callback):
     # Offset validation and test

@@ -4,6 +4,7 @@ from typing import Any
 
 import gymnasium as gym
 import lightning as L
+import numpy as np
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -81,6 +82,7 @@ class FakeVectorEnv:
     def __init__(self, num_envs: int, obs_dim: int = 4):
         self.num_envs = num_envs
         self.obs_dim = obs_dim
+        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         self._closed = False
         self._last_obs = torch.zeros((self.num_envs, self.obs_dim), dtype=torch.float32)
         self.unwrapped = _FakeUnwrapped(self._last_obs)
