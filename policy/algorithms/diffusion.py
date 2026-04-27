@@ -15,9 +15,12 @@ from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Major fixes
-# - [ ] Double check we are passing action/seq pairs synchronized between train and eval (see if slicing use the right indices)
-# - [ ] Normalize observation/env_states before feeding them, consider deltas_* actions should already leave in the [-1, +1] range
-#   - Choose normalization formula coherent with DiffusionPolicy, e.g. MinMax instead of z-score, or even better make this a hyperparameter
+# - [ ] Normalize observation/env_states
+#   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)
+#   - Then the diffusion policy can load them and apply the normalization using the TensorZNormalizer from utils/normalizer.py
+#   - The Diffusion should correctly select the file related to what we are looking for: cond_source, then select physix_env_states vs obs, and apply the normalization accordingly.
+#   - Thus Diffusion should have access to the datamodule's parameters about cond_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
+#   - Can diffusion access such data? YES, since datamodule is passed in the init
 
 # TODO: Minor details
 #   - [ ] review whole template to ensure it works
@@ -54,6 +57,18 @@ class DiffusionPolicy(L.LightningModule):
         # Network and optimizer are included as they are passed as Hydra configs
         self.save_hyperparameters(ignore=["datamodule"])
 
+        self.datamodule = datamodule
+        self.cond_horizon = self.datamodule.cond_horizon
+        self.pred_horizon = self.datamodule.pred_horizon
+
+        if self.cond_horizon + self.act_horizon - 1 > self.pred_horizon:
+            raise ValueError(
+                f"Prediction horizon ({self.pred_horizon}) is too short! "
+                f"It must be at least {self.cond_horizon + self.act_horizon - 1} "
+                f"to contain the past actions ({self.cond_horizon - 1}) plus "
+                f"the actions to execute ({self.act_horizon})."
+            )
+
         self.network_config = network
         self.network: torch.nn.Module | None = None
         self.ema_config = ema
@@ -63,10 +78,6 @@ class DiffusionPolicy(L.LightningModule):
         self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
             self.noise_scheduler_config, prediction_type=prediction_type
         )
-
-        self.datamodule = datamodule
-        self.cond_horizon = self.datamodule.cond_horizon
-        self.pred_horizon = self.datamodule.pred_horizon
 
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None

@@ -92,8 +92,8 @@ class ManiSkillTrajectoryDataset(Dataset):
             for t in range(L):
                 cond_start = t - self.cond_horizon + 1
                 cond_end = t + 1
-                act_start = t
-                act_end = t + self.pred_horizon
+                act_start = cond_start  # NOTE: for smoothness, we re-predict already taken actions so that the new ones will keep the momentum
+                act_end = act_start + self.pred_horizon
                 self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
 
         # Find one valid episode id for shape peeking
