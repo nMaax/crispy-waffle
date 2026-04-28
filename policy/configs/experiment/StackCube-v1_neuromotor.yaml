@@ -31,6 +31,7 @@ algorithm:
     weight_decay: 1e-5
 
   lr_scheduler:
+    num_warmup_steps: 500
     num_training_steps: ${trainer.max_steps}
 
 datamodule:
