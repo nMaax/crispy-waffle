@@ -7,6 +7,7 @@ import torch
 from gymnasium.spaces import Box
 from lightning.pytorch.callbacks import RichProgressBar
 from lightning.pytorch.utilities import rank_zero_info
+from mani_skill.utils.wrappers import FrameStack, RecordEpisode
 from rich.progress import Progress
 from tqdm import tqdm
 
@@ -27,9 +28,9 @@ class RolloutEvaluationCallback(L.Callback):
         num_test_episodes: int = 100,
         clamp_action: bool = True,
         seed: int | None = None,
+        video_dir: str | None = None,
     ):
-        """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for
-        testing."""
+        """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for testing."""
         super().__init__()
         self.env_id = None
         self.obs_mode = None
@@ -40,6 +41,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
         self.clamp_action = clamp_action
+        self.video_dir = video_dir
 
         if seed is None:
             raise ValueError("seed must be provided.")
@@ -73,9 +75,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.physx_backend = datamodule.physx_backend
         self.use_phsyx_env_states = datamodule.use_phsyx_env_states
 
-        # Check for CUDA backend semantically
         is_cuda = self.physx_backend is not None and "cuda" in self.physx_backend.lower()
-
         if is_cuda and not torch.cuda.is_available():
             raise RuntimeError(
                 f"Dataset specifies CUDA backend '{self.physx_backend}', "
@@ -93,20 +93,28 @@ class RolloutEvaluationCallback(L.Callback):
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
 
-    def _get_policy_conditioning(self, env, step_obs):
-        """Helper to extract the correct conditioning state."""
+    def _get_policy_conditioning(self, env, step_obs, device, is_batched):
+        """Helper to extract the correct conditioning state and ensure batched tensor format."""
         if self.use_phsyx_env_states:
-            # Bypass obs_mode completely and fetch the raw physics state
-            return env.unwrapped.get_state()
+            obs = env.unwrapped.get_state()
+        else:
+            obs = step_obs
 
-        # Default to whatever observation the env returned (e.g. obs_mode="state")
-        return step_obs
+        # Recursively ensures dictionaries map to batched tensors on the correct multi-gpu device
+        def to_batched_tensor(x):
+            if isinstance(x, dict):
+                return {k: to_batched_tensor(v) for k, v in x.items()}
+            tensor = torch.as_tensor(x, device=device)
+            if not is_batched:
+                tensor = tensor.unsqueeze(0)
+            return tensor
+
+        return to_batched_tensor(obs)
 
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
 
-        # Skip if rollout is effimeral
         if num_episodes <= 0:
             return
 
@@ -115,8 +123,11 @@ class RolloutEvaluationCallback(L.Callback):
 
         is_cuda = self.physx_backend is not None and "cuda" in self.physx_backend.lower()
 
-        # In CUDA, batch environments together. In CPU, execute 1 at a time sequentially
+        # NOTE: Maniskill native scaling - do not specify backend!
+        # Pass num_envs > 1 to trigger GPU, num_envs=1 triggers CPU
         num_envs = num_episodes if is_cuda else 1
+
+        # TODO: I could rather use AsyncVectorEnv like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
         num_iterations = 1 if is_cuda else num_episodes
 
         env = gym.make(
@@ -125,6 +136,25 @@ class RolloutEvaluationCallback(L.Callback):
             control_mode=self.control_mode,
             num_envs=num_envs,
         )
+
+        # Ensure Model conforms to expectations
+        assert isinstance(pl_module, PolicyProtocol), (
+            f"Expected the LightningModule to implement PolicyProtocol, "
+            f"but got {type(pl_module).__name__}."
+        )
+
+        env = FrameStack(env, num_stack=pl_module.cond_horizon)
+
+        # Enable video recording if directory defined (Analysis #5)
+        if self.video_dir:
+            env = RecordEpisode(
+                env.base_env if isinstance(env, FrameStack) else env,
+                output_dir=f"{self.video_dir}/{phase}",
+                save_trajectory=False,
+                save_video=True,
+                source_type="diffusion_policy",
+                source_desc=f"Diffusion Policy rollout ({phase})",
+            )
 
         # Cache the action bounds for later clamping
         action_space = env.action_space
@@ -140,13 +170,6 @@ class RolloutEvaluationCallback(L.Callback):
 
         # Put model in eval mode
         pl_module.eval()
-
-        # Check the policy implements what we need
-        assert isinstance(pl_module, PolicyProtocol), (
-            f"Expected the LightningModule to implement PolicyProtocol, "
-            f"but got {type(pl_module).__name__}."
-        )
-        obs_horizon = pl_module.cond_horizon
 
         # Check if we are using RichProgressBar or TQDMProgressBar
         is_rich = isinstance(trainer.progress_bar_callback, RichProgressBar)
@@ -175,54 +198,67 @@ class RolloutEvaluationCallback(L.Callback):
             current_seed = (self.val_seed if phase == "val" else self.test_seed) + iteration
 
             obs, info = env.reset(seed=current_seed)
-            policy_conditioning = self._get_policy_conditioning(env, obs).to(pl_module.device)
-
-            cond_seq = policy_conditioning.unsqueeze(1).repeat(1, obs_horizon, 1)
-
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             envs_completed_this_iter = 0
 
             # Step until all environments within this batch have concluded
             while not dones.all():
+                policy_conditioning = self._get_policy_conditioning(
+                    env, obs, device=pl_module.device, is_batched=is_cuda
+                )
+
                 with torch.no_grad():
-                    action_seq = pl_module.get_action(cond_seq)
-                    action = action_seq[:, 0]
+                    # Get sequence: [batch, act_horizon, action_dim]
+                    action_seq = pl_module.get_action(policy_conditioning)
 
-                # Diffusion is unbounded, we enforce clamping based on the given environment (usually [-1, +1])
-                action = torch.clamp(
-                    action, action_low.to(action.dtype), action_high.to(action.dtype)
-                )
+                # Diffusion open-loop execution Chunking (Analysis #1)
+                for i in range(action_seq.shape[1]):
+                    action = action_seq[:, i]
 
-                action = action if is_cuda else action.cpu()
+                    if self.clamp_action:
+                        action = torch.clamp(
+                            action, action_low.to(action.dtype), action_high.to(action.dtype)
+                        )
 
-                obs, reward, terminated, truncated, info = env.step(action)
+                    # For CPU seq-envs we need [dim] numpy arrays. For CUDA, ManiSkill takes [batch, dim] tensors.
+                    env_action = action if is_cuda else action.squeeze(0).cpu().numpy()
 
-                policy_conditioning = self._get_policy_conditioning(env, obs).to(pl_module.device)
+                    obs, reward, terminated, truncated, info = env.step(env_action)
 
-                # Shift the buffer and insert the new observation
-                cond_seq = torch.roll(cond_seq, shifts=-1, dims=1)
-                cond_seq[:, -1] = policy_conditioning
-
-                env_is_done = torch.as_tensor(
-                    terminated | truncated, dtype=torch.bool, device=pl_module.device
-                )
-                just_finished = env_is_done & ~dones
-
-                if "success" in info:
-                    success_tensor = info["success"].to(pl_module.device)
-                    successes[just_finished] = success_tensor[just_finished]
-
-                dones = dones | env_is_done
-
-                newly_completed = dones.sum().item()
-                advance = newly_completed - envs_completed_this_iter
-                if advance > 0:
-                    if is_rich:
-                        pbar.update(task_id, advance=advance)
+                    # Extract boolean flags correctly across backend CPU/GPU differences
+                    if is_cuda:
+                        env_is_done = terminated | truncated
+                        is_truncated = truncated.any()
                     else:
-                        pbar.update(advance)
-                envs_completed_this_iter = newly_completed
+                        env_is_done = torch.tensor(
+                            [terminated | truncated], dtype=torch.bool, device=pl_module.device
+                        )
+                        is_truncated = truncated
+
+                    just_finished = env_is_done & ~dones
+
+                    if "success" in info:
+                        succ = info["success"]
+                        if not isinstance(succ, torch.Tensor):
+                            succ = torch.tensor([succ], dtype=torch.bool, device=pl_module.device)
+                        else:
+                            succ = succ.to(pl_module.device)
+                        successes[just_finished] = succ[just_finished]
+
+                    dones = dones | env_is_done
+
+                    newly_completed = dones.sum().item()
+                    advance = newly_completed - envs_completed_this_iter
+                    if advance > 0:
+                        if is_rich:
+                            pbar.update(task_id, advance=advance)
+                        else:
+                            pbar.update(advance)
+                    envs_completed_this_iter = newly_completed
+
+                    if is_truncated:
+                        break
 
             total_successes += successes.float().sum().item()
 
