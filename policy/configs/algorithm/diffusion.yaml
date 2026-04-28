@@ -4,7 +4,7 @@ defaults:
   - noise_scheduler: ddpm
   - ema: default
   - optimizer: AdamW
-  - lr_scheduler: CosineAnnealingLR
+  - lr_scheduler: cosine_with_warmup
   - _self_
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
@@ -36,5 +36,5 @@ optimizer:
 
 # Overrides lr_scheduler/CosineAnnealingLR.yaml
 lr_scheduler:
-  T_max: ${trainer.max_steps}
-  eta_min: 1e-5
+  num_warmup_steps: 500
+  num_training_steps: ${trainer.max_steps}

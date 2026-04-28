@@ -5,7 +5,7 @@ defaults:
   - override /algorithm/noise_scheduler: ddpm
   - override /algorithm/ema: default
   - override /algorithm/optimizer: AdamW
-  - override /algorithm/lr_scheduler: CosineAnnealingLR
+  - override /algorithm/lr_scheduler: cosine_with_warmup
   - override /datamodule: maniskill_datamodule
   - override /trainer: default
   - _self_
@@ -31,7 +31,7 @@ algorithm:
     weight_decay: 1e-5
 
   lr_scheduler:
-    T_max: ${trainer.max_steps}
+    num_training_steps: ${trainer.max_steps}
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
