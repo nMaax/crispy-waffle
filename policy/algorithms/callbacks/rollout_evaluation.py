@@ -7,6 +7,7 @@ import torch
 from gymnasium.spaces import Box
 from lightning.pytorch.callbacks import RichProgressBar
 from lightning.pytorch.utilities import rank_zero_info
+from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers import FrameStack, RecordEpisode
 from rich.progress import Progress
 from tqdm import tqdm
@@ -27,10 +28,11 @@ class RolloutEvaluationCallback(L.Callback):
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         clamp_action: bool = True,
-        seed: int | None = None,
         video_dir: str | None = None,
+        seed: int | None = None,
     ):
-        """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for testing."""
+        """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for
+        testing."""
         super().__init__()
         self.env_id = None
         self.obs_mode = None
@@ -147,11 +149,13 @@ class RolloutEvaluationCallback(L.Callback):
 
         # Enable video recording if directory defined
         if self.video_dir:
+            max_episode_steps = gym_utils.find_max_episode_steps_value(env)
             env = RecordEpisode(
                 env.base_env if isinstance(env, FrameStack) else env,
                 output_dir=f"{self.video_dir}/{phase}",
                 save_trajectory=False,
                 save_video=True,
+                max_steps_per_video=max_episode_steps,
                 source_type="diffusion_policy",
                 source_desc=f"Diffusion Policy rollout ({phase})",
             )
