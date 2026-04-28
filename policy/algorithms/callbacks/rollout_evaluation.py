@@ -29,6 +29,7 @@ class RolloutEvaluationCallback(L.Callback):
         num_test_episodes: int = 100,
         clamp_action: bool = True,
         video_dir: str | None = None,
+        render_mode: str | None = None,
         seed: int | None = None,
     ):
         """Deploys the policy in an environment (parallelized for CUDA, sequential for CPU) for
@@ -44,6 +45,11 @@ class RolloutEvaluationCallback(L.Callback):
         self.num_test_episodes = num_test_episodes
         self.clamp_action = clamp_action
         self.video_dir = video_dir
+
+        if render_mode is None and self.video_dir is not None:
+            self.render_mode = "rgb_array"
+        else:
+            self.render_mode = render_mode
 
         if seed is None:
             raise ValueError("seed must be provided.")
@@ -136,6 +142,7 @@ class RolloutEvaluationCallback(L.Callback):
             self.env_id,
             obs_mode=self.obs_mode,
             control_mode=self.control_mode,
+            render_mode=self.render_mode,
             num_envs=num_envs,
         )
 
