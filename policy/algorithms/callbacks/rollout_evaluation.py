@@ -151,7 +151,7 @@ class RolloutEvaluationCallback(L.Callback):
         if self.video_dir:
             max_episode_steps = gym_utils.find_max_episode_steps_value(env)
             env = RecordEpisode(
-                env.base_env if isinstance(env, FrameStack) else env,
+                env,
                 output_dir=f"{self.video_dir}/{phase}",
                 save_trajectory=False,
                 save_video=True,
