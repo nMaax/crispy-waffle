@@ -205,6 +205,9 @@ class DiffusionPolicy(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         return self._shared_step(batch, batch_idx, "val")
 
+    def test_step(self, batch, batch_idx):
+        pass
+
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Automatically step the EMA model after every training batch iteration."""
         if self.network is None:

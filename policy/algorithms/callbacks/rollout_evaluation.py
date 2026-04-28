@@ -106,6 +106,10 @@ class RolloutEvaluationCallback(L.Callback):
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
 
+        # Skip if rollout is effimeral
+        if num_episodes <= 0:
+            return
+
         if self.env_id is None:
             raise ValueError("env_id is not set. This should have been set during setup().")
 
