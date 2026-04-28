@@ -145,7 +145,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         env = FrameStack(env, num_stack=pl_module.cond_horizon)
 
-        # Enable video recording if directory defined (Analysis #5)
+        # Enable video recording if directory defined
         if self.video_dir:
             env = RecordEpisode(
                 env.base_env if isinstance(env, FrameStack) else env,
@@ -212,7 +212,7 @@ class RolloutEvaluationCallback(L.Callback):
                     # Get sequence: [batch, act_horizon, action_dim]
                     action_seq = pl_module.get_action(policy_conditioning)
 
-                # Diffusion open-loop execution Chunking (Analysis #1)
+                # Diffusion open-loop execution Chunking
                 for i in range(action_seq.shape[1]):
                     action = action_seq[:, i]
 
@@ -227,9 +227,18 @@ class RolloutEvaluationCallback(L.Callback):
                     obs, reward, terminated, truncated, info = env.step(env_action)
 
                     # Extract boolean flags correctly across backend CPU/GPU differences
+                    # NOTE: In a batched GPU environment (e.g., 100 parallel envs), if one single environment truncates
+                    # (e.g., drops the object or reaches the step limit) on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
+                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of 100 environments,
+                    # even though 99 of them were perfectly happy executing the rest of their chunk.
+                    # It just means that inference will run slightly slower toward the end of an evaluation epoch as environments start finishing at different times, causing more frequent replanning
+                    # However, fixing this would require complex tensor masking etc., so I will keepm it this way for now for simplicity
                     if is_cuda:
                         env_is_done = terminated | truncated
-                        is_truncated = truncated.any()
+                        if isinstance(truncated, torch.Tensor):
+                            is_truncated = truncated.any()
+                        else:
+                            is_truncated = truncated
                     else:
                         env_is_done = torch.tensor(
                             [terminated | truncated], dtype=torch.bool, device=pl_module.device
