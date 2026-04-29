@@ -1,5 +1,5 @@
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import lightning as L
@@ -8,6 +8,7 @@ import torch
 from gymnasium.spaces import Box
 from lightning.pytorch.callbacks import RichProgressBar
 from lightning.pytorch.utilities import rank_zero_info
+from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers import FrameStack, RecordEpisode
 from rich.progress import Progress
@@ -19,10 +20,7 @@ from policy.utils.typing_utils import PolicyProtocol
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 
-# TODO: when on GPU it tries to use all GPUs however tensor appear on different devices, fix this!
-# And then also scale code to work on double gpus
-
-# TODO: fix all tests and pyright warnings/errors
+# TODO: when on GPU it tries to use all GPUs however tensor appear on different devices! Overall scale code to work on double gpus
 
 # TODO: Strong typing eveyrwhere, e.g. the return type of get_action() should be Tensor, etc.
 # TODO: docstrings with types and shapes everywhere
@@ -31,9 +29,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.d
 
 
 class RolloutEvaluationCallback(L.Callback):
-    # Offset validation and test
-    BASE_SEED_VAL: int = 42000
-    BASE_SEED_TEST: int = 67000
+    OFFSET_SEED_VAL: int = 42000
+    OFFSET_SEED_TEST: int = 67000
 
     def __init__(
         self,
@@ -67,8 +64,8 @@ class RolloutEvaluationCallback(L.Callback):
 
         if seed is None:
             raise ValueError("seed must be provided.")
-        self.val_seed = seed + self.BASE_SEED_VAL
-        self.test_seed = seed + self.BASE_SEED_TEST
+        self.val_seed = seed + self.OFFSET_SEED_VAL
+        self.test_seed = seed + self.OFFSET_SEED_TEST
 
         rank_zero_info(
             f"Seeds for Maniskill simulations fetched from main seed {seed} -> Validation seed: {self.val_seed}, Test seed: {self.test_seed}"
@@ -157,6 +154,7 @@ class RolloutEvaluationCallback(L.Callback):
             num_envs=num_envs,
             max_episode_steps=self.max_episode_steps,
         )
+        env = cast(BaseEnv, env)
 
         # Enable video recording if directory is defined
         if self.video_dir:
