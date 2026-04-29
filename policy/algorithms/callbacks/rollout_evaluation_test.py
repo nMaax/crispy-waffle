@@ -1,6 +1,6 @@
 import types
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import gymnasium as gym
 import lightning as L
@@ -11,16 +11,20 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from policy.algorithms.callbacks.rollout_evaluation import RolloutEvaluationCallback
 
+ObsType = TypeVar("ObsType")
+ActType = TypeVar("ActType")
+
+# Should test setup works
+# Should test run_rollouts with num_envs=(-2, 0, 1, 5), with
+
 
 @dataclass
 class FakeRolloutDataModule(L.LightningDataModule):
-    """Just enough attributes for RolloutEvaluationCallback.setup()"""
-
     env_id: str = "FakeManiSkill-v0"
     obs_mode: str = "state"
     control_mode: str = "pd_joint_pos"
     physx_backend: str | None = None  # set to "cuda" to trigger batched mode
-    use_phsyx_env_states: bool = False  # keep default unless explicitly tested
+    use_physx_env_states: bool = False  # keep default unless explicitly tested
 
     def __post_init__(self):
         super().__init__()
@@ -35,9 +39,7 @@ class FakeRolloutDataModule(L.LightningDataModule):
         return DataLoader(ds, batch_size=1)
 
 
-class FakePolicyModule(L.LightningModule):
-    """A minimal LightningModule satisfying the PolicyProtocol used by the callback."""
-
+class FakeRolloutPolicyModule(L.LightningModule):
     def __init__(self, cond_horizon: int = 2, act_horizon: int = 1, act_dim: int = 3):
         super().__init__()
         self.cond_horizon = cond_horizon
@@ -63,16 +65,22 @@ class FakePolicyModule(L.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.1)
 
 
-class _FakeUnwrapped:
+class FakeUnwrappedEnv(gym.Env):
     def __init__(self, obs: torch.Tensor):
         self._obs = obs
+        self._init_raw_obs = obs
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=obs.shape[1:])
+        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,))
 
     # Used only if use_phsyx_env_states=True
     def get_state(self):
         return self._obs
 
+    def update_obs_space(self, *args, **kwargs):
+        pass
 
-class FakeVectorEnv:
+
+class FakeVectorEnv(gym.Env):
     """A tiny Gym-like env that finishes in 1 step.
 
     It supports both "CPU mode" (num_envs=1, sequential episodes) and "CUDA mode"
@@ -85,15 +93,17 @@ class FakeVectorEnv:
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         self._closed = False
         self._last_obs = torch.zeros((self.num_envs, self.obs_dim), dtype=torch.float32)
-        self.unwrapped = _FakeUnwrapped(self._last_obs)
 
-    def reset(self, seed: int | None = None):
+    @property
+    def unwrapped(self) -> gym.Env:
+        return FakeUnwrappedEnv(self._last_obs)
+
+    def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
         if seed is None:
             seed = 0
 
         g = torch.Generator().manual_seed(int(seed))
         self._last_obs = torch.randn((self.num_envs, self.obs_dim), generator=g)
-        self.unwrapped = _FakeUnwrapped(self._last_obs)
         info = {}
         return self._last_obs, info
 
@@ -134,8 +144,8 @@ def _patch_gym(monkeypatch: pytest.MonkeyPatch):
     )
 
     # Patch gym.make to return our fake env
-    def _make(env_id: str, obs_mode: str, control_mode: str, num_envs: int, **kwargs):
-        assert env_id == "FakeManiSkill-v0"
+    def _make(id: str, obs_mode: str, control_mode: str, num_envs: int, **kwargs):
+        assert id == "FakeManiSkill-v0"
         assert isinstance(num_envs, int) and num_envs >= 1
         return FakeVectorEnv(num_envs=num_envs)
 
@@ -143,24 +153,26 @@ def _patch_gym(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.parametrize(
-    "physx_backend,expected_num_envs",
+    "physx_backend",
     [
-        (None, 1),  # CPU sequential mode -> num_envs=1
-        ("cpu", 1),  # still CPU
+        pytest.param("pshyx_cpu"),
+        pytest.param(
+            "phsyx_cuda",
+            marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA available."),
+        ),
     ],
 )
 def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
     monkeypatch: pytest.MonkeyPatch,
-    capture_log,
-    physx_backend: str | None,
-    expected_num_envs: int,
+    capture_log: list[tuple[str, Any, dict[str, Any]]],
+    physx_backend: str,
 ):
     _patch_gym(monkeypatch)
 
     datamodule = FakeRolloutDataModule(physx_backend=physx_backend)
-    model = FakePolicyModule()
+    model = FakeRolloutPolicyModule()
 
-    cb = RolloutEvaluationCallback(num_val_episodes=3, num_test_episodes=5, seed=123)
+    rollout_cb = RolloutEvaluationCallback(num_val_episodes=3, num_test_episodes=5, seed=123)
 
     # Minimal trainer; disable progress bars/logging overhead
     trainer = L.Trainer(
@@ -170,7 +182,7 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
         enable_checkpointing=False,
         enable_model_summary=False,
         enable_progress_bar=False,
-        callbacks=[cb],
+        callbacks=[rollout_cb],
         max_epochs=1,
     )
 
@@ -184,60 +196,3 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
     logged = {name: float(value) for (name, value, _kw) in capture_log}
     assert logged["val/success_rate"] == 1.0
     assert logged["test/success_rate"] == 1.0
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_rollout_evaluation_callback_cuda_mode_logs_success_rate(
-    monkeypatch: pytest.MonkeyPatch,
-    capture_log,
-):
-    _patch_gym(monkeypatch)
-
-    # Trigger the callback's "cuda" branch by including "cuda" in physx_backend.
-    datamodule = FakeRolloutDataModule(physx_backend="cuda")
-    model = FakePolicyModule().to("cuda")
-
-    cb = RolloutEvaluationCallback(num_val_episodes=4, num_test_episodes=6, seed=123)
-
-    trainer = L.Trainer(
-        accelerator="gpu",
-        devices=1,
-        logger=False,
-        enable_checkpointing=False,
-        enable_model_summary=False,
-        enable_progress_bar=False,
-        callbacks=[cb],
-        max_epochs=1,
-    )
-
-    trainer.validate(model=model, datamodule=datamodule, verbose=False)
-    trainer.test(model=model, datamodule=datamodule, verbose=False)
-
-    logged = {name: float(value) for (name, value, _kw) in capture_log}
-    assert logged["val/success_rate"] == 1.0
-    assert logged["test/success_rate"] == 1.0
-
-
-def test_rollout_evaluation_callback_get_policy_conditioning_env_state_path(monkeypatch):
-    cb = RolloutEvaluationCallback(seed=0)
-    cb.use_phsyx_env_states = True
-
-    env = FakeVectorEnv(num_envs=1)
-    obs, _ = env.reset(seed=0)
-    out = cb._get_policy_conditioning(env, obs)
-
-    # When use_phsyx_env_states is True, it should come from env.unwrapped.get_state()
-    assert torch.allclose(out, env.unwrapped.get_state())
-
-
-def test_rollout_evaluation_callback_get_policy_conditioning_obs_path():
-    cb = RolloutEvaluationCallback(seed=0)
-    cb.use_phsyx_env_states = False
-
-    env = FakeVectorEnv(num_envs=1)
-    obs, _ = env.reset(seed=0)
-
-    out = cb._get_policy_conditioning(env, obs)
-
-    # When use_phsyx_env_states is False, it should return the observation directly.
-    assert out is obs

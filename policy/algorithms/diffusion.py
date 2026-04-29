@@ -1,5 +1,6 @@
 import functools
-from typing import Literal, cast
+from collections.abc import Mapping
+from typing import Any, Literal, cast
 
 import hydra_zen
 import lightning as L
@@ -223,7 +224,10 @@ class DiffusionPolicy(L.LightningModule):
         self.ema.step(self.network.parameters())
 
     def get_action(
-        self, cond_seq, num_inference_steps: int | None = None, clamp_range: tuple | None = None
+        self,
+        cond_seq: torch.Tensor,
+        num_inference_steps: int | None = None,
+        clamp_range: tuple | None = None,
     ):
         """Used during inference/evaluation in the environment."""
         if self.network is None:
@@ -241,7 +245,8 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(cond_seq)
+        # batch size
+        B = cond_seq.shape[0]
 
         # Store main network weights
         self.ema.store(self.network.parameters())
@@ -256,7 +261,6 @@ class DiffusionPolicy(L.LightningModule):
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
         with torch.no_grad():
-            flatten_cond = flatten_tensor_dict(cond_seq)
             noisy_act_seq = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
             for t in self.noise_scheduler.timesteps:
@@ -267,7 +271,7 @@ class DiffusionPolicy(L.LightningModule):
                 model_pred = self.network(
                     sample=latent_model_input,
                     timestep=t,
-                    external_cond=flatten_cond,
+                    external_cond=cond_seq,
                 )
 
                 output = self.noise_scheduler.step(

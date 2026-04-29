@@ -123,9 +123,13 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     raise ValueError("data must contain at least one tensor")
 
 
-def flatten_tensor_dict(data: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
+def flatten_tensor_dict(
+    data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
+) -> torch.Tensor:
     """Recursively flattens a dictionary of tensors and concatenates them."""
     if isinstance(data, torch.Tensor):
+        if device is not None:
+            data = data.to(device)
         return data.flatten(start_dim=1)
 
     tensors: list[torch.Tensor] = []

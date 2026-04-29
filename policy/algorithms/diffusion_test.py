@@ -3,7 +3,7 @@ import torch
 
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
-from policy.utils import get_batch_size
+from policy.utils import flatten_tensor_dict, get_batch_size
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
@@ -45,6 +45,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 
         # Execute inference
         cond_seq = training_step_content.batch["cond_seq"]
+        cond_seq = flatten_tensor_dict(cond_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(cond_seq)
 
@@ -53,7 +54,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         assert torch.isfinite(out).all(), "Output contains NaN or Inf"
         assert out.device == algorithm.device
         assert out.shape == (
-            get_batch_size(cond_seq),
+            cond_seq.shape[0],
             algorithm.act_horizon,
             algorithm.act_dim,
         )
@@ -71,6 +72,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm.to(batch_device)
 
         cond_seq = training_step_content.batch["cond_seq"]
+        cond_seq = flatten_tensor_dict(cond_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(cond_seq)
 

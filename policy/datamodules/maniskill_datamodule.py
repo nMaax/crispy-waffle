@@ -367,7 +367,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.obs_mode,
             self.control_mode,
             self.physx_backend,
-            self.use_phsyx_env_states,
+            self.use_physx_env_states,
         ) = self._load_metadata_from_json()
 
         # Fetch dimensions instantly without loading the full dataset into RAM
@@ -391,7 +391,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         Selected by use_phsyx_env_states.
         """
-        if self.use_phsyx_env_states:
+        if self.use_physx_env_states:
             return self.env_state_dim
         else:
             return self.obs_dim
@@ -489,7 +489,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.train_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                use_phsyx_env_states=self.use_phsyx_env_states,
+                use_phsyx_env_states=self.use_physx_env_states,
                 act_dim=self.act_dim,
                 env_state_dim=self.env_state_dim,
                 obs_dim=self.obs_dim,
@@ -503,7 +503,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.val_set = ManiSkillTrajectoryDataset(
                 dataset_file=self.dataset_file,
-                use_phsyx_env_states=self.use_phsyx_env_states,
+                use_phsyx_env_states=self.use_physx_env_states,
                 act_dim=self.act_dim,
                 env_state_dim=self.env_state_dim,
                 obs_dim=self.obs_dim,
