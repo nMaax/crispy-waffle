@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import lightning as L
@@ -27,6 +27,7 @@ class RolloutEvaluationCallback(L.Callback):
         self,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
+        max_episode_steps: int | None = None,
         clamp_action: bool = True,
         video_dir: str | None = None,
         render_mode: str | None = None,
@@ -43,6 +44,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
+        self.max_episode_steps = max_episode_steps
         self.clamp_action = clamp_action
         self.video_dir = video_dir
 
@@ -123,38 +125,42 @@ class RolloutEvaluationCallback(L.Callback):
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ):
 
-        if num_episodes <= 0:
-            return
+        # TODO: should refactor to a more clean function later once it works: extract subfunctions, clean up rendundant lines, etc.
 
-        if self.env_id is None:
-            raise ValueError("env_id is not set. This should have been set during setup().")
-
-        is_cuda = self.physx_backend is not None and "cuda" in self.physx_backend.lower()
-
-        # NOTE: Maniskill native scaling - do not specify backend!
-        # Pass num_envs > 1 to trigger GPU, num_envs=1 triggers CPU
-        num_envs = num_episodes if is_cuda else 1
-
-        # TODO: I could rather use AsyncVectorEnv like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
-        num_iterations = 1 if is_cuda else num_episodes
-
-        env = gym.make(
-            self.env_id,
-            obs_mode=self.obs_mode,
-            control_mode=self.control_mode,
-            render_mode=self.render_mode,
-            num_envs=num_envs,
-        )
-
-        # Ensure Model conforms to expectations
         assert isinstance(pl_module, PolicyProtocol), (
             f"Expected the LightningModule to implement PolicyProtocol, "
             f"but got {type(pl_module).__name__}."
         )
 
+        if self.env_id is None:
+            raise ValueError("env_id is not set. This should have been set during setup().")
+
+        is_cuda = self.physx_backend is not None and "cuda" in self.physx_backend.lower()
+        if is_cuda and not torch.cuda.is_available():
+            raise RuntimeError(
+                f"Dataset specifies CUDA backend '{self.physx_backend}', "
+                "but CUDA is not available on this machine. Cannot run parallel CUDA environments."
+            )
+
+        if num_episodes <= 0:
+            return
+
+        # TODO: I could rather use AsyncVectorEnv like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
+        num_iterations = 1 if is_cuda else num_episodes
+        num_envs = num_episodes if is_cuda else 1
+
+        env = gym.make(
+            id=self.env_id,
+            obs_mode=self.obs_mode,
+            control_mode=self.control_mode,
+            render_mode=self.render_mode,
+            num_envs=num_envs,
+            max_episode_steps=self.max_episode_steps,
+        )
+
         env = FrameStack(env, num_stack=pl_module.cond_horizon)
 
-        # Enable video recording if directory defined
+        # Enable video recording if directory is defined
         if self.video_dir:
             max_episode_steps = gym_utils.find_max_episode_steps_value(env)
             env = RecordEpisode(
@@ -207,8 +213,8 @@ class RolloutEvaluationCallback(L.Callback):
             # For CPU sequentially, offset the seed per iteration to ensure variety.
             # For CUDA parallel, seed once and rely on internal ManiSkill RNGs per sub-scene.
             current_seed = (self.val_seed if phase == "val" else self.test_seed) + iteration
-
             obs, info = env.reset(seed=current_seed)
+
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             envs_completed_this_iter = 0
@@ -232,8 +238,8 @@ class RolloutEvaluationCallback(L.Callback):
                             action, action_low.to(action.dtype), action_high.to(action.dtype)
                         )
 
-                    # For CPU seq-envs we need [dim] numpy arrays. For CUDA, ManiSkill takes [batch, dim] tensors.
-                    env_action = action if is_cuda else action.squeeze(0).cpu().numpy()
+                    # For CPU seq-envs we need [dim] tensors. For CUDA, ManiSkill takes [batch, dim] tensors.
+                    env_action = action if is_cuda else action.squeeze(0).cpu()
 
                     obs, reward, terminated, truncated, info = env.step(env_action)
 

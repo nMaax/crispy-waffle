@@ -65,6 +65,7 @@ trainer:
     rollout_evaluation:
       num_val_episodes: 25
       num_test_episodes: 100
+      max_episode_steps: 200
       clamp_action: true
 
     early_stopping:

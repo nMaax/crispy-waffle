@@ -2,6 +2,7 @@ rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
   num_val_episodes: 10
   num_test_episodes: 100
+  max_episode_steps: 200
   clamp_action: true
-  video_dir: none
+  video_dir: null
   seed: ${seed} # Seed is passed by config.py
