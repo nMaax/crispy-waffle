@@ -6,6 +6,7 @@ from typing import Any, cast
 import h5py
 import lightning as L
 import numpy as np
+import torch
 from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
@@ -44,7 +45,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         success_only: bool = False,
         lazy: bool = False,
         validate_lengths: bool = True,
-    ) -> None:
+    ):
         """Dataset for loading ManiSkill trajectories from HDF5 files.
 
         parameters:
@@ -209,18 +210,33 @@ class ManiSkillTrajectoryDataset(Dataset):
         print_dict_tree(self.trajectories[0], use_rank_zero_info=True)
 
     @property
-    def h5_file(self):
+    def h5_file(self) -> h5py.File:
         """Lazy HDF5 file opener to prevent multiprocessing crashes in PyTorch DataLoaders."""
         if self._h5_file is None:
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
-    def _slice_and_pad(self, data, start, end, L, pad_mask=None):
+    def _slice_and_pad(
+        self,
+        data: h5py.Group | h5py.Dataset | dict[str, Any] | np.ndarray,
+        start: int,
+        end: int,
+        L: int,
+        pad_mask: torch.Tensor | np.ndarray | None = None,
+    ):
         """Slices the data from start to end, and pads with edge values if the slice goes out of
         bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
-        if isinstance(data, dict) or isinstance(data, h5py.Group):
-            return {k: self._slice_and_pad(data[k], start, end, L, pad_mask) for k in data.keys()}
+        if isinstance(data, (h5py.Group, dict)):
+            result = {}
+            for k in data.keys():
+                nested_data = data[k]
+                if not isinstance(nested_data, (h5py.Group, h5py.Dataset, dict, np.ndarray)):
+                    raise TypeError(
+                        f"Expected nested HDF5 group or dataset at key '{k}', got {type(nested_data)}"
+                    )
+                result[k] = self._slice_and_pad(nested_data, start, end, L, pad_mask)
+            return result
 
         pad_before = max(0, -start)
         pad_after = max(0, end - L)
@@ -229,7 +245,10 @@ class ManiSkillTrajectoryDataset(Dataset):
         valid_start = max(0, min(L, start))
         valid_end = max(0, min(L, end))
 
-        seq = data[valid_start:valid_end]  # works for numpy arrays and h5py.Dataset
+        if not isinstance(data, (h5py.Dataset, np.ndarray)):
+            raise TypeError(f"Cannot slice object of type {type(data)}")
+        else:
+            seq = data[valid_start:valid_end]
 
         # We can either pad with zeros or edge values.
         # Padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
@@ -296,7 +315,13 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         # Select conditioning source
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
+        if not isinstance(cond_src, (h5py.Group, h5py.Dataset, dict, np.ndarray)):
+            raise TypeError(
+                f"Expected env_states or obs to be a dataset or group, got {type(cond_src)}"
+            )
         act_src = traj["actions"]
+        if not isinstance(act_src, (h5py.Dataset, np.ndarray)):
+            raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
         # Slice and pad conditinion and action sequences
         # This is where we actually load the data from disk to memory, but only the needed window!

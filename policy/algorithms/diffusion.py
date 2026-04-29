@@ -1,5 +1,5 @@
 import functools
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import hydra_zen
 import lightning as L
@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
-from policy.utils import flatten_tensor_dict, get_batch_size, sum_shapes
+from policy.utils import flatten_tensor_dict, sum_shapes
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Review whole template to ensure it works
@@ -98,7 +98,7 @@ class DiffusionPolicy(L.LightningModule):
         #   - Thus Diffusion should have access to the datamodule's parameters about cond_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
         #   - Can diffusion access such data? YES, since datamodule is passed in the init
 
-    def configure_model(self):
+    def configure_model(self) -> None:
         """Lightning calls this before training starts to initialize weights safely."""
         if self.network is not None:
             return
@@ -117,7 +117,7 @@ class DiffusionPolicy(L.LightningModule):
         # Once network is instantiated, add EMA as well
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Optimizer | dict:
         """Creates the optimizer and LR scheduler."""
 
         # NOTE: Optimizers and schedulers could actually be made in one shot, without partial,
@@ -143,7 +143,7 @@ class DiffusionPolicy(L.LightningModule):
         else:
             return optimizer
 
-    def _compute_loss(self, cond_seq, act_seq):
+    def _compute_loss(self, cond_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """Loss calculation logic."""
 
         if self.network is None:
@@ -161,7 +161,7 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before computing loss."
             )
 
-        B = get_batch_size(cond_seq)
+        B = cond_seq.shape[0]
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -193,22 +193,26 @@ class DiffusionPolicy(L.LightningModule):
 
         return F.mse_loss(prediction, target)
 
-    def _shared_step(self, batch, batch_idx, phase: str):
+    def _shared_step(self, batch, batch_idx, phase: str) -> torch.Tensor:
         "Main step logic, it doesn't differ between training and validation except for the logging."
-        loss = self._compute_loss(batch["cond_seq"], batch["act_seq"])
+        # Datamodule will return a dict, but we need the underlying tensors
+        flatten_cond = flatten_tensor_dict(batch["cond_seq"])
+        action_seq = batch["act_seq"]
+
+        loss = self._compute_loss(flatten_cond, action_seq)
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "train")
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "val")
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
         pass
 
-    def on_train_batch_end(self, outputs, batch, batch_idx):
+    def on_train_batch_end(self, outputs: torch.Tensor, batch: dict[str, Any], batch_idx: int):
         """Automatically step the EMA model after every training batch iteration."""
         if self.network is None:
             raise ValueError(
@@ -244,7 +248,6 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        # batch size
         B = cond_seq.shape[0]
 
         # Store main network weights

@@ -3,7 +3,7 @@ import pytest
 import torch
 
 from policy.datamodules.datamodule_tests import DataModuleTests
-from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.datamodules.maniskill_datamodule import ManiSkillDataModule, ManiSkillTrajectoryDataset
 
 
 @pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
@@ -11,11 +11,15 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
     """Test suite for the ManiSkillDataModule."""
 
     def test_padding_is_correct(self, datamodule: ManiSkillDataModule):
-        """Specifically verifies that time-series sequences are padded correctly at the
-        boundaries."""
         # Ensure the train_set is built
         datamodule.setup("fit")
         dataset = datamodule.train_set
+
+        if dataset is None:
+            raise ValueError("Expected train_set to be initialized after setup('fit').")
+
+        if not isinstance(dataset, ManiSkillTrajectoryDataset):
+            raise TypeError("Expected train_set to be an instance of ManiSkillDataset.")
 
         # Test left padding
         # The first slice of any episode has t=0

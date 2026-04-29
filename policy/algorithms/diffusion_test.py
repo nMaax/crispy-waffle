@@ -3,7 +3,7 @@ import torch
 
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
-from policy.utils import flatten_tensor_dict, get_batch_size
+from policy.utils import flatten_tensor_dict
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)

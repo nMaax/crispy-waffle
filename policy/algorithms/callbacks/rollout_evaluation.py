@@ -111,11 +111,16 @@ class RolloutEvaluationCallback(L.Callback):
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
 
-    def _get_policy_conditioning(self, env, obs):
+    def _get_policy_conditioning(
+        self,
+        env: FrameStack,
+        obs: torch.Tensor | dict[str, Any],
+        device: torch.device | None = None,
+    ) -> torch.Tensor | dict[str, Any]:
         """Helper to extract the correct conditioning state and ensure batched tensor format."""
         if self.use_physx_env_states:
-            policy_conditioning = env.unwrapped.get_state()
-            policy_conditioning = to_tensor(policy_conditioning, device=obs.device)
+            policy_conditioning = env.unwrapped.get_state()  # type: ignore
+            policy_conditioning = to_tensor(policy_conditioning, device=device)
         else:
             policy_conditioning = obs
 
@@ -123,7 +128,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
-    ):
+    ) -> None:
 
         # TODO: should refactor to a more clean function later once it works: extract subfunctions, clean up rendundant lines, etc.
 
@@ -219,7 +224,9 @@ class RolloutEvaluationCallback(L.Callback):
 
             # Step until all environments within this batch have concluded
             while not dones.all():
-                policy_conditioning = self._get_policy_conditioning(env, obs)
+                policy_conditioning = self._get_policy_conditioning(
+                    env=env, obs=obs, device=pl_module.device
+                )
                 flatten_cond = flatten_tensor_dict(policy_conditioning, device=pl_module.device)
 
                 with torch.no_grad():
