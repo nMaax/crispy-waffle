@@ -1,5 +1,4 @@
-from typing import Any, cast
-
+from typing import Any
 import gymnasium as gym
 import lightning as L
 import mani_skill.envs  # noqa: F401
@@ -16,6 +15,13 @@ from policy.utils.typing_utils import PolicyProtocol
 
 # TODO: when on GPU it tries to use all GPUs however tensor appear on different devices, fix this!
 # And then also scale code to work on double gpus
+
+# TODO: fix all tests and pyright warnings/errors
+
+# TODO: Strong typing eveyrwhere, e.g. the return type of get_action() should be Tensor, etc.
+# TODO: docstrings with types and shapes everywhere
+
+# TODO: less comments within code? --> Try write a more CLEAR CODE
 
 
 class RolloutEvaluationCallback(L.Callback):
@@ -298,6 +304,7 @@ class RolloutEvaluationCallback(L.Callback):
         # Compute over the total number of tested episodes
         success_rate = total_successes / num_episodes
 
+        # TODO: what else should I log? e.g. truncated?
         # Log it to the main logger (e.g. WandB)
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
 
