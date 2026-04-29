@@ -17,6 +17,9 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 # TODO: Review whole template to ensure it works
 # TODO: Compare with original maniskill code, line by line
 
+# TODO: docstrings with types and shapes everywhere
+# TODO: less comments within code? --> Try write a more CLEAR CODE
+
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(

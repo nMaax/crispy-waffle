@@ -22,11 +22,6 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.d
 
 # TODO: when on GPU it tries to use all GPUs however tensor appear on different devices! Overall scale code to work on double gpus
 
-# TODO: Strong typing eveyrwhere, e.g. the return type of get_action() should be Tensor, etc.
-# TODO: docstrings with types and shapes everywhere
-
-# TODO: less comments within code? --> Try write a more CLEAR CODE
-
 
 class RolloutEvaluationCallback(L.Callback):
     OFFSET_SEED_VAL: int = 42000
