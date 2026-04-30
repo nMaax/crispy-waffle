@@ -93,10 +93,10 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.lazy = lazy
         self.validate_lengths = validate_lengths
 
-        # Open the H5 only once during init, with different behavior based on lazy flag
+        # Open the H5 file, with different behavior based on lazy flag
         # - lazy: peek dims from first valid episode
         # - not lazy: load full episodes into RAM
-        first_valid_episode_id: int | None = None
+        first_valid_episode_id = None
         with h5py.File(self.dataset_file, "r") as data:
             for i in range(load_count):
                 eps = self.episodes[i]
@@ -144,7 +144,8 @@ class ManiSkillTrajectoryDataset(Dataset):
                     )
 
                 traj_idx = len(self.trajectories) - 1
-                self._append_episode_windows(traj_idx, L)
+                slice = self._compute_trajectory_slices(traj_idx, L)
+                self.slices.append(*slice)
 
             if first_valid_episode_id is None:
                 raise ValueError(
@@ -251,8 +252,10 @@ class ManiSkillTrajectoryDataset(Dataset):
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
-    def _append_episode_windows(self, traj_idx: int, L: int) -> None:
-        """Append all temporal windows for one episode of length L."""
+    def _compute_trajectory_slices(
+        self, traj_idx: int, L: int
+    ) -> list[tuple[int, int, int, int, int, int]]:
+        """Compute all temporal windows for one episode of length L."""
 
         # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
         # to start at the same timestamp as the observation sequence (act_start = cond_start).
@@ -271,6 +274,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         #   "anchor" steps and the steps we actually execute.
         #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
 
+        slices = []
         for t in range(L):
             cond_start = t - self.cond_horizon + 1
             cond_end = t + 1
@@ -278,7 +282,9 @@ class ManiSkillTrajectoryDataset(Dataset):
             act_start = cond_start
             act_end = act_start + self.pred_horizon
 
-            self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+            slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+
+        return slices
 
     def _slice_and_pad(
         self,
