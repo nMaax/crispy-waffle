@@ -20,6 +20,8 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 # TODO: docstrings with types and shapes everywhere
 # TODO: less comments within code? --> Try write a more CLEAR CODE
 
+# TODO: fix up bars that collect too much clutter on info
+
 
 class DiffusionPolicy(L.LightningModule):
     def __init__(
