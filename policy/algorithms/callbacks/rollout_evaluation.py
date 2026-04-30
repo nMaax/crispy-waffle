@@ -67,8 +67,8 @@ class RolloutEvaluationCallback(L.Callback):
 
         rank_zero_info(
             f"Seeds for rollout simulation fetched from main seed: {seed}\n"
-            "\tValidation seed: {self.val_seed}\n"
-            "\tTest seed: {self.test_seed}"
+            f"\tValidation seed: {self.val_seed}\n"
+            f"\tTest seed: {self.test_seed}"
         )
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:

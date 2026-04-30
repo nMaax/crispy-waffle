@@ -72,8 +72,12 @@ class ManiSkillDataset(Dataset):
             self.action_right_zero_pad_mask = np.array(action_right_zero_pad_mask, dtype=bool)
         elif isinstance(action_right_zero_pad_mask, torch.Tensor):
             self.action_right_zero_pad_mask = action_right_zero_pad_mask.cpu().numpy()
+        else:
+            self.action_right_zero_pad_mask = action_right_zero_pad_mask
 
-        if action_right_zero_pad_mask is not None and not isinstance(self.action_right_zero_pad_mask.dtype, bool):
+        if self.action_right_zero_pad_mask is not None and not isinstance(
+            self.action_right_zero_pad_mask.dtype, bool
+        ):
             raise ValueError(
                 f"action_right_zero_pad_mask must be a list of bools, a numpy array of dtype bool, or a torch tensor. Got {type(action_right_zero_pad_mask)} with dtype {getattr(action_right_zero_pad_mask, 'dtype', None)}."
             )
