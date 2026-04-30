@@ -136,7 +136,7 @@ class ManiSkillDataset(Dataset):
 
                 traj_idx = len(self.trajectories) - 1
                 slice = self._compute_trajectory_slices(traj_idx, L)
-                self.slices.append(*slice)
+                self.slices.extend(slice)
 
             if first_valid_episode_id is None:
                 raise ValueError(
