@@ -85,35 +85,6 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.trajectories: list[dict[str, Any]] = []
         self.slices: list[tuple[int, int, int, int, int, int]] = []
 
-        def append_windows_for_episode(traj_idx: int, L: int) -> None:
-            """Append all temporal windows for one episode of length L."""
-
-            # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
-            # to start at the same timestamp as the observation sequence (act_start = cond_start).
-            # By forcing the model to re-predict actions that occurred during the observation
-            # window (the "past"), the result is that the network learns a continuous trajectory where future
-            # plans are physically grounded in recent history.
-            #
-            # More specifically, keep in mind that:
-            # - At Training we do NOT throw away the past predictions; they are included in
-            #   the loss calculation to act as a temporal anchor for the model.
-            # - At Inference instead we discard the past actions (via slicing in get_action) and only
-            #   return the actions intended for the present and future.
-            # - We do NOT need to increase pred_horizon or act_horizon. The past
-            #   actions (cond_horizon - 1) simply occupy the first few slots of the existing
-            #   pred_horizon, which is already large enough to contain both the
-            #   "anchor" steps and the steps we actually execute.
-            #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
-
-            for t in range(L):
-                cond_start = t - self.cond_horizon + 1
-                cond_end = t + 1
-
-                act_start = cond_start
-                act_end = act_start + self.pred_horizon
-
-                self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
-
         self.lazy = lazy
         self.validate_lengths = validate_lengths
 
@@ -168,7 +139,7 @@ class ManiSkillTrajectoryDataset(Dataset):
                     )
 
                 traj_idx = len(self.trajectories) - 1
-                append_windows_for_episode(traj_idx, L)
+                self.append_episode_windows(traj_idx, L)
 
             if first_valid_episode_id is None:
                 raise ValueError(
@@ -263,6 +234,35 @@ class ManiSkillTrajectoryDataset(Dataset):
         if self._h5_file is None:
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
+
+    def append_episode_windows(self, traj_idx: int, L: int) -> None:
+        """Append all temporal windows for one episode of length L."""
+
+        # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
+        # to start at the same timestamp as the observation sequence (act_start = cond_start).
+        # By forcing the model to re-predict actions that occurred during the observation
+        # window (the "past"), the result is that the network learns a continuous trajectory where future
+        # plans are physically grounded in recent history.
+        #
+        # More specifically, keep in mind that:
+        # - At Training we do NOT throw away the past predictions; they are included in
+        #   the loss calculation to act as a temporal anchor for the model.
+        # - At Inference instead we discard the past actions (via slicing in get_action) and only
+        #   return the actions intended for the present and future.
+        # - We do NOT need to increase pred_horizon or act_horizon. The past
+        #   actions (cond_horizon - 1) simply occupy the first few slots of the existing
+        #   pred_horizon, which is already large enough to contain both the
+        #   "anchor" steps and the steps we actually execute.
+        #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
+
+        for t in range(L):
+            cond_start = t - self.cond_horizon + 1
+            cond_end = t + 1
+
+            act_start = cond_start
+            act_end = act_start + self.pred_horizon
+
+            self.slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
 
     def _slice_and_pad(
         self,
