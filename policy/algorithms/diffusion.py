@@ -24,11 +24,19 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 
 class DiffusionPolicy(L.LightningModule):
+    """Diffusion Policy as in Cheng et. al (IJRR)
+
+    Reference:
+        - Arxiv: https://arxiv.org/abs/2303.04137v4
+        - Paper website: https://diffusion-policy.cs.columbia.edu/
+        - Maniskill implementation: https://github.com/haosulab/ManiSkill/tree/main/examples/baselines/diffusion_policy
+    """
+
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],
-        noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
         ema: HydraConfigFor[EMAModel],
+        noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
         datamodule: ManiSkillDataModule,
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
@@ -83,7 +91,6 @@ class DiffusionPolicy(L.LightningModule):
         #   - Can diffusion access such data? YES, since datamodule is passed in the init
 
     def configure_model(self) -> None:
-        """Lightning calls this before training starts to initialize weights safely."""
         if self.network is not None:
             return
 
@@ -98,7 +105,6 @@ class DiffusionPolicy(L.LightningModule):
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self) -> Optimizer | dict:
-        """Creates the optimizer and LR scheduler."""
 
         # NOTE: Optimizers and schedulers could actually be made in one shot, without partial,
         # however I prefer to follow the template prescription, just for coherence
@@ -150,6 +156,7 @@ class DiffusionPolicy(L.LightningModule):
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
+        """Given a conditioning sequence, return the predicted action sequence."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."

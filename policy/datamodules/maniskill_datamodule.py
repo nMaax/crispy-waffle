@@ -30,6 +30,8 @@ class DummyDataset(Dataset):
 
 
 class ManiSkillTrajectoryDataset(Dataset):
+    """Dataset for loading ManiSkill trajectories from HDF5 files."""
+
     def __init__(
         self,
         dataset_file: str | Path,
@@ -46,19 +48,8 @@ class ManiSkillTrajectoryDataset(Dataset):
         lazy: bool = False,
         validate_lengths: bool = True,
     ):
-        """Dataset for loading ManiSkill trajectories from HDF5 files.
-
-        parameters:
-            - dataset_file: Path to the HDF5 file containing trajectory data. The corresponding JSON metadata file should be in the same directory with the same name but .json extension.
-            - use_phsyx_env_states: Whether to condition the policy on raw states of the physical engine (ignoring observaions).
-            - cond_horizon: Number of past time steps to include in the conditioning sequence.
-            - pred_horizon: Number of future time steps to include in the action sequence.
-            - episodes: Optional list of episode metadata dicts to use. If None, the dataset loads all episodes from the JSON file.
-            - load_count: If > 0, limits the number of episodes to load (for faster debugging). If -1, loads all episodes.
-            - success_only: If True, only loads episodes marked as successful in the JSON metadata
-            - lazy: If True, do not load trajectories into RAM. Only keep episode_id and read slices from disk in __getitem__.
-        """
         super().__init__()
+
         self.dataset_file = Path(dataset_file)
         self.use_phsyx_env_states = use_phsyx_env_states
         self.cond_horizon = cond_horizon
@@ -227,11 +218,11 @@ class ManiSkillTrajectoryDataset(Dataset):
         """Slices the data from start to end, and pads with edge values if the slice goes out of
         bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
-        if isinstance(data, (h5py.Group, dict)):
+        if isinstance(data, h5py.Group | dict):
             result = {}
             for k in data.keys():
                 nested_data = data[k]
-                if not isinstance(nested_data, (h5py.Group, h5py.Dataset, dict, np.ndarray)):
+                if not isinstance(nested_data, h5py.Group | h5py.Dataset | dict | np.ndarray):
                     raise TypeError(
                         f"Expected nested HDF5 group or dataset at key '{k}', got {type(nested_data)}"
                     )
@@ -245,7 +236,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         valid_start = max(0, min(L, start))
         valid_end = max(0, min(L, end))
 
-        if not isinstance(data, (h5py.Dataset, np.ndarray)):
+        if not isinstance(data, h5py.Dataset | np.ndarray):
             raise TypeError(f"Cannot slice object of type {type(data)}")
         else:
             seq = data[valid_start:valid_end]
@@ -315,12 +306,12 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         # Select conditioning source
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
-        if not isinstance(cond_src, (h5py.Group, h5py.Dataset, dict, np.ndarray)):
+        if not isinstance(cond_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
             raise TypeError(
                 f"Expected env_states or obs to be a dataset or group, got {type(cond_src)}"
             )
         act_src = traj["actions"]
-        if not isinstance(act_src, (h5py.Dataset, np.ndarray)):
+        if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
         # Slice and pad conditinion and action sequences

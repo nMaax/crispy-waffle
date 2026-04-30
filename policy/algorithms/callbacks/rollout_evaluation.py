@@ -24,6 +24,9 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.d
 
 
 class RolloutEvaluationCallback(L.Callback):
+    """A Lightning Callback for performing rollout evaluation of a policy in a ManiSkill
+    environment."""
+
     OFFSET_SEED_VAL: int = 42000
     OFFSET_SEED_TEST: int = 67000
 
@@ -191,6 +194,7 @@ class RolloutEvaluationCallback(L.Callback):
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
 
             envs_completed_this_iter = 0
+
             # Step until all environments within this batch have concluded
             while not dones.all():
                 policy_conditioning = self._get_policy_conditioning(
