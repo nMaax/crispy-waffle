@@ -111,19 +111,19 @@ class ManiSkillDataModule(L.LightningDataModule):
                 if self.action_right_zero_pad_mask is not None:
                     # User provided a custom mask, trust them
                     final_mask = np.array(self.action_right_zero_pad_mask, dtype=bool)
-                    rank_zero_info("Using explicitly provided delta_action_mask from config.")
+                    rank_zero_info("Using explicitly provided action_right_zero_pad_mask from config.")
                 else:
                     # User didn't provide one, infer the classic 1D gripper default
                     final_mask = np.ones(self.act_dim, dtype=bool)
                     final_mask[-1] = False
                     rank_zero_info(
-                        f"Inferred delta_action_mask for '{self.control_mode}'. Edge padding the last dimension."
+                        f"Inferred action_right_zero_pad_mask for '{self.control_mode}'. Edge padding the last dimension."
                     )
             else:
                 if self.action_right_zero_pad_mask is not None:
                     # User passed a mask for absolute actions! Warn and ignore.
                     rank_zero_warn(
-                        f"A delta_action_mask was provided, but the control_mode '{self.control_mode}' "
+                        f"A action_right_zero_pad_mask was provided, but the control_mode '{self.control_mode}' "
                         "is not a delta or velocity mode. The mask will be ignored (using standard edge padding)."
                     )
 
@@ -136,7 +136,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
-                delta_action_mask=final_mask,
+                action_right_zero_pad_mask=final_mask,
                 lazy=self.lazy,
                 validate_lengths=True,
             )
@@ -150,7 +150,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
-                delta_action_mask=final_mask,
+                action_right_zero_pad_mask=final_mask,
                 lazy=self.lazy,
                 validate_lengths=True,
             )

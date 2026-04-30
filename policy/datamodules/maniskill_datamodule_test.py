@@ -63,8 +63,8 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         pad_after = a_e - L_last
         valid_end_idx = datamodule.pred_horizon - pad_after - 1
 
-        if dataset.delta_action_mask is not None:
-            mask = torch.tensor(dataset.delta_action_mask, dtype=torch.bool)
+        if dataset.action_right_zero_pad_mask is not None:
+            mask = torch.tensor(dataset.action_right_zero_pad_mask, dtype=torch.bool)
             # Deltas are zero-padded (mask=True), absolutes are edge-padded (mask=False)
             for i in range(1, pad_after + 1):
                 padded_step = act_seq_last[-i]

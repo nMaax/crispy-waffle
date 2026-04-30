@@ -30,7 +30,7 @@ class ManiSkillDataset(Dataset):
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
-        delta_action_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        action_right_zero_pad_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
@@ -68,14 +68,14 @@ class ManiSkillDataset(Dataset):
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
-        if isinstance(delta_action_mask, list):
-            self.delta_action_mask = np.array(delta_action_mask, dtype=bool)
-        elif isinstance(delta_action_mask, torch.Tensor):
-            self.delta_action_mask = delta_action_mask.cpu().numpy()
+        if isinstance(action_right_zero_pad_mask, list):
+            self.action_right_zero_pad_mask = np.array(action_right_zero_pad_mask, dtype=bool)
+        elif isinstance(action_right_zero_pad_mask, torch.Tensor):
+            self.action_right_zero_pad_mask = action_right_zero_pad_mask.cpu().numpy()
 
-        if delta_action_mask is not None and not isinstance(self.delta_action_mask.dtype, bool):
+        if action_right_zero_pad_mask is not None and not isinstance(self.action_right_zero_pad_mask.dtype, bool):
             raise ValueError(
-                f"delta_action_mask must be a list of bools, a numpy array of dtype bool, or a torch tensor. Got {type(delta_action_mask)} with dtype {getattr(delta_action_mask, 'dtype', None)}."
+                f"action_right_zero_pad_mask must be a list of bools, a numpy array of dtype bool, or a torch tensor. Got {type(action_right_zero_pad_mask)} with dtype {getattr(action_right_zero_pad_mask, 'dtype', None)}."
             )
 
         if load_count == -1:
@@ -225,7 +225,7 @@ class ManiSkillDataset(Dataset):
 
         cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L, right_pad_mask=None)
         act_seq = self._slice_and_pad(
-            act_src, act_start, act_end, L, right_pad_mask=self.delta_action_mask
+            act_src, act_start, act_end, L, right_pad_mask=self.action_right_zero_pad_mask
         )
 
         return {
