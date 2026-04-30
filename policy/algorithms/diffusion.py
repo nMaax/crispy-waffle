@@ -68,13 +68,13 @@ class DiffusionPolicy(L.LightningModule):
         self.pred_horizon = self.datamodule.pred_horizon
         self.act_horizon = act_horizon
 
-        if not self.act_horizon <= self.pred_horizon:
+        if self.act_horizon > self.pred_horizon:
             raise ValueError(
                 f"Action horizon ({self.act_horizon}) cannot be greater than prediction horizon ({self.pred_horizon}). "
                 "The model cannot execute more timesteps (act_horizon) than its total prediction horizon (pred_horizon)."
             )
 
-        if not self.act_horizon > self.cond_horizon:
+        if self.act_horizon < self.cond_horizon:
             raise ValueError(
                 f"Action horizon ({self.act_horizon}) cannot be less than conditioning horizon ({self.cond_horizon}). "
                 "The model needs to predict at least as many timesteps as it conditions on (including repredicting the past)."
