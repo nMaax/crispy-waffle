@@ -71,7 +71,6 @@ class ManiSkillDataset(Dataset):
         if action_right_zero_pad_mask is not None:
             if isinstance(action_right_zero_pad_mask, torch.Tensor):
                 action_right_zero_pad_mask = action_right_zero_pad_mask.cpu()
-
             self.action_right_zero_pad_mask = np.asarray(action_right_zero_pad_mask, dtype=bool)
         else:
             self.action_right_zero_pad_mask = None

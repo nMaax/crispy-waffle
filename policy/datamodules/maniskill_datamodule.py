@@ -111,7 +111,9 @@ class ManiSkillDataModule(L.LightningDataModule):
                 if self.action_right_zero_pad_mask is not None:
                     # User provided a custom mask, trust them
                     final_mask = np.array(self.action_right_zero_pad_mask, dtype=bool)
-                    rank_zero_info("Using explicitly provided action_right_zero_pad_mask from config.")
+                    rank_zero_info(
+                        "Using explicitly provided action_right_zero_pad_mask from config."
+                    )
                 else:
                     # User didn't provide one, infer the classic 1D gripper default
                     final_mask = np.ones(self.act_dim, dtype=bool)
