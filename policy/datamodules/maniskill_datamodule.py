@@ -1,7 +1,7 @@
 import json
 import random
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import h5py
 import lightning as L
@@ -139,27 +139,46 @@ class ManiSkillTrajectoryDataset(Dataset):
                     )
 
                 traj_idx = len(self.trajectories) - 1
-                self.append_episode_windows(traj_idx, L)
+                self._append_episode_windows(traj_idx, L)
 
             if first_valid_episode_id is None:
                 raise ValueError(
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
+            first_traj = data[f"traj_{first_valid_episode_id}"]
+            if not isinstance(first_traj, h5py.Group | dict):
+                raise TypeError(
+                    "Expected general trajectory to be an HDF5 group or dict, got {type(first_traj)}"
+                )
+
+            first_actions = first_traj["actions"]
+            if not isinstance(first_actions, h5py.Dataset | np.ndarray):
+                raise TypeError(
+                    f"Expected actions to be an HDF5 dataset or numpy array, got {type(first_actions)}"
+                )
+
+            first_env_states = first_traj["env_states"]
+            if not isinstance(first_env_states, h5py.Group | h5py.Dataset | dict | np.ndarray):
+                raise TypeError(
+                    f"Expected env_states to be an HDF5 group/dataset, dict, or numpy array, got {type(first_env_states)}"
+                )
+
+            first_obs = first_traj["obs"]
+            if not isinstance(first_obs, h5py.Group | h5py.Dataset | dict | np.ndarray):
+                raise TypeError(
+                    f"Expected obs to be an HDF5 group/dataset, dict, or numpy array, got {type(first_obs)}"
+                )
+
             # Peek into the tensors and extract dimensions for later use, if not passed as parameters
-            need_peek = self.act_dim is None or self.env_state_dim is None or self.obs_dim is None
-            if need_peek:
-                first_traj = cast(h5py.Group, data[f"traj_{first_valid_episode_id}"])
-                actions_ds = cast(h5py.Dataset, first_traj["actions"])
+            if self.act_dim is None:
+                self.act_dim = first_actions.shape[-1]
 
-                if self.act_dim is None:
-                    self.act_dim = actions_ds.shape[-1]
+            if self.env_state_dim is None:
+                self.env_state_dim = extract_h5_shapes(first_env_states)
 
-                if self.env_state_dim is None:
-                    self.env_state_dim = extract_h5_shapes(first_traj["env_states"])
-
-                if self.obs_dim is None:
-                    self.obs_dim = extract_h5_shapes(first_traj["obs"])
+            if self.obs_dim is None:
+                self.obs_dim = extract_h5_shapes(first_obs)
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
@@ -235,7 +254,7 @@ class ManiSkillTrajectoryDataset(Dataset):
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
-    def append_episode_windows(self, traj_idx: int, L: int) -> None:
+    def _append_episode_windows(self, traj_idx: int, L: int) -> None:
         """Append all temporal windows for one episode of length L."""
 
         # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
@@ -535,19 +554,38 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         first_episode_id = json_data["episodes"][0]["episode_id"]
 
-        # NOTE: h5py can return .shape without loading into memory
-
         with h5py.File(self.dataset_file, "r") as data:
-            traj_data = cast(h5py.Group, data[f"traj_{first_episode_id}"])
-            actions_ds = cast(h5py.Dataset, traj_data["actions"])
+            first_traj = data[f"traj_{first_episode_id}"]
+            if not isinstance(first_traj, h5py.Group | dict):
+                raise TypeError(
+                    "Expected general trajectory to be an HDF5 group or dict, got {type(first_traj)}"
+                )
 
-            act_dim = actions_ds.shape[-1]
-            env_state_dim = extract_h5_shapes(traj_data["env_states"])
-            obs_dim = extract_h5_shapes(traj_data["obs"])
+            first_actions = first_traj["actions"]
+            if not isinstance(first_actions, h5py.Dataset | np.ndarray):
+                raise TypeError(
+                    f"Expected actions to be an HDF5 dataset or numpy array, got {type(first_actions)}"
+                )
+
+            first_env_states = first_traj["env_states"]
+            if not isinstance(first_env_states, h5py.Group | h5py.Dataset | dict | np.ndarray):
+                raise TypeError(
+                    f"Expected env_states to be an HDF5 group/dataset, dict, or numpy array, got {type(first_env_states)}"
+                )
+
+            first_obs = first_traj["obs"]
+            if not isinstance(first_obs, h5py.Group | h5py.Dataset | dict | np.ndarray):
+                raise TypeError(
+                    f"Expected obs to be an HDF5 group/dataset, dict, or numpy array, got {type(first_obs)}"
+                )
+
+            act_dim = first_actions.shape[-1]
+            env_state_dim = extract_h5_shapes(first_env_states)
+            obs_dim = extract_h5_shapes(first_obs)
 
         if act_dim is None or env_state_dim is None or obs_dim is None:
             raise ValueError(
-                "The h5 dataset was not found, thus dimensionalities could not be fetched."
+                f"Dimensionalities of {self.dataset_file}'s data could not be fetched."
             )
 
         return act_dim, env_state_dim, obs_dim
