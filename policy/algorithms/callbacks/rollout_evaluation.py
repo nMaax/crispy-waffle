@@ -132,6 +132,7 @@ class RolloutEvaluationCallback(L.Callback):
         if num_episodes <= 0:
             return
 
+        # On CUDA we run all episodes in parallel, on CPU we run sequentially
         if self.physx_backend == "physx_cuda":
             num_iterations = 1
             num_envs = num_episodes
@@ -173,6 +174,7 @@ class RolloutEvaluationCallback(L.Callback):
         if not isinstance(action_space, Box):
             raise ValueError(f"Expected Box action space, got {type(action_space)}")
 
+        # Fetch action limits for later clamping
         action_low = torch.as_tensor(
             action_space.low, device=pl_module.device, dtype=torch.float32
         )
@@ -205,6 +207,7 @@ class RolloutEvaluationCallback(L.Callback):
                 with torch.no_grad():
                     action_seq = pl_module.get_action(flatten_cond)
 
+                # Execute each action in the action chunk
                 for i in range(pl_module.act_horizon):
                     action = action_seq[:, i]
 
@@ -276,6 +279,7 @@ class RolloutEvaluationCallback(L.Callback):
         """Helper to extract the correct conditioning state given use_physx_env_states flag is True
         or False."""
         if self.use_physx_env_states:
+            # Unwrapped contains the raw data from the physics engine
             policy_conditioning = env.unwrapped.get_state()  # type: ignore
             policy_conditioning = to_tensor(policy_conditioning, device=device)
         else:

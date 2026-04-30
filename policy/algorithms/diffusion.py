@@ -16,9 +16,7 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Review whole template to ensure it works
 # TODO: Compare with original maniskill code, line by line
-
-# TODO: docstrings with types and shapes everywhere
-# TODO: less comments within code? --> Try write a more CLEAR CODE
+# TODO: docstrings shapes everywhere
 
 # TODO: fix up bars that collect too much clutter on info
 
@@ -106,6 +104,7 @@ class DiffusionPolicy(L.LightningModule):
         if self.network is not None:
             return
 
+        # We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
         external_cond_dim = self.cond_horizon * self.cond_dim
         self.network = hydra_zen.instantiate(
             self.network_config, input_dim=self.act_dim, external_cond_dim=external_cond_dim
