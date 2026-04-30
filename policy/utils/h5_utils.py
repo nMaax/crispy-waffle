@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Any
+
 import h5py
 import numpy as np
 
@@ -28,3 +31,38 @@ def extract_h5_shapes(data: h5py.Group | h5py.Dataset | None):
         return {"shape": tuple(data.shape), "dtype": str(data.dtype)}
     else:
         return None
+
+
+def peek_trajectory_dimensions(dataset_file: str | Path, episode_id: int) -> tuple[int, Any, Any]:
+    """Helper to extract dimensions from an HDF5 trajectory group without loading full data."""
+    with h5py.File(dataset_file, "r") as data:
+        traj = data[f"traj_{episode_id}"]
+        if not isinstance(traj, h5py.Group | dict):
+            raise TypeError(f"Expected trajectory to be an HDF5 group or dict, got {type(traj)}")
+
+        actions = traj["actions"]
+        if not isinstance(actions, h5py.Dataset | np.ndarray):
+            raise TypeError(
+                f"Expected actions to be an HDF5 dataset or np.ndarray, got {type(actions)}"
+            )
+
+        env_states = traj["env_states"]
+        if not isinstance(env_states, h5py.Group | h5py.Dataset | dict | np.ndarray):
+            raise TypeError(
+                f"Expected env_states to be an HDF5 group/dataset, dict, or np.ndarray, got {type(env_states)}"
+            )
+
+        obs = traj["obs"]
+        if not isinstance(obs, h5py.Group | h5py.Dataset | dict | np.ndarray):
+            raise TypeError(
+                f"Expected obs to be an HDF5 group/dataset, dict, or np.ndarray, got {type(obs)}"
+            )
+
+        act_dim = actions.shape[-1]
+        env_state_dim = extract_h5_shapes(env_states)
+        obs_dim = extract_h5_shapes(obs)
+
+        if act_dim is None or env_state_dim is None or obs_dim is None:
+            raise ValueError(f"Dimensionalities of {dataset_file}'s data could not be fetched.")
+
+        return act_dim, env_state_dim, obs_dim

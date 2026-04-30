@@ -11,7 +11,12 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
-from policy.utils import extract_h5_shapes, load_h5_data, print_dict_tree, to_tensor
+from policy.utils import (
+    load_h5_data,
+    peek_trajectory_dimensions,
+    print_dict_tree,
+    to_tensor,
+)
 
 
 class DummyDataset(Dataset):
@@ -33,7 +38,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         use_phsyx_env_states: bool,
         cond_horizon: int,
         pred_horizon: int,
-        act_dim: dict[str, Any] | None = None,
+        act_dim: int | None = None,
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
@@ -146,39 +151,31 @@ class ManiSkillTrajectoryDataset(Dataset):
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
-            first_traj = data[f"traj_{first_valid_episode_id}"]
-            if not isinstance(first_traj, h5py.Group | dict):
-                raise TypeError(
-                    "Expected general trajectory to be an HDF5 group or dict, got {type(first_traj)}"
+            if self.act_dim is None or self.env_state_dim is None or self.obs_dim is None:
+                act_dim, env_state_dim, obs_dim = peek_trajectory_dimensions(
+                    self.dataset_file, first_valid_episode_id
                 )
 
-            first_actions = first_traj["actions"]
-            if not isinstance(first_actions, h5py.Dataset | np.ndarray):
-                raise TypeError(
-                    f"Expected actions to be an HDF5 dataset or numpy array, got {type(first_actions)}"
-                )
+                if self.act_dim is None:
+                    self.act_dim = act_dim
+                else:
+                    assert self.act_dim == act_dim, (
+                        f"Provided env_state_dim {self.env_state_dim} does not match peeked dimension {env_state_dim} from the dataset. Please check your configuration."
+                    )
 
-            first_env_states = first_traj["env_states"]
-            if not isinstance(first_env_states, h5py.Group | h5py.Dataset | dict | np.ndarray):
-                raise TypeError(
-                    f"Expected env_states to be an HDF5 group/dataset, dict, or numpy array, got {type(first_env_states)}"
-                )
+                if self.env_state_dim is None:
+                    self.env_state_dim = env_state_dim
+                else:
+                    assert self.env_state_dim == env_state_dim, (
+                        f"Provided env_state_dim {self.env_state_dim} does not match peeked dimension {env_state_dim} from the dataset. Please check your configuration."
+                    )
 
-            first_obs = first_traj["obs"]
-            if not isinstance(first_obs, h5py.Group | h5py.Dataset | dict | np.ndarray):
-                raise TypeError(
-                    f"Expected obs to be an HDF5 group/dataset, dict, or numpy array, got {type(first_obs)}"
-                )
-
-            # Peek into the tensors and extract dimensions for later use, if not passed as parameters
-            if self.act_dim is None:
-                self.act_dim = first_actions.shape[-1]
-
-            if self.env_state_dim is None:
-                self.env_state_dim = extract_h5_shapes(first_env_states)
-
-            if self.obs_dim is None:
-                self.obs_dim = extract_h5_shapes(first_obs)
+                if self.obs_dim is None:
+                    self.obs_dim = obs_dim
+                else:
+                    assert self.obs_dim == obs_dim, (
+                        f"Provided obs_dim {self.obs_dim} does not match peeked dimension {obs_dim} from the dataset. Please check your configuration."
+                    )
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
@@ -552,40 +549,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         if not episodes or "episode_id" not in episodes[0]:
             raise ValueError("No valid episode_id found in JSON.")
 
-        first_episode_id = json_data["episodes"][0]["episode_id"]
+        first_episode_id = episodes[0]["episode_id"]
 
-        with h5py.File(self.dataset_file, "r") as data:
-            first_traj = data[f"traj_{first_episode_id}"]
-            if not isinstance(first_traj, h5py.Group | dict):
-                raise TypeError(
-                    "Expected general trajectory to be an HDF5 group or dict, got {type(first_traj)}"
-                )
-
-            first_actions = first_traj["actions"]
-            if not isinstance(first_actions, h5py.Dataset | np.ndarray):
-                raise TypeError(
-                    f"Expected actions to be an HDF5 dataset or numpy array, got {type(first_actions)}"
-                )
-
-            first_env_states = first_traj["env_states"]
-            if not isinstance(first_env_states, h5py.Group | h5py.Dataset | dict | np.ndarray):
-                raise TypeError(
-                    f"Expected env_states to be an HDF5 group/dataset, dict, or numpy array, got {type(first_env_states)}"
-                )
-
-            first_obs = first_traj["obs"]
-            if not isinstance(first_obs, h5py.Group | h5py.Dataset | dict | np.ndarray):
-                raise TypeError(
-                    f"Expected obs to be an HDF5 group/dataset, dict, or numpy array, got {type(first_obs)}"
-                )
-
-            act_dim = first_actions.shape[-1]
-            env_state_dim = extract_h5_shapes(first_env_states)
-            obs_dim = extract_h5_shapes(first_obs)
-
-        if act_dim is None or env_state_dim is None or obs_dim is None:
-            raise ValueError(
-                f"Dimensionalities of {self.dataset_file}'s data could not be fetched."
-            )
-
-        return act_dim, env_state_dim, obs_dim
+        # Delegate to the shared helper function
+        return peek_trajectory_dimensions(self.dataset_file, first_episode_id)
