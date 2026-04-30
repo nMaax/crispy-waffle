@@ -71,7 +71,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         self.env_state_dim = env_state_dim
         self.obs_dim = obs_dim
 
-        # Load JSON metadata if episodes aren't provided explicitly
+        # Load metadata from JSON if episodes aren't provided explicitly
         if episodes is not None:
             self.episodes = episodes
         else:
@@ -157,6 +157,7 @@ class ManiSkillTrajectoryDataset(Dataset):
                     f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
                 )
 
+            # Peek dimension from the h5 file if they are not provided explicitly
             if self.act_dim is None or self.env_state_dim is None or self.obs_dim is None:
                 act_dim, env_state_dim, obs_dim = peek_trajectory_dimensions(
                     self.dataset_file, first_valid_episode_id
@@ -393,9 +394,9 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        # TODO: review the mask, is it correct to call it "delta"?
-        self.delta_action_mask = action_right_zero_pad_mask
+        self.action_right_zero_pad_mask = action_right_zero_pad_mask
         self.lazy = lazy
+        self.seed = seed
 
         (
             self.env_id,
@@ -406,8 +407,6 @@ class ManiSkillDataModule(L.LightningDataModule):
         ) = self._load_metadata_from_json()
 
         self.act_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
-
-        self.seed = seed
 
         rank_zero_info(f"Seeds for episodes datasplit fetched from main seed: {seed}")
 
@@ -436,9 +435,9 @@ class ManiSkillDataModule(L.LightningDataModule):
             final_mask = None
 
             if is_delta_mode:
-                if self.delta_action_mask is not None:
+                if self.action_right_zero_pad_mask is not None:
                     # User provided a custom mask, trust them
-                    final_mask = np.array(self.delta_action_mask, dtype=bool)
+                    final_mask = np.array(self.action_right_zero_pad_mask, dtype=bool)
                     rank_zero_info("Using explicitly provided delta_action_mask from config.")
                 else:
                     # User didn't provide one, infer the classic 1D gripper default
@@ -448,7 +447,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                         f"Inferred delta_action_mask for '{self.control_mode}'. Edge padding the last dimension."
                     )
             else:
-                if self.delta_action_mask is not None:
+                if self.action_right_zero_pad_mask is not None:
                     # User passed a mask for absolute actions! Warn and ignore.
                     rank_zero_warn(
                         f"A delta_action_mask was provided, but the control_mode '{self.control_mode}' "
