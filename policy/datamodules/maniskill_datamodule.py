@@ -42,7 +42,7 @@ class ManiSkillTrajectoryDataset(Dataset):
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
-        delta_action_mask: list[bool] | np.ndarray | None = None,
+        delta_action_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
@@ -62,6 +62,9 @@ class ManiSkillTrajectoryDataset(Dataset):
             )
 
         self.use_phsyx_env_states = use_phsyx_env_states
+        self.lazy = lazy
+        self.validate_lengths = validate_lengths
+
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
         self.act_dim = act_dim
@@ -77,10 +80,15 @@ class ManiSkillTrajectoryDataset(Dataset):
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
-        if delta_action_mask is not None:
+        if isinstance(delta_action_mask, list):
             self.delta_action_mask = np.array(delta_action_mask, dtype=bool)
-        else:
-            self.delta_action_mask = None
+        elif isinstance(delta_action_mask, torch.Tensor):
+            self.delta_action_mask = delta_action_mask.cpu().numpy()
+
+        if delta_action_mask is not None and not isinstance(self.delta_action_mask.dtype, bool):
+            raise ValueError(
+                f"delta_action_mask must be a list of bools, a numpy array of dtype bool, or a torch tensor. Got {type(delta_action_mask)} with dtype {getattr(delta_action_mask, 'dtype', None)}."
+            )
 
         if load_count == -1:
             load_count = len(self.episodes)
@@ -89,9 +97,6 @@ class ManiSkillTrajectoryDataset(Dataset):
 
         self.trajectories: list[dict[str, Any]] = []
         self.slices: list[tuple[int, int, int, int, int, int]] = []
-
-        self.lazy = lazy
-        self.validate_lengths = validate_lengths
 
         # Open the H5 file, with different behavior based on lazy flag
         # - lazy: peek dims from first valid episode
@@ -199,10 +204,6 @@ class ManiSkillTrajectoryDataset(Dataset):
             meta = traj
             episode_id = meta["episode_id"]
 
-            # NOTE: we do not use load_h5_data here because
-            # we want to keep the data on disk and read only what needed
-            # for the selected window
-
             h5_traj = self.h5_file[f"traj_{episode_id}"]
             if not isinstance(h5_traj, h5py.Group):
                 raise TypeError(f"Expected HDF5 group traj_{episode_id}, got {type(h5_traj)}")
@@ -223,18 +224,16 @@ class ManiSkillTrajectoryDataset(Dataset):
 
             traj = h5_traj
 
-        # Select conditioning source
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
         if not isinstance(cond_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
             raise TypeError(
                 f"Expected env_states or obs to be a dataset or group, got {type(cond_src)}"
             )
+
         act_src = traj["actions"]
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
-        # Slice and pad conditinion and action sequences
-        # This is where we actually load the data from disk to memory, but only the needed window!
         cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L, right_pad_mask=None)
         act_seq = self._slice_and_pad(
             act_src, act_start, act_end, L, right_pad_mask=self.delta_action_mask
@@ -362,7 +361,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
-        delta_action_mask: list[bool] | None = None,
+        action_right_zero_pad_mask: list[bool] | None = None,
         lazy: bool = False,
         seed: int | None = None,
     ):
@@ -395,7 +394,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.val_split = val_split
         # TODO: review the mask, is it correct to call it "delta"?
-        self.delta_action_mask = delta_action_mask
+        self.delta_action_mask = action_right_zero_pad_mask
         self.lazy = lazy
 
         (
