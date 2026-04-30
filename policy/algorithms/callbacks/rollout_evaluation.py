@@ -123,17 +123,8 @@ class RolloutEvaluationCallback(L.Callback):
                 f"but got {type(pl_module).__name__}."
             )
 
-        if self.env_id is None:
-            raise ValueError("env_id is not set. This should have been set during setup().")
-
-        for attr in [
-            "obs_mode",
-            "control_mode",
-            "physx_backend",
-            "use_physx_env_states",
-        ]:
-            if getattr(self, attr) is None:
-                raise ValueError(f"{attr} is not set. Ensure setup() was called.")
+        self._validate_setup()
+        assert self.env_id is not None
 
         if num_episodes <= 0:
             return
@@ -193,10 +184,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         total_successes = 0
         for iteration in range(num_iterations):
-            # For CPU (episdes run sequentially), offset the seed per iteration
-            # For CUDA (all episodes in parallel), seed once and rely on internal ManiSkill RNGs per sub-scene
-            phase_seed = self.val_seed if phase == "val" else self.test_seed
-            iteration_seed = phase_seed + iteration
+            iteration_seed = self._get_iteration_seed(phase, iteration)
             obs, info = env.reset(seed=iteration_seed)
 
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
@@ -275,6 +263,27 @@ class RolloutEvaluationCallback(L.Callback):
             f"\n  [{phase.capitalize()} | Epoch {trainer.current_epoch}] Rollout Success Rate: {success_rate:.4%}\n"
         )
 
+    def _get_policy_conditioning(
+        self,
+        env: FrameStack,
+        obs: torch.Tensor | dict[str, Any],
+        device: torch.device | None = None,
+    ) -> torch.Tensor | dict[str, Any]:
+        """Helper to extract the correct conditioning state given use_physx_env_states flag is True
+        or False."""
+        if self.use_physx_env_states:
+            policy_conditioning = env.unwrapped.get_state()  # type: ignore
+            policy_conditioning = to_tensor(policy_conditioning, device=device)
+        else:
+            policy_conditioning = obs
+
+        return policy_conditioning
+
+    def _get_iteration_seed(self, phase: str, iteration: int) -> int:
+        """Computes the seed for a specific evaluation iteration."""
+        base_seed = self.val_seed if phase == "val" else self.test_seed
+        return base_seed + iteration
+
     def _init_progress_bar(self, total: int, phase: str, is_rich: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""
         if is_rich:
@@ -302,18 +311,20 @@ class RolloutEvaluationCallback(L.Callback):
         else:
             pbar.close()
 
-    def _get_policy_conditioning(
-        self,
-        env: FrameStack,
-        obs: torch.Tensor | dict[str, Any],
-        device: torch.device | None = None,
-    ) -> torch.Tensor | dict[str, Any]:
-        """Helper to extract the correct conditioning state given use_physx_env_states flag is True
-        or False."""
-        if self.use_physx_env_states:
-            policy_conditioning = env.unwrapped.get_state()  # type: ignore
-            policy_conditioning = to_tensor(policy_conditioning, device=device)
-        else:
-            policy_conditioning = obs
+    def _validate_setup(self) -> None:
+        """Ensures all required attributes from setup() are initialized."""
+        missing = []
+        if self.env_id is None:
+            missing.append("env_id")
+        if self.obs_mode is None:
+            missing.append("obs_mode")
+        if self.control_mode is None:
+            missing.append("control_mode")
+        if self.physx_backend is None:
+            missing.append("physx_backend")
 
-        return policy_conditioning
+        if missing:
+            raise ValueError(
+                f"Callback setup incomplete. Missing attributes: {', '.join(missing)}. "
+                "Ensure trainer.datamodule has these fields and setup() was called."
+            )
