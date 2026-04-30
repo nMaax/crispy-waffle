@@ -68,19 +68,13 @@ class ManiSkillDataset(Dataset):
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
-        if isinstance(action_right_zero_pad_mask, list):
-            self.action_right_zero_pad_mask = np.array(action_right_zero_pad_mask, dtype=bool)
-        elif isinstance(action_right_zero_pad_mask, torch.Tensor):
-            self.action_right_zero_pad_mask = action_right_zero_pad_mask.cpu().numpy()
-        else:
-            self.action_right_zero_pad_mask = action_right_zero_pad_mask
+        if action_right_zero_pad_mask is not None:
+            if isinstance(action_right_zero_pad_mask, torch.Tensor):
+                action_right_zero_pad_mask = action_right_zero_pad_mask.cpu()
 
-        if self.action_right_zero_pad_mask is not None and not isinstance(
-            self.action_right_zero_pad_mask.dtype, bool
-        ):
-            raise ValueError(
-                f"action_right_zero_pad_mask must be a list of bools, a numpy array of dtype bool, or a torch tensor. Got {type(action_right_zero_pad_mask)} with dtype {getattr(action_right_zero_pad_mask, 'dtype', None)}."
-            )
+            self.action_right_zero_pad_mask = np.asarray(action_right_zero_pad_mask, dtype=bool)
+        else:
+            self.action_right_zero_pad_mask = None
 
         if load_count == -1:
             load_count = len(self.episodes)
