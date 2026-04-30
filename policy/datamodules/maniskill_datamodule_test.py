@@ -3,7 +3,8 @@ import pytest
 import torch
 
 from policy.datamodules.datamodule_tests import DataModuleTests
-from policy.datamodules.maniskill_datamodule import ManiSkillDataModule, ManiSkillTrajectoryDataset
+from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.datamodules.maniskill_dataset import ManiSkillDataset
 
 
 @pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
@@ -18,7 +19,7 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         if dataset is None:
             raise ValueError("Expected train_set to be initialized after setup('fit').")
 
-        if not isinstance(dataset, ManiSkillTrajectoryDataset):
+        if not isinstance(dataset, ManiSkillDataset):
             raise TypeError("Expected train_set to be an instance of ManiSkillDataset.")
 
         # Test left padding
@@ -88,13 +89,16 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         datamodule.setup("fit")
         dataset = datamodule.train_set
 
-        # 1. Create a controlled dummy sequence: 5 timesteps, variable action dimension
+        if dataset is None:
+            raise ValueError("Expected train_set to be initialized after setup('fit').")
+
+        # Create a controlled dummy sequence: 5 timesteps, variable action dimension
         act_dim = datamodule.act_dim
         seq_length = 5
         # Array like: [[0,1,2], [3,4,5], [6,7,8], [9,10,11], [12,13,14]]
         dummy_data = np.arange(seq_length * act_dim).reshape(seq_length, act_dim)
 
-        # 2. Setup slice boundaries that exceed the array length to trigger RIGHT padding
+        # Setup slice boundaries that exceed the array length to trigger RIGHT padding
         start = 3
         end = 8  # 3 timesteps beyond L
         L = seq_length
