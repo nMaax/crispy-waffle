@@ -7,8 +7,14 @@ import numpy as np
 import pytest
 from torch.utils.data import DataLoader
 
+from policy.datamodules.datamodule_tests import DataModuleTests
 from policy.datamodules.maniskill_datamodule import DummyDataset, ManiSkillDataModule
 from policy.datamodules.maniskill_dataset import ManiSkillDataset
+
+
+@pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
+class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
+    """Test suite for the ManiSkillDataModule."""
 
 
 @pytest.fixture
