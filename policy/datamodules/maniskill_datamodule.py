@@ -113,7 +113,8 @@ class ManiSkillDataModule(L.LightningDataModule):
             # Generally, not padding mask is passed for conditions, as we will default to edge padding
             # For actions instead, we allow users to specify which dimensions to pad as zeros vs edges,
             # as we would like the robot to infer some specific behavior,given its action space nature.
-            # e.g. in delta_* control modes we want the robot to stand still after the task is complete, while keeping the gripper closed, thus we need to pad zeros on some entries, and edge on some others
+            # e.g. in delta_* control modes we want the robot to stand still after the task is complete,
+            # while keeping the gripper closed, thus we need to pad zeros on some entries, and edge on some others
             final_action_left_pad_mask = None
             final_action_right_pad_mask = None
 

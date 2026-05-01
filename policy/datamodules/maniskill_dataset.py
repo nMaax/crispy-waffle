@@ -67,10 +67,18 @@ class ManiSkillDataset(Dataset):
             self.episodes = episodes
         else:
             json_path = self.dataset_file.with_suffix(".json")
+            if not json_path.exists():
+                raise FileNotFoundError(
+                    f"Metadata JSON file not found for dataset {self.dataset_file}. "
+                    f"Expected at {json_path}. "
+                    "If you want to instantiate the dataset without providing a list of episodes, "
+                    f"you need to place a json file at the same path as {self.dataset_file}, with the same name."
+                )
             with open(json_path) as f:
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
+        # Convert padding masks to numpy boolean arrays
         if cond_left_pad_as_zero_mask is not None:
             if isinstance(cond_left_pad_as_zero_mask, torch.Tensor):
                 cond_left_pad_as_zero_mask = cond_left_pad_as_zero_mask.cpu()
