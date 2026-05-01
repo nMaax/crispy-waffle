@@ -73,8 +73,8 @@ class ManiSkillDataset(Dataset):
         self.trajectories: list[dict[str, Any]] = []
         self.slices: list[tuple[int, int, int, int, int, int]] = []
 
-        self._load_metadata(episodes)
         self._build_trajectories_and_slices(load_count, success_only)
+        self._load_metadata(episodes)
         self._peek_dimensions()
 
         rank_zero_info(
