@@ -202,7 +202,7 @@ class ManiSkillDataset(Dataset):
                     f"JSON elapsed_steps={traj['length']} but H5 len(actions)={h5_L}."
                 )
 
-            # So we overwrite trah with the actual H5 object for the episdoe, on which _slice_and_pad will extract what needed
+            # So we overwrite trah with the actual H5 object for the episode, on which _slice_and_pad will extract what needed
             traj = h5_traj
 
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
@@ -216,7 +216,7 @@ class ManiSkillDataset(Dataset):
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
-        # So we access it and retrive what needed, with padding
+        # So we access it and retrieve what needed, with padding
         cond_seq = self._slice_and_pad(
             cond_src, cond_start, cond_end, L, action_right_zero_pad_mask=None
         )
@@ -319,7 +319,7 @@ class ManiSkillDataset(Dataset):
         # Right Padding with zeros must be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
         # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
         if pad_after > 0:
-            # TODO: seems like this is not correct: it doesnt just apply to actions, and it doesnt seem like the logic below works(?)
+            # TODO: seems like this is not correct: it doesn't just apply to actions, and it doesn't seem like the logic below works(?)
             if action_right_zero_pad_mask is not None:
                 # action_right_zero_pad_mask is True for zeros, False for edge
                 pad_frames = np.zeros((pad_after, *seq.shape[1:]), dtype=seq.dtype)

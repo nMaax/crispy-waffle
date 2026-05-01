@@ -8,7 +8,7 @@ from typing import Any, NewType, TypeGuard
 from hydra_zen.typing import Builds
 from typing_extensions import TypeVar
 
-from .protocols import DataModule, PolicyProtocol, DiffusionSchedulerProtocol
+from .protocols import DataModule, DiffusionSchedulerProtocol, PolicyProtocol
 
 # These are used to show which dim is which.
 C = NewType("C", int)
