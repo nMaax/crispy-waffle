@@ -108,65 +108,7 @@ class ManiSkillDataModule(L.LightningDataModule):
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
 
-            # When the underlying dataset will generate windows it will need to pad sequences at the start/end of the episode
-            # Padding can be either zeros or edge values, it will be the mask to dictate which
-            # Generally, not padding mask is passed for conditions, as we will default to edge padding
-            # For actions instead, we allow users to specify which dimensions to pad as zeros vs edges,
-            # as we would like the robot to infer some specific behavior,given its action space nature.
-            # e.g. in delta_* control modes we want the robot to stand still after the task is complete,
-            # while keeping the gripper closed, thus we need to pad zeros on some entries, and edge on some others
-            final_action_left_pad_mask = None
-            final_action_right_pad_mask = None
-
-            # Padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
-            # Padding with zeros should be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
-            # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
-            # We will try to handle such cases gracefully, assuming a Franka robot with the last action dimension corresponding to the gripper,
-            # but we also allow users to explicitly specify their own masks if we are not working with Franka
-            is_non_abs_mode = "delta" in self.control_mode or "vel" in self.control_mode
-            if is_non_abs_mode:
-                franka_mask = np.ones(self.act_dim, dtype=bool)
-                franka_mask[-1] = False
-
-                # Handle LEFT Mask
-                if self.action_left_pad_as_zero_mask is not None:
-                    final_action_left_pad_mask = np.array(
-                        self.action_left_pad_as_zero_mask, dtype=bool
-                    )
-                    rank_zero_info(
-                        "Using explicitly provided action LEFT padding mask given from config."
-                    )
-                else:
-                    final_action_left_pad_mask = franka_mask.copy()
-                    rank_zero_info(
-                        f"Inferred action LEFT padding mask for '{self.control_mode}'. Edge padding the last dimension only (presumed to be gripper)."
-                    )
-
-                # Handle RIGHT Mask
-                if self.action_right_pad_as_zero_mask is not None:
-                    final_action_right_pad_mask = np.array(
-                        self.action_right_pad_as_zero_mask, dtype=bool
-                    )
-                    rank_zero_info(
-                        "Using explicitly provided action RIGHT padding mask given from config."
-                    )
-                else:
-                    final_action_right_pad_mask = franka_mask.copy()
-                    rank_zero_info(
-                        f"Inferred action RIGHT padding mask for '{self.control_mode}'. Edge padding the last dimension only  (presumed to be gripper)."
-                    )
-            else:
-                # Absolute mode fallback
-                if self.action_left_pad_as_zero_mask is not None:
-                    rank_zero_warn(
-                        f"A left padding mask was provided, but the control_mode '{self.control_mode}' "
-                        "is absolute. The mask will be ignored (using standard edge padding)!"
-                    )
-                if self.action_right_pad_as_zero_mask is not None:
-                    rank_zero_warn(
-                        f"A right padding mask was provided, but the control_mode '{self.control_mode}' "
-                        "is absolute. The mask will be ignored (using standard edge padding)!"
-                    )
+            left_mask, right_mask = self._infer_padding_masks()
 
             self.train_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
@@ -179,8 +121,8 @@ class ManiSkillDataModule(L.LightningDataModule):
                 episodes=train_episodes,
                 cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
                 cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                action_left_pad_as_zero_mask=final_action_left_pad_mask,
-                action_right_pad_as_zero_mask=final_action_right_pad_mask,
+                action_left_pad_as_zero_mask=left_mask,
+                action_right_pad_as_zero_mask=right_mask,
                 lazy=self.lazy,
             )
 
@@ -195,8 +137,8 @@ class ManiSkillDataModule(L.LightningDataModule):
                 episodes=val_episodes,
                 cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
                 cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                action_left_pad_as_zero_mask=final_action_left_pad_mask,
-                action_right_pad_as_zero_mask=final_action_right_pad_mask,
+                action_left_pad_as_zero_mask=left_mask,
+                action_right_pad_as_zero_mask=right_mask,
                 lazy=self.lazy,
             )
 
@@ -284,3 +226,66 @@ class ManiSkillDataModule(L.LightningDataModule):
         obs_dim = peek_trajectory_dimension(self.dataset_file, f"traj_{first_episode_id}", "obs")
 
         return act_dim, env_state_dim, obs_dim
+
+    def _infer_padding_masks(self) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Infers the left and right action padding masks based on the control mode."""
+        # When the underlying dataset will generate windows it will need to pad sequences at the start/end of the episode
+        # Padding can be either zeros or edge values, it will be the mask to dictate which
+        # Generally, not padding mask is passed for conditions, as we will default to edge padding
+        # For actions instead, we allow users to specify which dimensions to pad as zeros vs edges,
+        # as we would like the robot to infer some specific behavior,given its action space nature.
+        # e.g. in delta_* control modes we want the robot to stand still after the task is complete,
+        # while keeping the gripper closed, thus we need to pad zeros on some entries, and edge on some others
+        final_left_mask = None
+        final_right_mask = None
+
+        # Padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
+        # Padding with zeros should be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
+        # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
+        # We will try to handle such cases gracefully, assuming a Franka (or UR5) robot with the last action dimension corresponding to the gripper,
+        # but we also allow users to explicitly specify their own masks if we are not working with Franka/UR5
+        is_non_abs_mode = "delta" in self.control_mode or "vel" in self.control_mode
+
+        if is_non_abs_mode:
+            franka_mask = np.ones(self.act_dim, dtype=bool)
+            franka_mask[-1] = False
+
+            # Handle LEFT Mask
+            if self.action_left_pad_as_zero_mask is not None:
+                final_left_mask = np.array(self.action_left_pad_as_zero_mask, dtype=bool)
+                rank_zero_info(
+                    "Using explicitly provided action LEFT padding mask given from config."
+                )
+            else:
+                final_left_mask = franka_mask.copy()
+                rank_zero_info(
+                    f"Inferred action LEFT padding mask for '{self.control_mode}'. "
+                    "Edge padding the last dimension only (presumed to be gripper)."
+                )
+
+            # Handle RIGHT Mask
+            if self.action_right_pad_as_zero_mask is not None:
+                final_right_mask = np.array(self.action_right_pad_as_zero_mask, dtype=bool)
+                rank_zero_info(
+                    "Using explicitly provided action RIGHT padding mask given from config."
+                )
+            else:
+                final_right_mask = franka_mask.copy()
+                rank_zero_info(
+                    f"Inferred action RIGHT padding mask for '{self.control_mode}'. "
+                    "Edge padding the last dimension only (presumed to be gripper)."
+                )
+        else:
+            # Absolute mode fallback
+            if self.action_left_pad_as_zero_mask is not None:
+                rank_zero_warn(
+                    f"A left padding mask was provided, but the control_mode '{self.control_mode}' "
+                    "is absolute. The mask will be ignored (using standard edge padding)!"
+                )
+            if self.action_right_pad_as_zero_mask is not None:
+                rank_zero_warn(
+                    f"A right padding mask was provided, but the control_mode '{self.control_mode}' "
+                    "is absolute. The mask will be ignored (using standard edge padding)!"
+                )
+
+        return final_left_mask, final_right_mask
