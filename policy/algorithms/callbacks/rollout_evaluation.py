@@ -20,8 +20,6 @@ from policy.utils.typing_utils import PolicyProtocol
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 
-# TODO: when on GPU it tries to use all GPUs however tensor appear on different devices! Overall scale code to work on double gpus
-
 
 class RolloutEvaluationCallback(L.Callback):
     """A Lightning Callback for performing rollout evaluation of a policy in a ManiSkill
@@ -122,6 +120,14 @@ class RolloutEvaluationCallback(L.Callback):
             action_seq (from policy): [num_envs, act_horizon, act_dim]
             action (stepped in env): [num_envs, act_dim]
         """
+
+        # Prevent secondary GPUs from spawning SAPIEN environments
+        # From [Maniskill](https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization):
+        # "We currently do not properly support exposing multiple
+        # visible CUDA devices to a single process as it has some rendering bugs at the moment."
+        # NOTE: the global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
+        if trainer.global_rank != 0:
+            return
 
         if not isinstance(pl_module, PolicyProtocol):
             raise AttributeError(
@@ -278,9 +284,10 @@ class RolloutEvaluationCallback(L.Callback):
         avg_truncation_rate = total_truncations / num_episodes
         avg_episode_length = total_episode_lengths / num_episodes
 
-        pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
-        pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=True)
-        pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=True)
+        # We do not support multi GPUs in maniskill, so we set sync_dist=False
+        pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=False, prog_bar=True)
+        pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=False)
+        pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=False)
 
         pl_module.print(
             f"  [{phase.capitalize()} | Step {trainer.global_step:06d}] Rollout Success Rate: {success_rate:.4%}"

@@ -85,7 +85,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         self.act_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
-        rank_zero_info(f"Seeds for episodes datasplit fetched from main seed: {seed}")
+        rank_zero_info(f"Seed for episodes datasplit fetched from main seed: {seed}")
 
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
