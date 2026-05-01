@@ -34,7 +34,6 @@ class ManiSkillDataset(Dataset):
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
-        validate_lengths: bool = True,
     ):
         super().__init__()
 
@@ -51,7 +50,6 @@ class ManiSkillDataset(Dataset):
 
         self.use_phsyx_env_states = use_phsyx_env_states
         self.lazy = lazy
-        self.validate_lengths = validate_lengths
 
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
@@ -101,8 +99,10 @@ class ManiSkillDataset(Dataset):
                     first_valid_episode_id = episode_id
 
                 if self.lazy:
+                    # Only load simple metadata
                     self.trajectories.append({"episode_id": episode_id, "length": L})
                 else:
+                    # Directly load the actual h5 group object
                     traj_group = data[f"traj_{episode_id}"]
                     if not isinstance(traj_group, h5py.Group):
                         raise TypeError(
@@ -115,14 +115,14 @@ class ManiSkillDataset(Dataset):
                             f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(traj_actions)}'
                         )
 
-                    if self.validate_lengths:
-                        h5_L = len(traj_actions)
-                        if h5_L != L:
-                            raise ValueError(
-                                f"Length mismatch for episode {episode_id}: "
-                                f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
-                            )
+                    h5_L = len(traj_actions)
+                    if h5_L != L:
+                        raise ValueError(
+                            f"Length mismatch for episode {episode_id}: "
+                            f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
+                        )
 
+                    # And convert the trajectory group to an actual dictionary of numpy arrays
                     trajectory = load_h5_data(traj_group)
                     self.trajectories.append(
                         {
@@ -133,6 +133,8 @@ class ManiSkillDataset(Dataset):
                         }
                     )
 
+                # Either lazy or non-lazy, still pre-compute the slices (i.e., windows) for each trajectory
+                # Lazy mode contains everything necessary for the windoeing function to work
                 traj_idx = len(self.trajectories) - 1
                 slice = self._compute_trajectory_slices(traj_idx, L)
                 self.slices.extend(slice)
@@ -148,9 +150,11 @@ class ManiSkillDataset(Dataset):
                     self.dataset_file, first_valid_episode_id
                 )
 
+                # If the dimension was indeed not provided, we set it
                 if self.act_dim is None:
                     self.act_dim = act_dim
                 else:
+                    # Otherwise we double check (note: only way to avoid this check for a dimension is to pass all of them explicity, if even one is missing we will peek anyway and check)
                     assert self.act_dim == act_dim, (
                         f"Provided env_state_dim {self.env_state_dim} does not match peeked dimension {env_state_dim} from the dataset. Please check your configuration."
                     )
@@ -187,6 +191,7 @@ class ManiSkillDataset(Dataset):
         traj = self.trajectories[traj_idx]
 
         if self.lazy:
+            # If in lazy mode, the trajectories actually store simple metadata (episode_id and length)
             meta = traj
             episode_id = meta["episode_id"]
 
@@ -200,14 +205,14 @@ class ManiSkillDataset(Dataset):
                     f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(h5_actions)}'
                 )
 
-            if self.validate_lengths:
-                h5_L = len(h5_actions)
-                if h5_L != meta["length"]:
-                    raise ValueError(
-                        f"Length mismatch for episode {episode_id}: "
-                        f"JSON elapsed_steps={traj['length']} but H5 len(actions)={h5_L}."
-                    )
+            h5_L = len(h5_actions)
+            if h5_L != meta["length"]:
+                raise ValueError(
+                    f"Length mismatch for episode {episode_id}: "
+                    f"JSON elapsed_steps={traj['length']} but H5 len(actions)={h5_L}."
+                )
 
+            # So we overwrite trah with the actual H5 object for the episdoe, on which _slice_and_pad will extract what needed
             traj = h5_traj
 
         cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
@@ -216,13 +221,21 @@ class ManiSkillDataset(Dataset):
                 f"Expected env_states or obs to be a dataset or group, got {type(cond_src)}"
             )
 
+        # Now traj is a h5 group for sure
         act_src = traj["actions"]
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
-        cond_seq = self._slice_and_pad(cond_src, cond_start, cond_end, L, right_pad_mask=None)
+        # So we access it and retrive what needed, with padding
+        cond_seq = self._slice_and_pad(
+            cond_src, cond_start, cond_end, L, action_right_zero_pad_mask=None
+        )
         act_seq = self._slice_and_pad(
-            act_src, act_start, act_end, L, right_pad_mask=self.action_right_zero_pad_mask
+            act_src,
+            act_start,
+            act_end,
+            L,
+            action_right_zero_pad_mask=self.action_right_zero_pad_mask,
         )
 
         return {
@@ -277,7 +290,7 @@ class ManiSkillDataset(Dataset):
         start: int,
         end: int,
         L: int,
-        right_pad_mask: torch.Tensor | np.ndarray | None = None,
+        action_right_zero_pad_mask: torch.Tensor | np.ndarray | None = None,
     ):
         """Slices the data from start to end, and pads with edge values if the slice goes out of
         bounds."""
@@ -290,7 +303,9 @@ class ManiSkillDataset(Dataset):
                     raise TypeError(
                         f"Expected nested HDF5 group or dataset at key '{k}', got {type(nested_data)}"
                     )
-                result[k] = self._slice_and_pad(nested_data, start, end, L, right_pad_mask)
+                result[k] = self._slice_and_pad(
+                    nested_data, start, end, L, action_right_zero_pad_mask
+                )
             return result
 
         pad_before = max(0, -start)
@@ -304,21 +319,21 @@ class ManiSkillDataset(Dataset):
 
         # We can either pad with zeros or edge values.
 
-        # Left padding should be edge values
+        # Left padding should always be edge values
         if pad_before > 0:
             pad_width = [(pad_before, 0)] + [(0, 0)] * (seq.ndim - 1)
             seq = np.pad(seq, pad_width, mode="edge")
 
         # Right padding can be either zeros or edge values, it will be the mask to dictate which
-        # Rght padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
+        # Right padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
         # Right Padding with zeros must be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
         # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
         if pad_after > 0:
-            # TODO: seems like this is not correct
-            if right_pad_mask is not None:
+            # TODO: seems like this is not correct: it doesnt just apply to actions, and it doesnt seem like the logic below works(?)
+            if action_right_zero_pad_mask is not None:
                 # pad_mask is True for zeros, False for edge
                 pad_frames = np.zeros((pad_after, *seq.shape[1:]), dtype=seq.dtype)
-                pad_frames[..., ~right_pad_mask] = seq[-1, ~right_pad_mask]
+                pad_frames[..., ~action_right_zero_pad_mask] = seq[-1, ~action_right_zero_pad_mask]
                 seq = np.concatenate([seq, pad_frames], axis=0)
             else:
                 # No mask provided, we fallback on edge padding
