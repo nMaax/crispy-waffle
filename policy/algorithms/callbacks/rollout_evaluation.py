@@ -21,7 +21,6 @@ from policy.utils.typing_utils import PolicyProtocol
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 
 # TODO: when on GPU it tries to use all GPUs however tensor appear on different devices! Overall scale code to work on double gpus
-# TODO: seems like during testing it doesn't load the checkpoint
 
 
 class RolloutEvaluationCallback(L.Callback):
@@ -115,10 +114,13 @@ class RolloutEvaluationCallback(L.Callback):
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
     ) -> None:
-        """Rollout evaluation loop.
-
-        Runs num_episodes episodes in the environment using the current policy and logs success
+        """Runs num_episodes episodes in the environment using the current policy and logs success
         rate.
+
+        Shapes (internal):
+            obs: [num_envs, cond_horizon, obs_dim]
+            action_seq (from policy): [num_envs, act_horizon, act_dim]
+            action (stepped in env): [num_envs, act_dim]
         """
 
         if not isinstance(pl_module, PolicyProtocol):
@@ -290,8 +292,12 @@ class RolloutEvaluationCallback(L.Callback):
         obs: torch.Tensor | dict[str, Any],
         device: torch.device | None = None,
     ) -> torch.Tensor | dict[str, Any]:
-        """Helper to extract the correct conditioning state given use_physx_env_states flag is True
-        or False."""
+        """Extracts the conditioning state from either raw observations or physics engine states.
+
+        Shapes:
+            obs: [num_envs, cond_horizon, obs_dim]
+            returns: [num_envs, cond_horizon, target_dim]
+        """
         if self.use_physx_env_states:
             # .unwrapped contains the raw data from the physics engine
             policy_conditioning = env.unwrapped.get_state()  # type: ignore

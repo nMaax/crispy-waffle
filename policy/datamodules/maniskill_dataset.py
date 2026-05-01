@@ -87,6 +87,13 @@ class ManiSkillDataset(Dataset):
         return len(self.slices)
 
     def __getitem__(self, idx: int):
+        """Extracts a temporal window of conditions and actions from an episode.
+
+        Shapes:
+            returns dict with:
+                "cond_seq": [cond_horizon, cond_dim]
+                "act_seq": [pred_horizon, act_dim]
+        """
         traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
@@ -305,8 +312,13 @@ class ManiSkillDataset(Dataset):
         left_pad_as_zero_mask: torch.Tensor | np.ndarray | None = None,
         right_pad_as_zero_mask: torch.Tensor | np.ndarray | None = None,
     ):
-        """Slice a sequence from start to end, and pad with zeros or edge values if out of
-        bounds."""
+        """Slices a sequence from start to end, padding out-of-bounds indices with zeros or edge
+        values.
+
+        Shapes:
+            data: [episode_len, ...], e.g. [227, 48]
+            returns: [end - start, ...], e.g. [2, 48]
+        """
         # Treat HDF5 groups like dicts (lazy nested observations)
         if isinstance(data, h5py.Group | dict):
             result = {}

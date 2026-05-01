@@ -31,6 +31,12 @@ class SinusoidalPosEmb(nn.Module):
         self.dim = dim
 
     def forward(self, x):
+        """Embeds the timestep tensor.
+
+        Shapes:
+            x: [B,] (timesteps)
+            returns: [B, dim]
+        """
         device = x.device
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
@@ -48,6 +54,11 @@ class Downsample1d(nn.Module):
         self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
 
     def forward(self, x):
+        """
+        Shapes:
+            x: [B, in_channels, horizon]
+            returns: [B, in_channels, horizon // 2]
+        """
         return self.conv(x)
 
 
@@ -59,6 +70,11 @@ class Upsample1d(nn.Module):
         self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
 
     def forward(self, x):
+        """
+        Shapes:
+            x: [B, in_channels, horizon]
+            returns: [B, in_channels, horizon * 2]
+        """
         return self.conv(x)
 
 
@@ -78,6 +94,11 @@ class Conv1dBlock(nn.Module):
         )
 
     def forward(self, x):
+        """
+        Shapes:
+            x: [B, in_channels, horizon]
+            returns: [B, out_channels, horizon]
+        """
         return self.block(x)
 
 
@@ -114,12 +135,10 @@ class ConditionalResidualBlock1D(nn.Module):
 
     def forward(self, x, cond):
         """
-        parameters:
-            x : [ batch_size x in_channels x horizon ]
-            cond : [ batch_size x cond_dim]
-
-        returns:
-            out : [ batch_size x out_channels x horizon ]
+        shapes:
+            x : [ batch_size, in_channels, horizon ]
+            cond : [ batch_size, extended_cond_dim (cond_dim + time_embed_dim)]
+            returns: [ batch_size, out_channels, horizon ]
         """
         # First Conv1d Block
         out = self.blocks[0](x)
@@ -149,15 +168,7 @@ class ConditionalUnet1D(nn.Module):
     ):
         """The UNet architecture for noise prediction.
 
-        parameters:
-            input_dim: Dim of actions.
-            external_cond_dim: Dim of global conditioning applied with FiLM
-            in addition to diffusion step embedding. This is usually cond_horizon * cond_dim
-            diffusion_step_embed_dim: Dimensionality of  encoding for time / diffusion iteration k
-            down_dims: Channel size for each UNet level.
-            The length of this array determines number of levels.
-            kernel_size: Conv kernel size
-            n_groups: Number of groups for GroupNorm
+        Operates: Downsample residual blocks --> Middle residual blocks --> Upsample residual blocks
         """
 
         super().__init__()
@@ -260,13 +271,13 @@ class ConditionalUnet1D(nn.Module):
         timestep: torch.Tensor | float | int,
         external_cond=None,
     ):
-        """
-        parameters:
-            x: [batch_size × horizon × input_dim], the noisy sample to denoise
-            timestep: [batch_size,] or int, diffusion step
-            external_cond: [batch_size × external_cond_dim], the global conditioning applied with FiLM in the residual blocks. This is usually cond_horizon * cond_dim
-        returns:
-            denoised_x: [batch_size × horizon × input_dim], the denoised sample after passing through the UNet
+        """Predicts the noise residual for a given noisy sample, timestep, and conditioning.
+
+        Shapes:
+            sample: [B, pred_horizon, input_dim] (noisy action sequence)
+            timestep: [B,] or int
+            external_cond: [B, cond_horizon * cond_dim] (flattened global conditioning)
+            returns: [B, horizon, input_dim] (predicted noise)
         """
         # (B,T,C) -> (B,C,T)
         sample = sample.moveaxis(-1, -2)
@@ -317,7 +328,7 @@ class ConditionalUnet1D(nn.Module):
         # Final layer
         x = self.final_conv(x)
 
-        # (B,C,T) -> (B, T, C)
+        # (B,C,T) -> (B,T,C)
         x = x.moveaxis(-1, -2)
 
         return x

@@ -16,7 +16,6 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 # TODO: Review whole template to ensure it works
 # TODO: Compare with original maniskill code, line by line
-# TODO: docstrings shapes everywhere
 
 
 class DiffusionPolicy(L.LightningModule):
@@ -146,7 +145,14 @@ class DiffusionPolicy(L.LightningModule):
         pass
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        "Main step logic, it doesn't differ between training and validation except for the logging."
+        """Main step logic, it doesn't differ between training and validation except for the
+        logging.
+
+        Shapes:
+            batch["cond_seq"]: [B, cond_horizon, cond_dim]
+            batch["act_seq"]: [B, pred_horizon, act_dim]
+            returns: scalar loss tensor []
+        """
         flatten_cond = flatten_tensor_dict(batch["cond_seq"])
         action_seq = batch["act_seq"]
 
@@ -190,7 +196,13 @@ class DiffusionPolicy(L.LightningModule):
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
-        """Given a conditioning sequence, return the predicted action sequence."""
+        """Runs the reverse diffusion process to predict an action sequence from the current
+        observation.
+
+        Shapes:
+            cond_seq: [B, cond_horizon * cond_dim] (flattened conditioning)
+            returns: [B, act_horizon, act_dim] (denoised actions to execute)
+        """
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -253,7 +265,13 @@ class DiffusionPolicy(L.LightningModule):
         return denoised_act_seq
 
     def _compute_loss(self, cond_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        """Loss calculation logic."""
+        """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
+
+        Shapes:
+            cond_seq: [B, cond_horizon * cond_dim] (flattened condition sequence)
+            act_seq: [B, pred_horizon, act_dim] (target action chunk)
+            returns: scalar loss tensor []
+        """
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before computing loss."
