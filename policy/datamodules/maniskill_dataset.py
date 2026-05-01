@@ -62,147 +62,20 @@ class ManiSkillDataset(Dataset):
         self.env_state_dim = env_state_dim
         self.obs_dim = obs_dim
 
-        # Load metadata from JSON if episodes aren't provided explicitly
-        if episodes is not None:
-            self.episodes = episodes
-        else:
-            json_path = self.dataset_file.with_suffix(".json")
-            if not json_path.exists():
-                raise FileNotFoundError(
-                    f"Metadata JSON file not found for dataset {self.dataset_file}. "
-                    f"Expected at {json_path}. "
-                    "If you want to instantiate the dataset without providing a list of episodes, "
-                    f"you need to place a json file at the same path as {self.dataset_file}, with the same name."
-                )
-            with open(json_path) as f:
-                self.json_data = json.load(f)
-            self.episodes = self.json_data["episodes"]
-
         # Convert padding masks to numpy boolean arrays
-        if cond_left_pad_as_zero_mask is not None:
-            if isinstance(cond_left_pad_as_zero_mask, torch.Tensor):
-                cond_left_pad_as_zero_mask = cond_left_pad_as_zero_mask.cpu()
-            self.cond_left_pad_as_zero_mask = np.asarray(cond_left_pad_as_zero_mask, dtype=bool)
-        else:
-            self.cond_left_pad_as_zero_mask = None
-
-        if cond_right_pad_as_zero_mask is not None:
-            if isinstance(cond_right_pad_as_zero_mask, torch.Tensor):
-                cond_right_pad_as_zero_mask = cond_right_pad_as_zero_mask.cpu()
-            self.cond_right_pad_as_zero_mask = np.asarray(cond_right_pad_as_zero_mask, dtype=bool)
-        else:
-            self.cond_right_pad_as_zero_mask = None
-
-        if action_left_pad_as_zero_mask is not None:
-            if isinstance(action_left_pad_as_zero_mask, torch.Tensor):
-                action_left_pad_as_zero_mask = action_left_pad_as_zero_mask.cpu()
-            self.action_left_pad_as_zero_mask = np.asarray(
-                action_left_pad_as_zero_mask, dtype=bool
-            )
-        else:
-            self.action_left_pad_as_zero_mask = None
-
-        if action_right_pad_as_zero_mask is not None:
-            if isinstance(action_right_pad_as_zero_mask, torch.Tensor):
-                action_right_pad_as_zero_mask = action_right_pad_as_zero_mask.cpu()
-            self.action_right_pad_as_zero_mask = np.asarray(
-                action_right_pad_as_zero_mask, dtype=bool
-            )
-        else:
-            self.action_right_pad_as_zero_mask = None
-
-        if load_count == -1:
-            load_count = len(self.episodes)
-        else:
-            load_count = min(load_count, len(self.episodes))
-
-        self.trajectories: list[dict[str, Any]] = []
-        self.slices: list[tuple[int, int, int, int, int, int]] = []
-
-        # Open the H5 file, with different behavior based on lazy flag
-        # - lazy: peek dims from first valid episode
-        # - not lazy: load full episodes into RAM
-        first_valid_episode_id = None
-        with h5py.File(self.dataset_file, "r") as data:
-            for i in range(load_count):
-                eps = self.episodes[i]
-
-                if success_only and not eps.get("success", False):
-                    continue
-
-                episode_id = int(eps["episode_id"])
-                L = int(eps["elapsed_steps"])  # single source of truth for indexing/windows
-
-                if first_valid_episode_id is None:
-                    first_valid_episode_id = episode_id
-
-                if self.lazy:
-                    # Only load simple metadata
-                    self.trajectories.append({"episode_id": episode_id, "length": L})
-                else:
-                    # Directly load the actual h5 group object
-                    traj_group = data[f"traj_{episode_id}"]
-                    if not isinstance(traj_group, h5py.Group):
-                        raise TypeError(
-                            f"Expected HDF5 group traj_{episode_id}, got {type(traj_group)}"
-                        )
-
-                    traj_actions = traj_group["actions"]
-                    if not isinstance(traj_actions, h5py.Dataset):
-                        raise TypeError(
-                            f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(traj_actions)}'
-                        )
-
-                    h5_L = len(traj_actions)
-                    if h5_L != L:
-                        raise ValueError(
-                            f"Length mismatch for episode {episode_id}: "
-                            f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
-                        )
-
-                    # And convert the trajectory group to an actual dictionary of numpy arrays
-                    trajectory = load_h5_data(traj_group)
-                    self.trajectories.append(
-                        {
-                            "episode_id": episode_id,
-                            "obs": trajectory["obs"],
-                            "env_states": trajectory["env_states"],
-                            "actions": trajectory["actions"],
-                        }
-                    )
-
-                # Either lazy or non-lazy, still pre-compute the slices (i.e., windows) for each trajectory
-                # Lazy mode contains everything necessary for the windoeing function to work
-                traj_idx = len(self.trajectories) - 1
-                slice = self._compute_trajectory_slices(traj_idx, L)
-                self.slices.extend(slice)
-
-            if first_valid_episode_id is None:
-                raise ValueError(
-                    f"No valid episodes found (success_only={success_only}) in metadata for dataset {self.dataset_file}."
-                )
-
-            # Peek dimension from the h5 file if they are not provided explicitly
-            if self.act_dim is None:
-                act_dim = peek_trajectory_dimension(
-                    self.dataset_file, f"traj_{first_valid_episode_id}", "actions"
-                )["shape"][-1]
-                self.act_dim = act_dim
-
-            if self.env_state_dim is None:
-                env_state_dim = peek_trajectory_dimension(
-                    self.dataset_file, f"traj_{first_valid_episode_id}", "env_states"
-                )
-                self.env_state_dim = env_state_dim
-
-            if self.obs_dim is None:
-                obs_dim = peek_trajectory_dimension(
-                    self.dataset_file, f"traj_{first_valid_episode_id}", "obs"
-                )
-                self.obs_dim = obs_dim
+        self.cond_left_pad_as_zero_mask = self._ensure_numpy_mask(cond_left_pad_as_zero_mask)
+        self.cond_right_pad_as_zero_mask = self._ensure_numpy_mask(cond_right_pad_as_zero_mask)
+        self.action_left_pad_as_zero_mask = self._ensure_numpy_mask(action_left_pad_as_zero_mask)
+        self.action_right_pad_as_zero_mask = self._ensure_numpy_mask(action_right_pad_as_zero_mask)
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
+        self.trajectories: list[dict[str, Any]] = []
+        self.slices: list[tuple[int, int, int, int, int, int]] = []
+
+        self._build_trajectories_and_slices(load_count, success_only)
+        self._load_metadata(episodes)
+        self._peek_dimensions()
 
         rank_zero_info(
             f"Dataset initialized: {len(self.slices)} temporal windows "
@@ -393,6 +266,112 @@ class ManiSkillDataset(Dataset):
                 seq = np.pad(seq, pad_width, mode="edge")
 
         return seq
+
+    def _ensure_numpy_mask(
+        self, mask: list[bool] | np.ndarray | torch.Tensor | None
+    ) -> np.ndarray | None:
+        """Helper to unify padding masks into boolean numpy arrays."""
+        if mask is None:
+            return None
+        if isinstance(mask, torch.Tensor):
+            mask = mask.cpu()
+        return np.asarray(mask, dtype=bool)
+
+    def _load_metadata(self, episodes: list[dict] | None) -> None:
+        """Loads episode metadata from provided list or JSON file."""
+        if episodes is not None:
+            self.episodes = episodes
+        else:
+            json_path = self.dataset_file.with_suffix(".json")
+            if not json_path.exists():
+                raise FileNotFoundError(f"Metadata JSON not found. Expected at {json_path}.")
+            with open(json_path) as f:
+                self.episodes = json.load(f)["episodes"]
+
+    def _build_trajectories_and_slices(self, load_count: int, success_only: bool) -> None:
+        """Reads HDF5 to build trajectory buffers and temporal windows."""
+        if load_count == -1:
+            count = len(self.episodes)
+        else:
+            count = min(load_count, len(self.episodes))
+        self.first_valid_episode_id = None
+
+        # Open the H5 file, with different behavior based on lazy flag
+        # - lazy: peek dims from first valid episode
+        # - not lazy: load full episodes into RAM
+        with h5py.File(self.dataset_file, "r") as data:
+            for i in range(count):
+                eps = self.episodes[i]
+                if success_only and not eps.get("success", False):
+                    continue
+
+                episode_id = int(eps["episode_id"])
+                L = int(eps["elapsed_steps"])
+
+                if self.first_valid_episode_id is None:
+                    self.first_valid_episode_id = episode_id
+
+                if self.lazy:
+                    # Only load simple metadata
+                    self.trajectories.append({"episode_id": episode_id, "length": L})
+                else:
+                    # Directly load the actual h5 group object
+                    traj_group = data[f"traj_{episode_id}"]
+
+                    if not isinstance(traj_group, h5py.Group):
+                        raise TypeError(
+                            f"Expected HDF5 group traj_{episode_id}, got {type(traj_group)}"
+                        )
+
+                    traj_actions = traj_group["actions"]
+                    if not isinstance(traj_actions, h5py.Dataset):
+                        raise TypeError(
+                            f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(traj_actions)}'
+                        )
+
+                    h5_L = len(traj_actions)
+                    if h5_L != L:
+                        raise ValueError(
+                            f"Length mismatch for episode {episode_id}: "
+                            f"JSON elapsed_steps={L} but H5 len(actions)={h5_L}."
+                        )
+
+                    # And convert the trajectory group to an actual dictionary of numpy arrays
+                    trajectory = load_h5_data(traj_group)
+                    self.trajectories.append(
+                        {
+                            "episode_id": episode_id,
+                            "obs": trajectory["obs"],
+                            "env_states": trajectory["env_states"],
+                            "actions": trajectory["actions"],
+                        }
+                    )
+
+                # Either lazy or non-lazy, still pre-compute the slices (i.e., windows) for each trajectory
+                # Lazy mode contains everything necessary for the windoeing function to work
+                traj_idx = len(self.trajectories) - 1
+                slice = self._compute_trajectory_slices(traj_idx, L)
+                self.slices.extend(slice)
+
+        if self.first_valid_episode_id is None:
+            raise ValueError(f"No valid episodes found (success_only={success_only}).")
+
+    def _peek_dimensions(self) -> None:
+        """Peeks into the HDF5 file to infer missing dimensions."""
+        if self.act_dim is None:
+            self.act_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
+            )["shape"][-1]
+
+        if self.env_state_dim is None:
+            self.env_state_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "env_states"
+            )
+
+        if self.obs_dim is None:
+            self.obs_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
+            )
 
     def __del__(self):
         try:
