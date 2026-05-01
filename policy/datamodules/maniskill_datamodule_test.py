@@ -86,6 +86,9 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
     def test_slice_and_pad_mask_variations(self, datamodule: ManiSkillDataModule):
         """Tests the `_slice_and_pad` method directly against different padding mask
         configurations."""
+
+        # TODO: should be improved with also left padding cases, and maybe simplified/generalized
+
         datamodule.setup("fit")
         dataset = datamodule.train_set
 
