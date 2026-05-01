@@ -35,7 +35,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
-        action_right_zero_pad_mask: list[bool] | None = None,
+        action_left_pad_as_zero_mask: list[bool] | None = None,
+        action_right_pad_as_zero_mask: list[bool] | None = None,
         lazy: bool = False,
         seed: int | None = None,
     ):
@@ -67,7 +68,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
-        self.action_right_zero_pad_mask = action_right_zero_pad_mask
+        self.action_left_pad_as_zero_mask = action_left_pad_as_zero_mask
+        self.action_right_pad_as_zero_mask = action_right_pad_as_zero_mask
         self.lazy = lazy
         self.seed = seed
 
@@ -104,29 +106,42 @@ class ManiSkillDataModule(L.LightningDataModule):
                 f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
             )
 
-            is_delta_mode = "delta" in self.control_mode or "vel" in self.control_mode
-            final_mask = None
+            final_action_right_pad_mask = None
 
-            if is_delta_mode:
-                if self.action_right_zero_pad_mask is not None:
+            # Left padding should always be edge values
+            if self.action_left_pad_as_zero_mask is not None:
+                rank_zero_warn(
+                    "A left padding mask was provided, but left padding should always be edge values. "
+                    "The mask will be ignored (using standard edge padding)!"
+                )
+
+            # Right padding can be either zeros or edge values, it will be the mask to dictate which
+            # Right padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
+            # Right Padding with zeros must be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
+            # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
+            is_non_abs_mode = "delta" in self.control_mode or "vel" in self.control_mode
+            if is_non_abs_mode:
+                if self.action_right_pad_as_zero_mask is not None:
                     # User provided a custom mask, trust them
-                    final_mask = np.array(self.action_right_zero_pad_mask, dtype=bool)
+                    final_action_right_pad_mask = np.array(
+                        self.action_right_pad_as_zero_mask, dtype=bool
+                    )
                     rank_zero_info(
-                        "Using explicitly provided action_right_zero_pad_mask from config."
+                        "Using explicitly provided action padding mask given from config."
                     )
                 else:
                     # User didn't provide one, infer the classic 1D gripper default
-                    final_mask = np.ones(self.act_dim, dtype=bool)
-                    final_mask[-1] = False
+                    final_action_right_pad_mask = np.ones(self.act_dim, dtype=bool)
+                    final_action_right_pad_mask[-1] = False
                     rank_zero_info(
-                        f"Inferred action_right_zero_pad_mask for '{self.control_mode}'. Edge padding the last dimension."
+                        f"Inferred action padding mask for '{self.control_mode}'. Edge padding the last dimension."
                     )
             else:
-                if self.action_right_zero_pad_mask is not None:
+                if self.action_right_pad_as_zero_mask is not None:
                     # User passed a mask for absolute actions! Warn and ignore.
                     rank_zero_warn(
-                        f"A action_right_zero_pad_mask was provided, but the control_mode '{self.control_mode}' "
-                        "is not a delta or velocity mode. The mask will be ignored (using standard edge padding)."
+                        f"A right padding mask was provided, but the control_mode '{self.control_mode}' "
+                        "is not a delta or velocity mode. The mask will be ignored (using standard edge padding)!"
                     )
 
             self.train_set = ManiSkillDataset(
@@ -138,7 +153,10 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
-                action_right_zero_pad_mask=final_mask,
+                cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                action_left_pad_as_zero_mask=None,  # Action left padding should always be edge
+                action_right_pad_as_zero_mask=final_action_right_pad_mask,
                 lazy=self.lazy,
             )
 
@@ -151,7 +169,10 @@ class ManiSkillDataModule(L.LightningDataModule):
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
-                action_right_zero_pad_mask=final_mask,
+                cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                action_left_pad_as_zero_mask=None,  # Action left padding should always be edge
+                action_right_pad_as_zero_mask=final_action_right_pad_mask,
                 lazy=self.lazy,
             )
 

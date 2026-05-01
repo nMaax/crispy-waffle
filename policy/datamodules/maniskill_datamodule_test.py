@@ -63,8 +63,8 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         pad_after = a_e - L_last
         valid_end_idx = datamodule.pred_horizon - pad_after - 1
 
-        if dataset.action_right_zero_pad_mask is not None:
-            mask = torch.tensor(dataset.action_right_zero_pad_mask, dtype=torch.bool)
+        if dataset.action_right_pad_as_zero_mask is not None:
+            mask = torch.tensor(dataset.action_right_pad_as_zero_mask, dtype=torch.bool)
             # Deltas are zero-padded (mask=True), absolutes are edge-padded (mask=False)
             for i in range(1, pad_after + 1):
                 padded_step = act_seq_last[-i]
@@ -92,6 +92,9 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         if dataset is None:
             raise ValueError("Expected train_set to be initialized after setup('fit').")
 
+        if not isinstance(dataset, ManiSkillDataset):
+            raise TypeError("Expected train_set to be an instance of ManiSkillDataset.")
+
         # Create a controlled dummy sequence: 5 timesteps, variable action dimension
         act_dim = datamodule.act_dim
         seq_length = 5
@@ -107,8 +110,15 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
         # Expected edge value is the last valid row in dummy_data
         edge_value = dummy_data[-1]
 
-        # --- CASE A: action_right_zero_pad_mask is None (Default Edge Padding) ---
-        padded_none = dataset._slice_and_pad(dummy_data, start, end, L, action_right_zero_pad_mask=None)
+        # --- CASE A: masks are None (Default Edge Padding) ---
+        padded_none = dataset._slice_and_pad(
+            dummy_data,
+            start,
+            end,
+            L,
+            right_pad_as_zero_mask=None,
+            left_pad_as_zero_mask=None,
+        )
         for i in range(1, pad_after + 1):
             assert np.array_equal(padded_none[-i], edge_value), (
                 "Failed Case A: `None` mask did not result in standard edge padding."
@@ -116,7 +126,14 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
 
         # --- CASE B: All Zeros Mask (All True) ---
         mask_all_zeros = np.ones(act_dim, dtype=bool)
-        padded_zeros = dataset._slice_and_pad(dummy_data, start, end, L, action_right_zero_pad_mask=mask_all_zeros)
+        padded_zeros = dataset._slice_and_pad(
+            dummy_data,
+            start,
+            end,
+            L,
+            right_pad_as_zero_mask=mask_all_zeros,
+            left_pad_as_zero_mask=mask_all_zeros,
+        )
         for i in range(1, pad_after + 1):
             assert np.array_equal(padded_zeros[-i], np.zeros(act_dim)), (
                 "Failed Case B: All-True mask did not result in pure zero padding."
@@ -124,7 +141,14 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
 
         # --- CASE C: All Edge Mask (All False) ---
         mask_all_edges = np.zeros(act_dim, dtype=bool)
-        padded_edges = dataset._slice_and_pad(dummy_data, start, end, L, action_right_zero_pad_mask=mask_all_edges)
+        padded_edges = dataset._slice_and_pad(
+            dummy_data,
+            start,
+            end,
+            L,
+            left_pad_as_zero_mask=mask_all_edges,
+            right_pad_as_zero_mask=mask_all_edges,
+        )
         for i in range(1, pad_after + 1):
             assert np.array_equal(padded_edges[-i], edge_value), (
                 "Failed Case C: All-False mask did not result in pure edge padding."
@@ -135,7 +159,14 @@ class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
             mask_mixed = np.ones(act_dim, dtype=bool)
             mask_mixed[-1] = False  # Last dim gets edge padding
 
-            padded_mixed = dataset._slice_and_pad(dummy_data, start, end, L, action_right_zero_pad_mask=mask_mixed)
+            padded_mixed = dataset._slice_and_pad(
+                dummy_data,
+                start,
+                end,
+                L,
+                left_pad_as_zero_mask=mask_mixed,
+                right_pad_as_zero_mask=mask_mixed,
+            )
             for i in range(1, pad_after + 1):
                 # Check that all elements EXCEPT the last one are zero
                 assert np.array_equal(padded_mixed[-i, :-1], np.zeros(act_dim - 1)), (

@@ -30,12 +30,17 @@ class ManiSkillDataset(Dataset):
         env_state_dim: dict[str, Any] | None = None,
         obs_dim: dict[str, Any] | None = None,
         episodes: list[dict] | None = None,
-        action_right_zero_pad_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        cond_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        cond_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        action_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        action_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
     ):
         super().__init__()
+
+        # TODO: to optimize and clean with sub-methods
 
         self.dataset_file = Path(dataset_file)
 
@@ -66,12 +71,37 @@ class ManiSkillDataset(Dataset):
                 self.json_data = json.load(f)
             self.episodes = self.json_data["episodes"]
 
-        if action_right_zero_pad_mask is not None:
-            if isinstance(action_right_zero_pad_mask, torch.Tensor):
-                action_right_zero_pad_mask = action_right_zero_pad_mask.cpu()
-            self.action_right_zero_pad_mask = np.asarray(action_right_zero_pad_mask, dtype=bool)
+        if cond_left_pad_as_zero_mask is not None:
+            if isinstance(cond_left_pad_as_zero_mask, torch.Tensor):
+                cond_left_pad_as_zero_mask = cond_left_pad_as_zero_mask.cpu()
+            self.cond_left_pad_as_zero_mask = np.asarray(cond_left_pad_as_zero_mask, dtype=bool)
         else:
-            self.action_right_zero_pad_mask = None
+            self.cond_left_pad_as_zero_mask = None
+
+        if cond_right_pad_as_zero_mask is not None:
+            if isinstance(cond_right_pad_as_zero_mask, torch.Tensor):
+                cond_right_pad_as_zero_mask = cond_right_pad_as_zero_mask.cpu()
+            self.cond_right_pad_as_zero_mask = np.asarray(cond_right_pad_as_zero_mask, dtype=bool)
+        else:
+            self.cond_right_pad_as_zero_mask = None
+
+        if action_left_pad_as_zero_mask is not None:
+            if isinstance(action_left_pad_as_zero_mask, torch.Tensor):
+                action_left_pad_as_zero_mask = action_left_pad_as_zero_mask.cpu()
+            self.action_left_pad_as_zero_mask = np.asarray(
+                action_left_pad_as_zero_mask, dtype=bool
+            )
+        else:
+            self.action_left_pad_as_zero_mask = None
+
+        if action_right_pad_as_zero_mask is not None:
+            if isinstance(action_right_pad_as_zero_mask, torch.Tensor):
+                action_right_pad_as_zero_mask = action_right_pad_as_zero_mask.cpu()
+            self.action_right_pad_as_zero_mask = np.asarray(
+                action_right_pad_as_zero_mask, dtype=bool
+            )
+        else:
+            self.action_right_pad_as_zero_mask = None
 
         if load_count == -1:
             load_count = len(self.episodes)
@@ -218,14 +248,20 @@ class ManiSkillDataset(Dataset):
 
         # So we access it and retrieve what needed, with padding
         cond_seq = self._slice_and_pad(
-            cond_src, cond_start, cond_end, L, action_right_zero_pad_mask=None
+            cond_src,
+            cond_start,
+            cond_end,
+            L,
+            left_pad_as_zero_mask=self.cond_left_pad_as_zero_mask,
+            right_pad_as_zero_mask=self.cond_right_pad_as_zero_mask,
         )
         act_seq = self._slice_and_pad(
             act_src,
             act_start,
             act_end,
             L,
-            action_right_zero_pad_mask=self.action_right_zero_pad_mask,
+            left_pad_as_zero_mask=self.action_left_pad_as_zero_mask,
+            right_pad_as_zero_mask=self.action_right_pad_as_zero_mask,
         )
 
         return {
@@ -280,9 +316,10 @@ class ManiSkillDataset(Dataset):
         start: int,
         end: int,
         L: int,
-        action_right_zero_pad_mask: torch.Tensor | np.ndarray | None = None,
+        left_pad_as_zero_mask: torch.Tensor | np.ndarray | None = None,
+        right_pad_as_zero_mask: torch.Tensor | np.ndarray | None = None,
     ):
-        """Slices the data from start to end, and pads with edge values if the slice goes out of
+        """Slice a sequence from start to end, and pad with zeros or edge values if out of
         bounds."""
         # Treat HDF5 groups like dicts (lazy nested observations)
         if isinstance(data, h5py.Group | dict):
@@ -294,7 +331,12 @@ class ManiSkillDataset(Dataset):
                         f"Expected nested HDF5 group or dataset at key '{k}', got {type(nested_data)}"
                     )
                 result[k] = self._slice_and_pad(
-                    nested_data, start, end, L, action_right_zero_pad_mask
+                    nested_data,
+                    start,
+                    end,
+                    L,
+                    left_pad_as_zero_mask=left_pad_as_zero_mask,
+                    right_pad_as_zero_mask=right_pad_as_zero_mask,
                 )
             return result
 
@@ -307,26 +349,38 @@ class ManiSkillDataset(Dataset):
 
         seq = data[valid_start:valid_end]
 
-        # We can either pad with zeros or edge values.
-
-        # Left padding should always be edge values
+        # We can either pad with zeros or edge values
         if pad_before > 0:
-            pad_width = [(pad_before, 0)] + [(0, 0)] * (seq.ndim - 1)
-            seq = np.pad(seq, pad_width, mode="edge")
+            if left_pad_as_zero_mask is not None:
+                # action_left_pad_as_zero_mask is True for padding with zeros, False for padding with edge
+                pad_frames = np.zeros((pad_before, *seq.shape[1:]), dtype=seq.dtype)
 
-        # Right padding can be either zeros or edge values, it will be the mask to dictate which
-        # Right padding with edge values should be mainly done with action spaces consisting of absolute values (e.g. pd_ee_pose, pd_joint_pos)
-        # Right Padding with zeros must be preferred for action spaces made by deltas (e.g. pd_ee_delta_pose, pd_joint_delta_pos)
-        # However exceptions exist, for example the gripper's entries should alays be edge padded if we want the model to learn to keep the hand closed
+                columns_to_copy = ~left_pad_as_zero_mask
+                first_frame = seq[0]
+                values_to_repeat = first_frame[columns_to_copy]
+                pad_frames[..., columns_to_copy] = values_to_repeat
+
+                seq = np.concatenate([pad_frames, seq], axis=0)
+            else:
+                # No mask provided, we fallback on edge padding
+                pad_width = [(pad_before, 0)] + [(0, 0)] * (seq.ndim - 1)
+                seq = np.pad(seq, pad_width, mode="edge")
+
         if pad_after > 0:
-            # TODO: seems like this is not correct: it doesn't just apply to actions, and it doesn't seem like the logic below works(?)
-            if action_right_zero_pad_mask is not None:
-                # action_right_zero_pad_mask is True for zeros, False for edge
+            if right_pad_as_zero_mask is not None:
+                # action_right_pad_as_zero_mask is True for padding with zeros, False for padding with edge
                 pad_frames = np.zeros((pad_after, *seq.shape[1:]), dtype=seq.dtype)
-                pad_frames[..., ~action_right_zero_pad_mask] = seq[-1, ~action_right_zero_pad_mask]
+
+                columns_to_copy = ~right_pad_as_zero_mask
+                last_frame = seq[-1]
+                values_to_repeat = last_frame[columns_to_copy]
+                pad_frames[..., columns_to_copy] = values_to_repeat
+
                 seq = np.concatenate([seq, pad_frames], axis=0)
             else:
                 # No mask provided, we fallback on edge padding
+                # generally we don't fallback on zeros since we can't know for sure if 0 is a meaningful value in the space we padding (e.g. the gripper accept only -1 and +1, 0 would break it),
+                # edge padding instead is a more safe choice, as we know for sure the valuers at the edge of the sequence are valid values in the space. Tho in delta action spaces this can lead to a bad behaviour
                 pad_width = [(0, pad_after)] + [(0, 0)] * (seq.ndim - 1)
                 seq = np.pad(seq, pad_width, mode="edge")
 
