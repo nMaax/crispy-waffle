@@ -10,7 +10,7 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datamodules.maniskill_dataset import ManiSkillDataset
-from policy.utils import peek_trajectory_dimensions
+from policy.utils import peek_trajectory_dimension
 
 
 class DummyDataset(Dataset):
@@ -140,7 +140,6 @@ class ManiSkillDataModule(L.LightningDataModule):
                 episodes=train_episodes,
                 action_right_zero_pad_mask=final_mask,
                 lazy=self.lazy,
-                validate_lengths=True,
             )
 
             self.val_set = ManiSkillDataset(
@@ -154,7 +153,6 @@ class ManiSkillDataModule(L.LightningDataModule):
                 episodes=val_episodes,
                 action_right_zero_pad_mask=final_mask,
                 lazy=self.lazy,
-                validate_lengths=True,
             )
 
     def train_dataloader(self):
@@ -230,5 +228,14 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         first_episode_id = episodes[0]["episode_id"]
 
-        # Delegate to the shared helper function
-        return peek_trajectory_dimensions(self.dataset_file, first_episode_id)
+        act_dim = peek_trajectory_dimension(
+            self.dataset_file, f"traj_{first_episode_id}", "actions"
+        )["shape"][-1]
+
+        env_state_dim = peek_trajectory_dimension(
+            self.dataset_file, f"traj_{first_episode_id}", "env_states"
+        )
+
+        obs_dim = peek_trajectory_dimension(self.dataset_file, f"traj_{first_episode_id}", "obs")
+
+        return act_dim, env_state_dim, obs_dim

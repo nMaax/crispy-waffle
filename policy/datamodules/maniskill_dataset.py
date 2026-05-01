@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 
 from policy.utils import (
     load_h5_data,
-    peek_trajectory_dimensions,
+    peek_trajectory_dimension,
     print_dict_tree,
     to_tensor,
 )
@@ -145,33 +145,23 @@ class ManiSkillDataset(Dataset):
                 )
 
             # Peek dimension from the h5 file if they are not provided explicitly
-            if self.act_dim is None or self.env_state_dim is None or self.obs_dim is None:
-                act_dim, env_state_dim, obs_dim = peek_trajectory_dimensions(
-                    self.dataset_file, first_valid_episode_id
+            if self.act_dim is None:
+                act_dim = peek_trajectory_dimension(
+                    self.dataset_file, f"traj_{first_valid_episode_id}", "actions"
+                )["shape"][-1]
+                self.act_dim = act_dim
+
+            if self.env_state_dim is None:
+                env_state_dim = peek_trajectory_dimension(
+                    self.dataset_file, f"traj_{first_valid_episode_id}", "env_states"
                 )
+                self.env_state_dim = env_state_dim
 
-                # If the dimension was indeed not provided, we set it
-                if self.act_dim is None:
-                    self.act_dim = act_dim
-                else:
-                    # Otherwise we double check (note: only way to avoid this check for a dimension is to pass all of them explicity, if even one is missing we will peek anyway and check)
-                    assert self.act_dim == act_dim, (
-                        f"Provided env_state_dim {self.env_state_dim} does not match peeked dimension {env_state_dim} from the dataset. Please check your configuration."
-                    )
-
-                if self.env_state_dim is None:
-                    self.env_state_dim = env_state_dim
-                else:
-                    assert self.env_state_dim == env_state_dim, (
-                        f"Provided env_state_dim {self.env_state_dim} does not match peeked dimension {env_state_dim} from the dataset. Please check your configuration."
-                    )
-
-                if self.obs_dim is None:
-                    self.obs_dim = obs_dim
-                else:
-                    assert self.obs_dim == obs_dim, (
-                        f"Provided obs_dim {self.obs_dim} does not match peeked dimension {obs_dim} from the dataset. Please check your configuration."
-                    )
+            if self.obs_dim is None:
+                obs_dim = peek_trajectory_dimension(
+                    self.dataset_file, f"traj_{first_valid_episode_id}", "obs"
+                )
+                self.obs_dim = obs_dim
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
@@ -331,7 +321,7 @@ class ManiSkillDataset(Dataset):
         if pad_after > 0:
             # TODO: seems like this is not correct: it doesnt just apply to actions, and it doesnt seem like the logic below works(?)
             if action_right_zero_pad_mask is not None:
-                # pad_mask is True for zeros, False for edge
+                # action_right_zero_pad_mask is True for zeros, False for edge
                 pad_frames = np.zeros((pad_after, *seq.shape[1:]), dtype=seq.dtype)
                 pad_frames[..., ~action_right_zero_pad_mask] = seq[-1, ~action_right_zero_pad_mask]
                 seq = np.concatenate([seq, pad_frames], axis=0)

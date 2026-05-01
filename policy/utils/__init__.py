@@ -1,4 +1,8 @@
-from .h5_utils import extract_h5_shapes, load_h5_data, peek_trajectory_dimensions
+from .h5_utils import (
+    extract_h5_shapes,
+    load_h5_data,
+    peek_trajectory_dimension,
+)
 from .utils import (
     flatten_tensor_dict,
     get_batch_size,
@@ -17,5 +21,5 @@ __all__ = [
     "sum_shapes",
     "extract_h5_shapes",
     "load_h5_data",
-    "peek_trajectory_dimensions",
+    "peek_trajectory_dimension",
 ]

@@ -155,9 +155,9 @@ def _patch_gym(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.parametrize(
     "physx_backend",
     [
-        pytest.param("pshyx_cpu"),
+        pytest.param("physx_cpu"),
         pytest.param(
-            "phsyx_cuda",
+            "physx_cuda",
             marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA available."),
         ),
     ],
