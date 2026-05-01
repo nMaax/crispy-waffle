@@ -145,6 +145,16 @@ class DiffusionPolicy(L.LightningModule):
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
         pass
 
+    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
+        "Main step logic, it doesn't differ between training and validation except for the logging."
+        flatten_cond = flatten_tensor_dict(batch["cond_seq"])
+        action_seq = batch["act_seq"]
+
+        loss = self._compute_loss(flatten_cond, action_seq)
+
+        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
+        return loss
+
     def on_train_batch_end(self, outputs: torch.Tensor, batch: dict[str, Any], batch_idx: int):
         """Automatically step the EMA model after every training batch iteration."""
         if self.network is None:
@@ -158,6 +168,21 @@ class DiffusionPolicy(L.LightningModule):
             )
 
         self.ema.step(self.network.parameters())
+
+    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Explicitly save the EMA model state since it's not an nn.Module."""
+        super().on_save_checkpoint(checkpoint)
+
+        if self.ema is not None:
+            checkpoint["ema_state_dict"] = self.ema.state_dict()
+
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Explicitly load the EMA model state."""
+        super().on_load_checkpoint(checkpoint)
+
+        self.configure_model()
+        if self.ema is not None and "ema_state_dict" in checkpoint:
+            self.ema.load_state_dict(checkpoint["ema_state_dict"])
 
     def get_action(
         self,
@@ -226,16 +251,6 @@ class DiffusionPolicy(L.LightningModule):
             denoised_act_seq = torch.clamp(denoised_act_seq, low, high)
 
         return denoised_act_seq
-
-    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        "Main step logic, it doesn't differ between training and validation except for the logging."
-        flatten_cond = flatten_tensor_dict(batch["cond_seq"])
-        action_seq = batch["act_seq"]
-
-        loss = self._compute_loss(flatten_cond, action_seq)
-
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
-        return loss
 
     def _compute_loss(self, cond_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """Loss calculation logic."""
