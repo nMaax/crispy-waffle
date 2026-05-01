@@ -18,8 +18,6 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 # TODO: Compare with original maniskill code, line by line
 # TODO: docstrings shapes everywhere
 
-# TODO: fix up bars that collect too much clutter on info
-
 
 class DiffusionPolicy(L.LightningModule):
     """Diffusion Policy as in Cheng et. al (IJRR)

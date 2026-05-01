@@ -21,6 +21,7 @@ from policy.utils.typing_utils import PolicyProtocol
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 
 # TODO: when on GPU it tries to use all GPUs however tensor appear on different devices! Overall scale code to work on double gpus
+# TODO: seems like during testing it doesn't load the checkpoint
 
 
 class RolloutEvaluationCallback(L.Callback):
@@ -279,9 +280,8 @@ class RolloutEvaluationCallback(L.Callback):
         pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=True)
         pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=True)
 
-        # TODO: this causes the TQDM bars to dont clean from the terminal and persists
-        rank_zero_info(
-            f"\n  [{phase.capitalize()} | Epoch {trainer.current_epoch}] Rollout Success Rate: {success_rate:.4%}\n"
+        pl_module.print(
+            f"  [{phase.capitalize()} | Step {trainer.global_step:06d}] Rollout Success Rate: {success_rate:.4%}"
         )
 
     def _get_policy_conditioning(

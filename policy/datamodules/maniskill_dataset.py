@@ -40,8 +40,6 @@ class ManiSkillDataset(Dataset):
     ):
         super().__init__()
 
-        # TODO: to optimize and clean with sub-methods
-
         self.dataset_file = Path(dataset_file)
 
         if not self.dataset_file.exists():
@@ -70,6 +68,7 @@ class ManiSkillDataset(Dataset):
 
         # Worker-specific HDF5 file handle for DataLoader multiprocessing (used in lazy mode)
         self._h5_file = None
+
         self.trajectories: list[dict[str, Any]] = []
         self.slices: list[tuple[int, int, int, int, int, int]] = []
 
