@@ -126,7 +126,7 @@ class RolloutEvaluationCallback(L.Callback):
         # "We currently do not properly support exposing multiple
         # visible CUDA devices to a single process as it has some rendering bugs at the moment."
         # NOTE: the global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
-        if trainer.global_rank != 0:
+        if not trainer.is_global_zero:
             return
 
         if not isinstance(pl_module, PolicyProtocol):
