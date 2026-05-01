@@ -1,182 +1,214 @@
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import h5py
 import numpy as np
 import pytest
-import torch
+from torch.utils.data import DataLoader
 
-from policy.datamodules.datamodule_tests import DataModuleTests
-from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.datamodules.maniskill_datamodule import DummyDataset, ManiSkillDataModule
 from policy.datamodules.maniskill_dataset import ManiSkillDataset
 
 
-@pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
-class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
-    """Test suite for the ManiSkillDataModule."""
+@pytest.fixture
+def datamodule_factory(tmp_path: Path):
+    """A factory fixture to generate a customized ManiSkillDataModule backed by a temporary
+    HDF5/JSON dataset on the fly."""
 
-    def test_padding_is_correct(self, datamodule: ManiSkillDataModule):
-        # Ensure the train_set is built
-        datamodule.setup("fit")
-        dataset = datamodule.train_set
+    def _create_datamodule(
+        num_episodes: int = 10,
+        episode_length: int = 5,
+        obs_mode: str = "state",
+        control_mode: str = "pd_joint_delta_pos",
+        sim_backend: str = "physx_cpu",
+        val_split: float = 0.2,
+        seed: int = 42,
+        **kwargs,
+    ) -> ManiSkillDataModule:
+        json_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.json"
+        h5_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.h5"
 
-        if dataset is None:
-            raise ValueError("Expected train_set to be initialized after setup('fit').")
+        # 1. Create JSON Metadata
+        episodes = []
+        for i in range(num_episodes):
+            episodes.append({"episode_id": i, "elapsed_steps": episode_length, "success": True})
 
-        if not isinstance(dataset, ManiSkillDataset):
-            raise TypeError("Expected train_set to be an instance of ManiSkillDataset.")
+        metadata = {
+            "env_info": {
+                "env_id": "MockEnv-v0",
+                "env_kwargs": {
+                    "obs_mode": obs_mode,
+                    "control_mode": control_mode,
+                    "sim_backend": sim_backend,
+                },
+            },
+            "episodes": episodes,
+        }
+        with open(json_path, "w") as f:
+            json.dump(metadata, f)
 
-        # Test left padding
-        # The first slice of any episode has t=0
-        # cond_start = 0 - cond_horizon + 1. So if cond_horizon >= 2, cond_start < 0.
-        assert datamodule.cond_horizon >= 2, (
-            "This test assumes cond_horizon >= 2 to trigger left padding."
+        # 2. Create HDF5 Data
+        act_dim, obs_dim, env_state_dim = 4, 3, 5
+        with h5py.File(h5_path, "w") as f:
+            for i in range(num_episodes):
+                g = f.create_group(f"traj_{i}")
+                g.create_dataset(
+                    "actions", data=np.ones((episode_length, act_dim), dtype=np.float32)
+                )
+                g.create_dataset("obs", data=np.ones((episode_length, obs_dim), dtype=np.float32))
+                g.create_dataset(
+                    "env_states", data=np.ones((episode_length, env_state_dim), dtype=np.float32)
+                )
+
+        return ManiSkillDataModule(
+            dataset_file=h5_path,
+            val_split=val_split,
+            seed=seed,
+            **kwargs,
         )
 
-        first_idx = 0
-        traj_idx, cond_start, cond_end, act_start, act_end, L = dataset.slices[first_idx]
-        assert cond_start < 0, "Expected negative start index to test left padding."
+    return _create_datamodule
 
-        sample = dataset[first_idx]
-        pad_before = -cond_start
 
-        def check_left_edge_padding(padded_tensor, pad_len):
-            """Recursively check edge padding for tensors or dicts of tensors (like 'obs')."""
-            if isinstance(padded_tensor, dict):
-                for v in padded_tensor.values():
-                    check_left_edge_padding(v, pad_len)
-            else:
-                for i in range(pad_len):
-                    # Elements in the padded region should be identical to the first valid element
-                    assert torch.allclose(padded_tensor[i], padded_tensor[pad_len]), (
-                        "Left edge padding is incorrect."
-                    )
+class TestManiSkillDataModuleLogic:
+    """Test suite for the internal logic, splitting, and configuration of the DataModule."""
 
-        check_left_edge_padding(sample["cond_seq"], pad_before)
-        check_left_edge_padding(sample["act_seq"], pad_before)
+    def test_setup_and_splitting(self, datamodule_factory):
+        """Verifies train/val splits respect the val_split ratio correctly."""
+        # 10 episodes total, val_split = 0.2 -> 8 train, 2 val
+        dm = datamodule_factory(num_episodes=10, val_split=0.2)
+        dm.setup()
 
-        # Test left padding
-        # Grab the last slice of the first trajectory
-        last_idx = L - 1
-        traj_idx_last, _, _, a_s, a_e, L_last = dataset.slices[last_idx]
-        assert traj_idx_last == traj_idx, "Expected to still be on the first trajectory."
-        assert a_e > L_last, "Expected act_end to exceed sequence length to test right padding."
+        assert isinstance(dm.train_set, ManiSkillDataset)
+        assert isinstance(dm.val_set, ManiSkillDataset)
 
-        sample_last = dataset[last_idx]
-        act_seq_last = sample_last["act_seq"]
-        pad_after = a_e - L_last
-        valid_end_idx = datamodule.pred_horizon - pad_after - 1
+        # Check episode distribution (not temporal windows, but source episodes)
+        assert len(dm.train_set.episodes) == 8
+        assert len(dm.val_set.episodes) == 2
 
-        if dataset.action_right_pad_as_zero_mask is not None:
-            mask = torch.tensor(dataset.action_right_pad_as_zero_mask, dtype=torch.bool)
-            # Deltas are zero-padded (mask=True), absolutes are edge-padded (mask=False)
-            for i in range(1, pad_after + 1):
-                padded_step = act_seq_last[-i]
-                edge_step = act_seq_last[valid_end_idx]
+    def test_split_reproducibility(self, datamodule_factory):
+        """Verifies that the same seed produces the exact same train/val split, and a different
+        seed produces a different split."""
+        dm_1 = datamodule_factory(num_episodes=20, val_split=0.2, seed=42)
+        dm_1.setup()
 
-                assert torch.allclose(padded_step[~mask], edge_step[~mask]), (
-                    "Right edge padding for absolute actions is incorrect."
-                )
-                assert torch.allclose(padded_step[mask], torch.zeros_like(padded_step[mask])), (
-                    "Right zero padding for delta actions is incorrect."
-                )
-        else:
-            # Everything is edge padded
-            for i in range(1, pad_after + 1):
-                assert torch.allclose(act_seq_last[-i], act_seq_last[valid_end_idx]), (
-                    "Right edge padding for act_seq is incorrect."
-                )
+        dm_2 = datamodule_factory(num_episodes=20, val_split=0.2, seed=42)
+        dm_2.setup()
 
-    def test_slice_and_pad_mask_variations(self, datamodule: ManiSkillDataModule):
-        """Tests the `_slice_and_pad` method directly against different padding mask
-        configurations."""
+        dm_diff = datamodule_factory(num_episodes=20, val_split=0.2, seed=999)
+        dm_diff.setup()
 
-        # TODO: should be improved with also left padding cases, and maybe simplified/generalized
+        def get_episode_ids(dataset):
+            return [ep["episode_id"] for ep in dataset.episodes]
 
-        datamodule.setup("fit")
-        dataset = datamodule.train_set
+        # Same seed should match perfectly
+        assert get_episode_ids(dm_1.train_set) == get_episode_ids(dm_2.train_set)
 
-        if dataset is None:
-            raise ValueError("Expected train_set to be initialized after setup('fit').")
+        # Different seed should shuffle differently
+        assert get_episode_ids(dm_1.train_set) != get_episode_ids(dm_diff.train_set)
 
-        if not isinstance(dataset, ManiSkillDataset):
-            raise TypeError("Expected train_set to be an instance of ManiSkillDataset.")
+    @patch("policy.datamodules.maniskill_datamodule.rank_zero_warn")
+    def test_json_metadata_parsing(self, mock_warn, datamodule_factory):
+        """Tests parsing logic for physx backends and observation modes."""
 
-        # Create a controlled dummy sequence: 5 timesteps, variable action dimension
-        act_dim = datamodule.act_dim
-        seq_length = 5
-        # Array like: [[0,1,2], [3,4,5], [6,7,8], [9,10,11], [12,13,14]]
-        dummy_data = np.arange(seq_length * act_dim).reshape(seq_length, act_dim)
-
-        # Setup slice boundaries that exceed the array length to trigger RIGHT padding
-        start = 3
-        end = 8  # 3 timesteps beyond L
-        L = seq_length
-        pad_after = end - L  # 3 frames of padding expected
-
-        # Expected edge value is the last valid row in dummy_data
-        edge_value = dummy_data[-1]
-
-        # --- CASE A: masks are None (Default Edge Padding) ---
-        padded_none = dataset._slice_and_pad(
-            dummy_data,
-            start,
-            end,
-            L,
-            right_pad_as_zero_mask=None,
-            left_pad_as_zero_mask=None,
+        # Test 1: 'auto' backend falls back to physx_cpu and warns
+        dm_auto = datamodule_factory(sim_backend="auto", obs_mode="state")
+        assert dm_auto.physx_backend == "physx_cpu"
+        mock_warn.assert_called_with(
+            "Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'."
         )
-        for i in range(1, pad_after + 1):
-            assert np.array_equal(padded_none[-i], edge_value), (
-                "Failed Case A: `None` mask did not result in standard edge padding."
-            )
 
-        # --- CASE B: All Zeros Mask (All True) ---
-        mask_all_zeros = np.ones(act_dim, dtype=bool)
-        padded_zeros = dataset._slice_and_pad(
-            dummy_data,
-            start,
-            end,
-            L,
-            right_pad_as_zero_mask=mask_all_zeros,
-            left_pad_as_zero_mask=mask_all_zeros,
+        # Test 2: 'none' obs_mode sets use_physx_env_states to True
+        dm_none = datamodule_factory(obs_mode="none")
+        assert dm_none.use_physx_env_states is True
+
+        # Test 3: Standard obs_mode sets use_physx_env_states to False
+        dm_state = datamodule_factory(obs_mode="state")
+        assert dm_state.use_physx_env_states is False
+
+    @patch("policy.datamodules.maniskill_datamodule.rank_zero_warn")
+    def test_infer_padding_masks_absolute_mode(self, mock_warn, datamodule_factory):
+        """Absolute modes should default to None (edge padding) and warn if overridden."""
+        dm_abs = datamodule_factory(
+            control_mode="pd_joint_pos",
+            action_left_pad_as_zero_mask=[True, True, True, True],  # Trying to override
         )
-        for i in range(1, pad_after + 1):
-            assert np.array_equal(padded_zeros[-i], np.zeros(act_dim)), (
-                "Failed Case B: All-True mask did not result in pure zero padding."
-            )
+        left_mask, right_mask = dm_abs._infer_padding_masks()
 
-        # --- CASE C: All Edge Mask (All False) ---
-        mask_all_edges = np.zeros(act_dim, dtype=bool)
-        padded_edges = dataset._slice_and_pad(
-            dummy_data,
-            start,
-            end,
-            L,
-            left_pad_as_zero_mask=mask_all_edges,
-            right_pad_as_zero_mask=mask_all_edges,
+        assert left_mask is None
+        assert right_mask is None
+        mock_warn.assert_called()
+        assert "is absolute. The mask will be ignored" in mock_warn.call_args[0][0]
+
+    def test_infer_padding_masks_delta_mode(self, datamodule_factory):
+        """Delta modes should default to zero padding except for the last dim (gripper)."""
+        dm_delta = datamodule_factory(control_mode="pd_joint_delta_pos")
+        left_mask, right_mask = dm_delta._infer_padding_masks()
+
+        # We mocked act_dim to be 4 in the factory.
+        # So we expect [True, True, True, False]
+        expected_mask = np.array([True, True, True, False], dtype=bool)
+
+        assert np.array_equal(left_mask, expected_mask)
+        assert np.array_equal(right_mask, expected_mask)
+
+    def test_infer_padding_masks_explicit_override(self, datamodule_factory):
+        """Explicit overrides should be respected if in delta/vel mode."""
+        custom_mask = [False, False, True, True]
+        dm_override = datamodule_factory(
+            control_mode="pd_joint_delta_pos",
+            action_left_pad_as_zero_mask=custom_mask,
+            action_right_pad_as_zero_mask=custom_mask,
         )
-        for i in range(1, pad_after + 1):
-            assert np.array_equal(padded_edges[-i], edge_value), (
-                "Failed Case C: All-False mask did not result in pure edge padding."
-            )
+        left_mask, right_mask = dm_override._infer_padding_masks()
 
-        # --- CASE D: Mixed Mask (Last dimension is Edge, others are Zeros) ---
-        if act_dim > 1:
-            mask_mixed = np.ones(act_dim, dtype=bool)
-            mask_mixed[-1] = False  # Last dim gets edge padding
+        expected_mask = np.array(custom_mask, dtype=bool)
+        assert np.array_equal(left_mask, expected_mask)
+        assert np.array_equal(right_mask, expected_mask)
 
-            padded_mixed = dataset._slice_and_pad(
-                dummy_data,
-                start,
-                end,
-                L,
-                left_pad_as_zero_mask=mask_mixed,
-                right_pad_as_zero_mask=mask_mixed,
-            )
-            for i in range(1, pad_after + 1):
-                # Check that all elements EXCEPT the last one are zero
-                assert np.array_equal(padded_mixed[-i, :-1], np.zeros(act_dim - 1)), (
-                    "Failed Case D (Mixed): Elements designated for zero padding were not zero."
-                )
 
-                # Check that the LAST element matches the edge value
-                assert padded_mixed[-i, -1] == edge_value[-1], (
-                    "Failed Case D (Mixed): Element designated for edge padding did not match edge value."
-                )
+class TestManiSkillDataLoaders:
+    """Test suite specifically for PyTorch DataLoader creation and batch generation."""
+
+    def test_train_val_dataloaders(self, datamodule_factory):
+        """Verifies dataloaders return batches with correct shapes."""
+        batch_size = 2
+        cond_horizon = 2
+        pred_horizon = 4
+
+        dm = datamodule_factory(
+            batch_size=batch_size,
+            cond_horizon=cond_horizon,
+            pred_horizon=pred_horizon,
+            obs_mode="state",  # use_physx_env_states = False -> condition is 'obs' (dim 3)
+        )
+        dm.setup()
+
+        train_loader = dm.train_dataloader()
+        val_loader = dm.val_dataloader()
+
+        assert isinstance(train_loader, DataLoader)
+        assert isinstance(val_loader, DataLoader)
+
+        # Fetch one batch
+        batch = next(iter(train_loader))
+
+        assert "cond_seq" in batch
+        assert "act_seq" in batch
+
+        # Check shapes: (batch_size, horizon, dimension)
+        # obs_dim = 3, act_dim = 4 (from factory mock)
+        assert batch["cond_seq"].shape == (batch_size, cond_horizon, 3)
+        assert batch["act_seq"].shape == (batch_size, pred_horizon, 4)
+
+    def test_test_dataloader_is_dummy(self, datamodule_factory):
+        """Verifies the test dataloader correctly yields the DummyDataset."""
+        dm = datamodule_factory()
+        test_loader = dm.test_dataloader()
+
+        assert isinstance(test_loader.dataset, DummyDataset)
+        assert len(test_loader) == 1
+
+        batch = next(iter(test_loader))
+        assert batch == {}
