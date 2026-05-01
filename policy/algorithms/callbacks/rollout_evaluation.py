@@ -188,12 +188,16 @@ class RolloutEvaluationCallback(L.Callback):
         pbar, task_id = self._init_progress_bar(num_episodes, phase, use_rich_bar=use_rich_bar)
 
         total_successes = 0
+        total_truncations = 0
+        total_episode_lengths = 0
         for iteration in range(num_iterations):
             iteration_seed = self._get_iteration_seed(phase, iteration)
             obs, info = env.reset(seed=iteration_seed)
 
             dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
             successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
+            truncations = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
+            lengths = torch.zeros(num_envs, dtype=torch.float, device=pl_module.device)
 
             envs_completed_this_iter = 0
 
@@ -218,6 +222,8 @@ class RolloutEvaluationCallback(L.Callback):
 
                     obs, reward, terminated, truncated, info = env.step(action)
 
+                    lengths[~dones] += 1
+
                     truncated = torch.as_tensor(
                         truncated, dtype=torch.bool, device=pl_module.device
                     )
@@ -234,6 +240,8 @@ class RolloutEvaluationCallback(L.Callback):
                             succ, device=pl_module.device, dtype=torch.bool
                         )
                         successes[just_finished] = succ_tensor.view(-1)[just_finished]
+
+                    truncations[just_finished] = truncated.view(-1)[just_finished]
 
                     dones = dones | env_is_done
 
@@ -256,14 +264,20 @@ class RolloutEvaluationCallback(L.Callback):
                         break
 
             total_successes += successes.float().sum().item()
+            total_truncations += truncations.float().sum().item()
+            total_episode_lengths += lengths.sum().item()
 
         self._close_progress_bar(pbar)
 
         env.close()
 
-        # TODO: what else should I log? e.g. truncated?
         success_rate = total_successes / num_episodes
+        avg_truncation_rate = total_truncations / num_episodes
+        avg_episode_length = total_episode_lengths / num_episodes
+
         pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=True, prog_bar=True)
+        pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=True)
+        pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=True)
 
         # TODO: this causes the TQDM bars to dont clean from the terminal and persists
         rank_zero_info(
@@ -304,7 +318,7 @@ class RolloutEvaluationCallback(L.Callback):
         else:
             pbar = tqdm(
                 total=total, desc=f"  [{phase.capitalize()}] Rollout", leave=False, position=2
-            )  # leave=False makes the progress bar disappear after completion, positioin=2 ensures it  doesnt conflict with the bar managed by Lightning
+            )  # leave=False makes the progress bar disappear after completion, positioin=2 ensures it  doesn't conflict with the bar managed by Lightning
             return pbar, None
 
     def _update_progress_bar(
