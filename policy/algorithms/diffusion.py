@@ -229,7 +229,7 @@ class DiffusionPolicy(L.LightningModule):
 
         return denoised_act_seq
 
-    def _shared_step(self, batch, batch_idx, phase: str) -> torch.Tensor:
+    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         "Main step logic, it doesn't differ between training and validation except for the logging."
         flatten_cond = flatten_tensor_dict(batch["cond_seq"])
         action_seq = batch["act_seq"]

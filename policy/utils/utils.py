@@ -77,12 +77,12 @@ def print_dict_tree(
 
     Prints .shape and .dtype for atomic elements that possess them.
     """
+    print_wrapper = rank_zero_info if use_rank_zero_info else print
+
     items: list[tuple[str, Any]] = list(data.items())
     for i, (key, value) in enumerate(items):
         is_last = i == len(items) - 1
         branch = "└── " if is_last else "├── "
-
-        print_wrapper = rank_zero_info if use_rank_zero_info else print
 
         # Branch: If the value is another dictionary, recurse
         if isinstance(value, dict):
@@ -90,20 +90,20 @@ def print_dict_tree(
             new_indent = indent + ("    " if is_last else "│   ")
             print_dict_tree(value, new_indent)
 
-            # Leaf: If the value has a shape (and potentially a dtype)
+        # Leaf: If the value has a shape (and potentially a dtype)
         elif hasattr(value, "shape"):
             # Get dtype if it exists, otherwise leave empty
             dtype_str = f", dtype={value.dtype}" if hasattr(value, "dtype") else ""
             print_wrapper(f"{indent}{branch}{key}: shape={value.shape}{dtype_str}")
 
-            # Leaf: Basic types
+        # Leaf: Basic types
         else:
             print_wrapper(f"{indent}{branch}{key}: {type(value).__name__}")
 
 
 def to_tensor(
-    data: np.ndarray | dict[str, Any], device: torch.device | None = None
-) -> torch.Tensor | dict[str, Any]:
+    data: np.ndarray | Mapping[str, Any], device: torch.device | None = None
+) -> dict[str, Any] | torch.Tensor:
     """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
     tensors."""
     if isinstance(data, dict):
@@ -142,16 +142,14 @@ def flatten_tensor_dict(
     return torch.cat(tensors, dim=1)
 
 
-def sum_shapes(d) -> int:
+def sum_shapes(d: dict | tuple | int) -> int:
     """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key, or returns
-    the value if it's an int or a tuple."""
+    the value if it's an a tuple or a int."""
     if isinstance(d, dict):
         if "shape" in d:
             return d["shape"][-1]
         return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict | int | tuple))
-    elif isinstance(d, int):
-        return d
     elif isinstance(d, tuple):
         return d[-1]
     else:
-        raise TypeError(f"Unsupported type for sum_shapes: {type(d)}")
+        return d

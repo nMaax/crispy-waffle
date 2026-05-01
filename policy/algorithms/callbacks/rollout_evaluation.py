@@ -6,7 +6,7 @@ import lightning as L
 import mani_skill.envs  # noqa: F401
 import torch
 from gymnasium.spaces import Box
-from lightning.pytorch.callbacks import RichProgressBar
+from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar
 from lightning.pytorch.utilities import rank_zero_info
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import gym_utils
@@ -184,8 +184,8 @@ class RolloutEvaluationCallback(L.Callback):
 
         pl_module.eval()
 
-        is_rich = isinstance(trainer.progress_bar_callback, RichProgressBar)
-        pbar, task_id = self._init_progress_bar(num_episodes, phase, is_rich)
+        use_rich_bar = isinstance(trainer.progress_bar_callback, RichProgressBar)
+        pbar, task_id = self._init_progress_bar(num_episodes, phase, use_rich_bar=use_rich_bar)
 
         total_successes = 0
         for iteration in range(num_iterations):
@@ -241,7 +241,7 @@ class RolloutEvaluationCallback(L.Callback):
                     advance = newly_completed - envs_completed_this_iter
 
                     if advance > 0:
-                        self._update_progress_bar(pbar, task_id, advance, is_rich)
+                        self._update_progress_bar(pbar, task_id, advance)
 
                     envs_completed_this_iter = newly_completed
 
@@ -257,7 +257,7 @@ class RolloutEvaluationCallback(L.Callback):
 
             total_successes += successes.float().sum().item()
 
-        self._close_progress_bar(pbar, task_id, is_rich)
+        self._close_progress_bar(pbar)
 
         env.close()
 
@@ -279,7 +279,7 @@ class RolloutEvaluationCallback(L.Callback):
         """Helper to extract the correct conditioning state given use_physx_env_states flag is True
         or False."""
         if self.use_physx_env_states:
-            # Unwrapped contains the raw data from the physics engine
+            # .unwrapped contains the raw data from the physics engine
             policy_conditioning = env.unwrapped.get_state()  # type: ignore
             policy_conditioning = to_tensor(policy_conditioning, device=device)
         else:
@@ -292,32 +292,40 @@ class RolloutEvaluationCallback(L.Callback):
         base_seed = self.val_seed if phase == "val" else self.test_seed
         return base_seed + iteration
 
-    def _init_progress_bar(self, total: int, phase: str, is_rich: bool) -> tuple[Any, Any]:
+    def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""
-        if is_rich:
-            pbar = Progress(transient=True)
+        if use_rich_bar:
+            pbar = Progress(
+                transient=True
+            )  # trinsient=True makes the progress bar disappear after completion
             task_id = pbar.add_task(f"  [{phase.capitalize()}] Rollout", total=total)
             pbar.start()
             return pbar, task_id
         else:
             pbar = tqdm(
                 total=total, desc=f"  [{phase.capitalize()}] Rollout", leave=False, position=2
-            )
+            )  # leave=False makes the progress bar disappear after completion, positioin=2 ensures it  doesnt conflict with the bar managed by Lightning
             return pbar, None
 
-    def _update_progress_bar(self, pbar: Any, task_id: Any, advance: int, is_rich: bool) -> None:
+    def _update_progress_bar(
+        self, pbar: RichProgressBar | TQDMProgressBar, task_id: Any, advance: int
+    ) -> None:
         """Advance the progress bar by the specified amount."""
-        if is_rich:
+        if isinstance(pbar, Progress):
             pbar.update(task_id, advance=advance)
-        else:
+        elif isinstance(pbar, tqdm):
             pbar.update(advance)
-
-    def _close_progress_bar(self, pbar: Any, task_id: Any, is_rich: bool) -> None:
-        """Close the progress bar."""
-        if is_rich:
-            pbar.stop()
         else:
+            raise ValueError(f"Unsupported progress bar type: {type(pbar).__name__}")
+
+    def _close_progress_bar(self, pbar: Any) -> None:
+        """Close the progress bar."""
+        if isinstance(pbar, Progress):
+            pbar.stop()
+        elif isinstance(pbar, tqdm):
             pbar.close()
+        else:
+            raise ValueError(f"Unsupported progress bar type: {type(pbar).__name__}")
 
     def _validate_setup(self) -> None:
         """Ensures all required attributes from setup() are initialized."""
