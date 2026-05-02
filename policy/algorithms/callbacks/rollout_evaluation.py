@@ -201,18 +201,16 @@ class RolloutEvaluationCallback(L.Callback):
         use_rich_bar = isinstance(trainer.progress_bar_callback, RichProgressBar)
         pbar, task_id = self._init_progress_bar(num_episodes, phase, use_rich_bar=use_rich_bar)
 
-        # 1. Initialize variables globally for the whole phase
-        total_successes = 0
+        total_success_once = 0
+        total_success_at_end = 0
         total_truncations = 0
         total_episode_lengths = 0
         episodes_completed = 0
 
-        # 2. Reset the environment exactly ONCE.
         # The Auto-Reset wrapper will handle seeding subsequent episodes automatically based on this initial seed.
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
 
-        # 3. The Continuous Loop
         while episodes_completed < num_episodes:
             policy_conditioning = self._get_policy_conditioning(
                 env=env, obs=obs, device=pl_module.device
@@ -238,6 +236,10 @@ class RolloutEvaluationCallback(L.Callback):
                 # --- METRICS & COUNTING ---
 
                 # Consider that the info dictionary returned by the environment looks like this:
+                #
+                # > final_* entries will only appear once the env is effectively done,
+                # > so in the first iteration do not assume they exist
+                #
                 # info
                 # ├── elapsed_steps: shape=torch.Size([25]), dtype=torch.int32
                 # ├── is_cubeA_grasped: shape=torch.Size([25]), dtype=torch.bool
@@ -262,6 +264,7 @@ class RolloutEvaluationCallback(L.Callback):
                 # ├── _final_observation: shape=torch.Size([25]), dtype=torch.bool
                 # └── _elapsed_steps: shape=torch.Size([25]), dtype=torch.bool
 
+                # "_final_info" is a boolean mask indicating which envs finished THIS exact step
                 if "_final_info" in info:
                     mask = info["_final_info"]
 
@@ -269,61 +272,62 @@ class RolloutEvaluationCallback(L.Callback):
                     finished_envs = mask.nonzero(as_tuple=True)[0]
 
                     for env_idx in finished_envs:
-                        # 4. Safely stop if we overshot our target
+                        # Safely stop if we overshot our target
                         if episodes_completed >= num_episodes:
                             continue
 
                         episodes_completed += 1
 
-                        # GPU Backend: final_info is a dictionary of batched tensors
-                        if isinstance(info["final_info"], dict):
-                            # Grab success (sometimes it's at the top level, sometimes inside 'episode')
-                            if "success" in info["final_info"]:
-                                total_successes += int(
-                                    info["final_info"]["success"][env_idx].item()
-                                )
-                            elif "success" in info["final_info"].get("episode", {}):
-                                total_successes += int(
-                                    info["final_info"]["episode"]["success"][env_idx].item()
-                                )
+                        ep_dict = info["final_info"].get("episode", {})
 
-                            # Grab length
-                            if (
-                                "episode" in info["final_info"]
-                                and "episode_len" in info["final_info"]["episode"]
-                            ):
-                                total_episode_lengths += int(
-                                    info["final_info"]["episode"]["episode_len"][env_idx].item()
-                                )
+                        # Track success_once
+                        if "success_once" in ep_dict:
+                            total_success_once += int(ep_dict["success_once"][env_idx].item())
+                        elif "success" in info["final_info"]:
+                            # Fallback if "episode" sub-dict isn't fully populated yet
+                            total_success_once += int(
+                                info["final_info"]["success"][env_idx].item()
+                            )
 
-                        # CPU Backend Fallback: final_info is a list/tuple of dicts
-                        elif isinstance(info["final_info"], list | tuple):
-                            env_info = info["final_info"][env_idx]
+                        # Track success_at_end (may not be present if ignore_terminations=False)
+                        if "success_at_end" in ep_dict:
+                            total_success_at_end += int(ep_dict["success_at_end"][env_idx].item())
 
-                            if "success" in env_info:
-                                total_successes += int(env_info["success"])
-                            elif "success" in env_info.get("episode", {}):
-                                total_successes += int(env_info["episode"]["success"])
+                        # Track length (ManiSkill uses 'episode_len', Gym uses 'l')
+                        if "episode_len" in ep_dict:
+                            total_episode_lengths += int(ep_dict["episode_len"][env_idx].item())
 
-                            if "episode" in env_info and "episode_len" in env_info["episode"]:
-                                total_episode_lengths += int(env_info["episode"]["episode_len"])
-
-                        # Truncations can safely be pulled from the global truncated tensor
                         total_truncations += int(truncated[env_idx].item())
-
                         self._update_progress_bar(pbar, task_id, 1)
 
-                # 5. Break out of the chunk if we hit our global target
                 if episodes_completed >= num_episodes:
                     break
 
-                # --- THE DESYNC TOGGLE ---
                 if self.ignore_terminations:
-                    # ManiSkill Way: Break chunk only if everyone timed out
                     if truncated.all():
                         break
                 else:
-                    # Dynamic Way: Break chunk if anyone timed out
+                    # NOTE: In a batched GPU environment, if one single environment truncates
+                    # on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
+                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of 100 environments,
+                    # even though 99 of them were perfectly happy executing the rest of their chunk.
+                    # It just means that inference will run slightly slower toward the end of an evaluation epoch as environments start finishing at different times, causing more frequent replanning
+                    # However, fixing this would require complex tensor masking etc., so I will keepm it this way for now for simplicity
+                    #
+                    # In fact, this is actually desired: what happens if you set ignore_terminations=False
+                    # is that early successes cause that specific environment to quietly auto-reset in the background.
+                    # This causes the robot to execute those actions that were not yet executed because the robot succceded midway
+                    # in the new "ghost" episode.
+                    #
+                    # Breaking with truncated.any() forces such ghost episodes to being discarded once the other late environments finish.
+                    #
+                    # Conversely, when ignore_terminations=True, the environments are forced to wait out the entire
+                    # time limit (holding their success), preventing early resets and keeping all environment
+                    # stopwatches rigidly synchronized without any ghost actions or early replanning.
+                    #
+                    # In other words, in ignore_terminations = False we do not test our model capacity to "hold" the success state while waiting for the others.
+                    # Generally, always prefer ignore_terminations = True
+
                     if truncated.any():
                         break
 
@@ -331,17 +335,22 @@ class RolloutEvaluationCallback(L.Callback):
 
         env.close()
 
-        success_rate = total_successes / num_episodes
+        success_once_rate = total_success_once / num_episodes
+        success_at_end_rate = total_success_at_end / num_episodes
         avg_truncation_rate = total_truncations / num_episodes
         avg_episode_length = total_episode_lengths / num_episodes
 
         # We do not support multi GPUs in maniskill, so we set sync_dist=False
-        pl_module.log(f"{phase}/success_rate", float(success_rate), sync_dist=False, prog_bar=True)
+        pl_module.log(
+            f"{phase}/success_once_rate", float(success_once_rate), sync_dist=False, prog_bar=True
+        )
+        pl_module.log(f"{phase}/success_at_end_rate", float(success_at_end_rate), sync_dist=False)
         pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=False)
         pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=False)
 
         pl_module.print(
-            f"  [{phase.capitalize()} | Step {trainer.global_step:06d}] Rollout Success Rate: {success_rate:.4%}"
+            f"  [{phase.capitalize()} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
+            f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
 
     def _get_iteration_seed(self, phase: str, iteration: int) -> int:

@@ -3,6 +3,8 @@ rollout_evaluation:
   num_val_episodes: 10
   num_test_episodes: 100
   max_episode_steps: 200
+  num_envs: 1 # = 1 will lead CPU backend, >1 will lead to GPU
+  ignore_terminations: true
   clamp_action: true
   video_dir: null
   seed: ${seed} # Seed is passed by config.py
