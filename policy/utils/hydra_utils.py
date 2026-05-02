@@ -108,13 +108,32 @@ def resolve_dictconfig(dict_config: DictConfig) -> Config:
     if dict_config["datamodule"]:
         with omegaconf.open_dict(dict_config):
             v = dict_config._get_flag("allow_objects")
-            dict_config._set_flag("allow_objects", True)
+            dict_config._set_flag("allow_objects", True)  # turn off the safety mearue
+
+            # NOTE: while this is effectively instantiating the datamodule before the rest of the configuration is fully finalized and the training loop begins,
+            # you should not be concerned with it as long as your datamodule has been written cleanly enough
+            # to actually load the data into RAM only once setup() is called. This is true for ManiSkillDataModule,
+            # for instance, as the __init__ doesn't load any heavy data; setup() does. And on top of that, there
+            # is even a lazy loading mode, just in case.
+            # Not doing so (i.e., loading data during datamodule __init__, instead of setup(), in a non-lazy way) would lead the following code
+            # to probably steal some time and resources upfront. Specifically, if you have a typo or error elsewhere
+            # in your configuration files, your computer would freeze right here to load gigabytes of data into RAM,
+            # only to crash a fraction of a second later when it finds the typo. It turns a quick 1-second failure
+            # into a frustrating 5-minute wait!
+
             if isinstance(dict_config["datamodule"], LightningDataModule):
+                # Datamodule was already instantiated (probably from the `instance_attr` resolver to get an attribute like `num_classes` when instantiating a network config), so we can just reuse it
                 dm = dict_config["datamodule"]
             else:
+                # instantiate the datamodule manually
                 dm = hydra.utils.instantiate(dict_config["datamodule"])
+                # shove it inside the Hydra config
                 dict_config["datamodule"] = dm
+
+            # Save into cache
             instantiated_objects_cache["datamodule"] = dm
+
+            # Restore the safety measure to its original value
             dict_config._set_flag("allow_objects", v)
 
     config = OmegaConf.to_object(dict_config)
@@ -167,6 +186,15 @@ def instance_attr(
 
     3. Retrieve the value of the attribute (`getattr(datamodule, 'num_classes')`) and return it.
     """
+
+    # NOTE: if you never use the keyword `${instance_attr:...}` in your Hydra configs, then you can safely
+    # ignore this and the related BUGs will not concern you. In simple terms what this piece of code does
+    # is to pause Hydra's configuration process, inspect Python's live memory stack to steal Hydra's
+    # private variables (the unfinished "blueprints"), and force the computer to physically build an
+    # object early just so it can measure one of its properties (e.g. `act_dim`). Because it relies
+    # on ripping open Hydra's internal memory to read specific variable names (like `init_field_items`),
+    # it will instantly crash if a future update to Hydra changes how those internal variables are named.
+
     if not attributes:
         raise RuntimeError("Need to pass one or more attributes to this resolver.")
     assert _being_called_in_hydra_context()
@@ -254,8 +282,7 @@ def instance_attr(
                 instantiated_obj = instantiate(obj)
             except Exception as err:
                 logger.error(
-                    f"Unable to instantiate {obj} to get the missing {attr_part} "
-                    f"attribute: {err}"
+                    f"Unable to instantiate {obj} to get the missing {attr_part} attribute: {err}"
                 )
                 break
             new_instantiated_objects[path_so_far] = instantiated_obj
@@ -358,6 +385,10 @@ def make_config_and_store(
     This uses [hydra_zen.builds](https://mit-ll-responsible-ai.github.io/hydra-zen/generated/hydra_zen.builds.html)
     to create the config dataclass and stores it at the name `config_name`, or `target.__name__`.
     """
+
+    # NOTE: this function is basically dead code, it is never called in any other file, and thus
+    # the below BUG is not a concern
+
     _current_frame = inspect.currentframe()
     assert _current_frame
     _calling_module = inspect.getmodule(_current_frame.f_back)

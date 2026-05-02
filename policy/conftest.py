@@ -105,6 +105,13 @@ from policy.utils.testutils import (
 )
 from policy.utils.typing_utils import is_sequence_of
 
+# NOTE: while there are indeed some bugs pointed out below, they only concern the test
+# suite and will NOT affect in any way the actual training and evaluation pipeline,
+# since unit tests are not so fundamental to this project we will not address them
+#
+# NOTE: same goes for the "todo" (in lowercase) comments, they are mainly part of the test suite
+# thus they do not lead to fundmanetal issues in the experimental pipeline, we can ignore these
+
 if typing.TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 

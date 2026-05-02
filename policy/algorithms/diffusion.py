@@ -14,9 +14,6 @@ from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.utils import flatten_tensor_dict, sum_shapes
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
-# TODO: Review whole template to ensure it works
-# TODO: Compare with original maniskill code, line by line
-
 
 class DiffusionPolicy(L.LightningModule):
     """Diffusion Policy as in Cheng et. al (IJRR)
