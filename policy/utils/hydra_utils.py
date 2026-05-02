@@ -194,6 +194,8 @@ def instance_attr(
     # object early just so it can measure one of its properties (e.g. `act_dim`). Because it relies
     # on ripping open Hydra's internal memory to read specific variable names (like `init_field_items`),
     # it will instantly crash if a future update to Hydra changes how those internal variables are named.
+    # > If you ever find yourself to use `instance_attr`, remind to modify pyproject and pin the Hydra version,
+    # > as this is a bit hacky and could break in future Hydra versions.
 
     if not attributes:
         raise RuntimeError("Need to pass one or more attributes to this resolver.")

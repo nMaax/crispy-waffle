@@ -151,9 +151,12 @@ class ManiSkillDataset(Dataset):
             right_pad_as_zero_mask=self.action_right_pad_as_zero_mask,
         )
 
+        cond_seq = to_tensor(cond_seq)
+        act_seq = to_tensor(act_seq)
+
         return {
-            "cond_seq": to_tensor(cond_seq),
-            "act_seq": to_tensor(act_seq),
+            "cond_seq": cond_seq,
+            "act_seq": act_seq,
         }
 
     @property
@@ -171,7 +174,9 @@ class ManiSkillDataset(Dataset):
             return None
         if isinstance(mask, torch.Tensor):
             mask = mask.cpu()
-        return np.asarray(mask, dtype=bool)
+
+        numpy_mask = np.asarray(mask, dtype=bool)
+        return numpy_mask
 
     def _load_metadata(self, episodes: list[dict] | None) -> None:
         """Loads episode metadata from provided list or JSON file."""
@@ -255,7 +260,10 @@ class ManiSkillDataset(Dataset):
     def _compute_trajectory_slices(
         self, traj_idx: int, L: int
     ) -> list[tuple[int, int, int, int, int, int]]:
-        """Compute all temporal windows for one episode of length L."""
+        """Compute all temporal windows for one episode of length L.
+
+        This is very specific to Diffusion Policy.
+        """
 
         # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
         # to start at the same timestamp as the observation sequence (act_start = cond_start).
@@ -273,6 +281,16 @@ class ManiSkillDataset(Dataset):
         #   pred_horizon, which is already large enough to contain both the
         #   "anchor" steps and the steps we actually execute.
         #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
+        #
+        # Example horizons:
+        #   |t|
+        # |o|o|                             conditioning: 2
+        # | |a|a|a|a|a|a|a|a|               actions executed: 8
+        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
+        #
+        # Note that in the code below act_start and act_end actually refer to the prediction bounds (|p|, not |a|)
+        # in fact, the |a| line is irrelevant in the dataset, it doesn't exist here. It only concerns the DiffusionPolicy class
+        # so we reuse the terminology "action" in pladce of "prediction" for simplicity
 
         slices = []
         for t in range(L):

@@ -56,6 +56,7 @@ class DiffusionPolicy(L.LightningModule):
         self.lr_scheduler: LRScheduler | None = None
 
         self.datamodule = datamodule
+
         self.cond_horizon = self.datamodule.cond_horizon
         self.pred_horizon = self.datamodule.pred_horizon
         self.act_horizon = act_horizon
@@ -310,4 +311,5 @@ class DiffusionPolicy(L.LightningModule):
         else:
             raise ValueError(f"Unsupported prediction_type: {pred_type}")
 
-        return F.mse_loss(prediction, target)
+        loss = F.mse_loss(prediction, target)
+        return loss
