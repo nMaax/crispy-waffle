@@ -11,6 +11,7 @@ from lightning.pytorch.utilities import rank_zero_info
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers import FrameStack, RecordEpisode
+from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from rich.progress import Progress
 from tqdm import tqdm
 
@@ -33,6 +34,8 @@ class RolloutEvaluationCallback(L.Callback):
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         max_episode_steps: int | None = None,
+        num_envs: int | None = None,  # Default to the min(num_episodes_val, num_episodes_test)
+        ignore_terminations: bool = True,  # Default to the strict ManiSkill way
         clamp_action: bool = True,
         video_dir: str | None = None,
         render_mode: str | None = None,
@@ -45,7 +48,14 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
+
+        if num_envs is not None and num_envs > 0:
+            self.num_envs = num_envs
+        else:
+            self.num_envs = min(num_val_episodes, num_test_episodes)
+        self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
+
         self.clamp_action = clamp_action
         self.video_dir = video_dir
 
@@ -142,23 +152,15 @@ class RolloutEvaluationCallback(L.Callback):
             return
 
         # On CUDA we run all episodes in parallel, on CPU we run sequentially
-        if self.physx_backend == "physx_cuda":
-            num_iterations = 1
-            num_envs = num_episodes
-        elif self.physx_backend == "physx_cpu":
-            # TODO: I could rather use AsyncVectorEnv
-            # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
-            num_iterations = num_episodes
-            num_envs = 1
-        else:
-            raise ValueError(f"Unsupported physx_backend: {self.physx_backend}")
+        # TODO: I could rather use AsyncVectorEnv
+        # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
 
         env = gym.make(
             id=self.env_id,
             obs_mode=self.obs_mode,
             control_mode=self.control_mode,
             render_mode=self.render_mode,
-            num_envs=num_envs,
+            num_envs=self.num_envs,
             max_episode_steps=self.max_episode_steps,
         )
 
@@ -177,6 +179,9 @@ class RolloutEvaluationCallback(L.Callback):
             )
 
         env = FrameStack(env, num_stack=pl_module.cond_horizon)
+        env = ManiSkillVectorEnv(
+            env, ignore_terminations=self.ignore_terminations, record_metrics=True
+        )
 
         action_space = env.action_space
 
@@ -196,85 +201,131 @@ class RolloutEvaluationCallback(L.Callback):
         use_rich_bar = isinstance(trainer.progress_bar_callback, RichProgressBar)
         pbar, task_id = self._init_progress_bar(num_episodes, phase, use_rich_bar=use_rich_bar)
 
+        # 1. Initialize variables globally for the whole phase
         total_successes = 0
         total_truncations = 0
         total_episode_lengths = 0
-        for iteration in range(num_iterations):
-            iteration_seed = self._get_iteration_seed(phase, iteration)
-            obs, info = env.reset(seed=iteration_seed)
+        episodes_completed = 0
 
-            dones = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
-            successes = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
-            truncations = torch.zeros(num_envs, dtype=torch.bool, device=pl_module.device)
-            lengths = torch.zeros(num_envs, dtype=torch.float, device=pl_module.device)
+        # 2. Reset the environment exactly ONCE.
+        # The Auto-Reset wrapper will handle seeding subsequent episodes automatically based on this initial seed.
+        seed = self.val_seed if phase == "val" else self.test_seed
+        obs, info = env.reset(seed=seed)
 
-            envs_completed_this_iter = 0
+        # 3. The Continuous Loop
+        while episodes_completed < num_episodes:
+            policy_conditioning = self._get_policy_conditioning(
+                env=env, obs=obs, device=pl_module.device
+            )
+            flatten_cond = flatten_tensor_dict(policy_conditioning, device=pl_module.device)
 
-            # Step until all environments within this batch have concluded
-            while not dones.all():
-                policy_conditioning = self._get_policy_conditioning(
-                    env=env, obs=obs, device=pl_module.device
-                )
-                flatten_cond = flatten_tensor_dict(policy_conditioning, device=pl_module.device)
+            with torch.no_grad():
+                action_seq = pl_module.get_action(flatten_cond)
 
-                with torch.no_grad():
-                    action_seq = pl_module.get_action(flatten_cond)
+            # Execute the action chunk
+            for i in range(pl_module.act_horizon):
+                action = action_seq[:, i]
 
-                # Execute each action in the action chunk
-                for i in range(pl_module.act_horizon):
-                    action = action_seq[:, i]
-
-                    if self.clamp_action:
-                        action = torch.clamp(
-                            action, action_low.to(action.dtype), action_high.to(action.dtype)
-                        )
-
-                    obs, reward, terminated, truncated, info = env.step(action)
-
-                    lengths[~dones] += 1
-
-                    truncated = torch.as_tensor(
-                        truncated, dtype=torch.bool, device=pl_module.device
-                    )
-                    terminated = torch.as_tensor(
-                        terminated, dtype=torch.bool, device=pl_module.device
+                if self.clamp_action:
+                    action = torch.clamp(
+                        action, action_low.to(action.dtype), action_high.to(action.dtype)
                     )
 
-                    env_is_done = terminated | truncated
-                    just_finished = env_is_done & ~dones
+                obs, reward, terminated, truncated, info = env.step(action)
 
-                    if "success" in info:
-                        succ = info["success"]
-                        succ_tensor = torch.as_tensor(
-                            succ, device=pl_module.device, dtype=torch.bool
-                        )
-                        successes[just_finished] = succ_tensor.view(-1)[just_finished]
+                truncated = torch.as_tensor(truncated, dtype=torch.bool, device=pl_module.device)
 
-                    truncations[just_finished] = truncated.view(-1)[just_finished]
+                # --- METRICS & COUNTING ---
 
-                    dones = dones | env_is_done
+                # Consider that the info dictionary returned by the environment looks like this:
+                # info
+                # ├── elapsed_steps: shape=torch.Size([25]), dtype=torch.int32
+                # ├── is_cubeA_grasped: shape=torch.Size([25]), dtype=torch.bool
+                # ├── is_cubeA_on_cubeB: shape=torch.Size([25]), dtype=torch.bool
+                # ├── is_cubeA_static: shape=torch.Size([25]), dtype=torch.bool
+                # ├── success: shape=torch.Size([25]), dtype=torch.bool
+                # ├── reconfigure: bool
+                # ├── final_observation: shape=torch.Size([25, 2, 48]), dtype=torch.float32
+                # ├── final_info
+                # │   ├── elapsed_steps: shape=torch.Size([25]), dtype=torch.int32
+                # │   ├── is_cubeA_grasped: shape=torch.Size([25]), dtype=torch.bool
+                # │   ├── is_cubeA_on_cubeB: shape=torch.Size([25]), dtype=torch.bool
+                # │   ├── is_cubeA_static: shape=torch.Size([25]), dtype=torch.bool
+                # │   ├── success: shape=torch.Size([25]), dtype=torch.bool
+                # │   └── episode
+                # │       ├── success_once: shape=torch.Size([25]), dtype=torch.bool
+                # │       ├── return: shape=torch.Size([25]), dtype=torch.float32
+                # │       ├── episode_len: shape=torch.Size([25]), dtype=torch.int32
+                # │       ├── reward: shape=torch.Size([25]), dtype=torch.float32
+                # │       └── success_at_end: shape=torch.Size([25]), dtype=torch.bool
+                # ├── _final_info: shape=torch.Size([25]), dtype=torch.bool
+                # ├── _final_observation: shape=torch.Size([25]), dtype=torch.bool
+                # └── _elapsed_steps: shape=torch.Size([25]), dtype=torch.bool
 
-                    newly_completed = int(dones.sum().item())
-                    advance = newly_completed - envs_completed_this_iter
+                if "_final_info" in info:
+                    mask = info["_final_info"]
 
-                    if advance > 0:
-                        self._update_progress_bar(pbar, task_id, advance)
+                    # Get the indices of the environments that just finished
+                    finished_envs = mask.nonzero(as_tuple=True)[0]
 
-                    envs_completed_this_iter = newly_completed
+                    for env_idx in finished_envs:
+                        # 4. Safely stop if we overshot our target
+                        if episodes_completed >= num_episodes:
+                            continue
 
-                    # NOTE: In a batched GPU environment (e.g., 100 parallel envs), if one single environment truncates
-                    # (e.g., drops the object or reaches the step limit) on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
-                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of 100 environments,
-                    # even though 99 of them were perfectly happy executing the rest of their chunk.
-                    # It just means that inference will run slightly slower toward the end of an evaluation epoch as environments start finishing at different times, causing more frequent replanning
-                    # However, fixing this would require complex tensor masking etc., so I will keepm it this way for now for simplicity
+                        episodes_completed += 1
 
+                        # GPU Backend: final_info is a dictionary of batched tensors
+                        if isinstance(info["final_info"], dict):
+                            # Grab success (sometimes it's at the top level, sometimes inside 'episode')
+                            if "success" in info["final_info"]:
+                                total_successes += int(
+                                    info["final_info"]["success"][env_idx].item()
+                                )
+                            elif "success" in info["final_info"].get("episode", {}):
+                                total_successes += int(
+                                    info["final_info"]["episode"]["success"][env_idx].item()
+                                )
+
+                            # Grab length
+                            if (
+                                "episode" in info["final_info"]
+                                and "episode_len" in info["final_info"]["episode"]
+                            ):
+                                total_episode_lengths += int(
+                                    info["final_info"]["episode"]["episode_len"][env_idx].item()
+                                )
+
+                        # CPU Backend Fallback: final_info is a list/tuple of dicts
+                        elif isinstance(info["final_info"], list | tuple):
+                            env_info = info["final_info"][env_idx]
+
+                            if "success" in env_info:
+                                total_successes += int(env_info["success"])
+                            elif "success" in env_info.get("episode", {}):
+                                total_successes += int(env_info["episode"]["success"])
+
+                            if "episode" in env_info and "episode_len" in env_info["episode"]:
+                                total_episode_lengths += int(env_info["episode"]["episode_len"])
+
+                        # Truncations can safely be pulled from the global truncated tensor
+                        total_truncations += int(truncated[env_idx].item())
+
+                        self._update_progress_bar(pbar, task_id, 1)
+
+                # 5. Break out of the chunk if we hit our global target
+                if episodes_completed >= num_episodes:
+                    break
+
+                # --- THE DESYNC TOGGLE ---
+                if self.ignore_terminations:
+                    # ManiSkill Way: Break chunk only if everyone timed out
+                    if truncated.all():
+                        break
+                else:
+                    # Dynamic Way: Break chunk if anyone timed out
                     if truncated.any():
                         break
-
-            total_successes += successes.float().sum().item()
-            total_truncations += truncations.float().sum().item()
-            total_episode_lengths += lengths.sum().item()
 
         self._close_progress_bar(pbar)
 
@@ -300,7 +351,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def _get_policy_conditioning(
         self,
-        env: FrameStack,
+        env: FrameStack | ManiSkillVectorEnv,
         obs: torch.Tensor | dict[str, Any],
         device: torch.device | None = None,
     ) -> torch.Tensor | dict[str, Any]:
