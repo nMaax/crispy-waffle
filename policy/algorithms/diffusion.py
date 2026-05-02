@@ -114,7 +114,7 @@ class DiffusionPolicy(L.LightningModule):
 
     def configure_optimizers(self) -> Optimizer | dict:
 
-        # NOTE: Optimizers and schedulers could actually be made in one shot, without partial,
+        # Optimizers and schedulers could actually be made in one shot, without partial,
         # however I prefer to follow the template prescription, just for coherence
 
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
@@ -142,7 +142,7 @@ class DiffusionPolicy(L.LightningModule):
         return self._shared_step(batch, batch_idx, "val")
 
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
-        pass
+        pass  # We dont test on data, we only run simulation rollouts
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -221,7 +221,6 @@ class DiffusionPolicy(L.LightningModule):
         B = cond_seq.shape[0]
 
         self.ema.store(self.network.parameters())
-
         self.ema.copy_to(self.network.parameters())
 
         if num_inference_steps is None:
@@ -300,10 +299,8 @@ class DiffusionPolicy(L.LightningModule):
         )
         timesteps = cast(torch.IntTensor, timesteps)
 
-        flatten_cond = flatten_tensor_dict(cond_seq)
-
         noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, external_cond=flatten_cond)
+        prediction = self.network(noisy_act_seq, timesteps, external_cond=cond_seq)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 

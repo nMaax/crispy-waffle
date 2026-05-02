@@ -125,7 +125,7 @@ class RolloutEvaluationCallback(L.Callback):
         # From [Maniskill](https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization):
         # "We currently do not properly support exposing multiple
         # visible CUDA devices to a single process as it has some rendering bugs at the moment."
-        # NOTE: the global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
+        # The global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
         if not trainer.is_global_zero:
             return
 
@@ -293,6 +293,11 @@ class RolloutEvaluationCallback(L.Callback):
             f"  [{phase.capitalize()} | Step {trainer.global_step:06d}] Rollout Success Rate: {success_rate:.4%}"
         )
 
+    def _get_iteration_seed(self, phase: str, iteration: int) -> int:
+        """Computes the seed for a specific evaluation iteration."""
+        base_seed = self.val_seed if phase == "val" else self.test_seed
+        return base_seed + iteration
+
     def _get_policy_conditioning(
         self,
         env: FrameStack,
@@ -313,11 +318,6 @@ class RolloutEvaluationCallback(L.Callback):
             policy_conditioning = obs
 
         return policy_conditioning
-
-    def _get_iteration_seed(self, phase: str, iteration: int) -> int:
-        """Computes the seed for a specific evaluation iteration."""
-        base_seed = self.val_seed if phase == "val" else self.test_seed
-        return base_seed + iteration
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""
