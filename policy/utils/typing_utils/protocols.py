@@ -115,3 +115,12 @@ class DiffusionSchedulerProtocol(Protocol):
         return_dict: bool = True,
         **kwargs: Any,
     ) -> Any | tuple: ...
+
+
+@runtime_checkable
+class PermuterProtocol(Protocol):
+    """Protocol for permuters used during rollouts."""
+
+    def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
+        """Applies a permutation to the batched observation."""
+        ...

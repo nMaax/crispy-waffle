@@ -8,3 +8,4 @@ rollout_evaluation:
   clamp_action: true
   video_dir: null
   seed: ${seed} # Seed is passed by config.py
+  permuter: null

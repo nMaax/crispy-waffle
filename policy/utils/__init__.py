@@ -3,7 +3,6 @@ from .h5_utils import (
     load_h5_data,
     peek_trajectory_dimension,
 )
-from .permuter import StackCubeObservationPermuter
 from .utils import (
     flatten_tensor_dict,
     get_batch_size,
@@ -25,5 +24,4 @@ __all__ = [
     "extract_h5_shapes",
     "load_h5_data",
     "peek_trajectory_dimension",
-    "StackCubeObservationPermuter",
 ]

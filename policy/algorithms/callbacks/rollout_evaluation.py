@@ -2,6 +2,7 @@ import warnings
 from typing import Any, cast
 
 import gymnasium as gym
+import hydra_zen
 import lightning as L
 import mani_skill.envs  # noqa: F401
 import torch
@@ -16,8 +17,9 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from rich.progress import Progress
 from tqdm import tqdm
 
-from policy.utils import StackCubeObservationPermuter, flatten_tensor_dict, to_tensor
-from policy.utils.typing_utils import PolicyProtocol
+from policy.utils import flatten_tensor_dict, to_tensor
+from policy.utils.permuters import NoOpPermuter
+from policy.utils.typing_utils import HydraConfigFor, PermuterProtocol, PolicyProtocol
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
@@ -41,6 +43,7 @@ class RolloutEvaluationCallback(L.Callback):
         video_dir: str | None = None,
         render_mode: str | None = None,
         seed: int | None = None,
+        permuter: HydraConfigFor[PermuterProtocol] | None = None,
     ):
         super().__init__()
 
@@ -64,6 +67,9 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.val_seed = seed + self.OFFSET_SEED_VAL
         self.test_seed = seed + self.OFFSET_SEED_TEST
+
+        self.permuter_config = permuter
+        self.permuter: PermuterProtocol | None = None
 
         self.env_id = None
         self.obs_mode = None
@@ -138,8 +144,10 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tnum_episodes (val/test): {self.num_val_episodes} / {self.num_test_episodes}"
         )
 
-        swap_indices = [i for i in range(self.num_envs) if i % 2 != 0]
-        self.permuter = StackCubeObservationPermuter(swap_indices)
+        if self.permuter_config is not None:
+            self.permuter = hydra_zen.instantiate(self.permuter_config)
+        else:
+            self.permuter = NoOpPermuter()
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
@@ -171,6 +179,12 @@ class RolloutEvaluationCallback(L.Callback):
             raise AttributeError(
                 f"Expected the LightningModule to implement PolicyProtocol, "
                 f"but got {type(pl_module).__name__}."
+            )
+
+        if not isinstance(self.permuter, PermuterProtocol):
+            raise AttributeError(
+                f"Expected the permuter to implement PermuterProtocol, "
+                f"but got {type(self.permuter).__name__}."
             )
 
         self._validate_setup()
@@ -248,14 +262,10 @@ class RolloutEvaluationCallback(L.Callback):
                 env=env, obs=obs, device=pl_module.device
             )
 
-            swapped_policy_conditioning = (
-                self.permuter.apply(policy_conditioning)
-                if phase == "test"
-                else policy_conditioning
-            )
+            permuted_policy_conditioning = self.permuter.apply(policy_conditioning)
 
             flatten_cond = flatten_tensor_dict(
-                swapped_policy_conditioning, device=pl_module.device
+                permuted_policy_conditioning, device=pl_module.device
             )
 
             with torch.no_grad():

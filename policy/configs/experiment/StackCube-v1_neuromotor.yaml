@@ -69,6 +69,7 @@ trainer:
       num_envs: null # 1 will lead CPU backend, >1 will lead to GPU, null will let the system automatically set it
       ignore_terminations: true
       clamp_action: true
+      permuter: null
 
     early_stopping:
       monitor: "val/loss" # quantity to be monitored
