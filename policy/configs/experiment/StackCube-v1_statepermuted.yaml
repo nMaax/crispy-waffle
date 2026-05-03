@@ -8,10 +8,10 @@ trainer:
 
 # Override the rollout evaluation callback for our specific experiment
 trainer.callbacks.rollout_evaluation:
+  permuter:
+    _target_: policy.utils.permuters.StackCubeObservationPermuter
+    swap_env_indices: [1] # e.g., if num_envs=2, env 0 is standard, env 1 is swapped
   num_val_episodes: 0 # No validation rollouts
   num_test_episodes: 100 # How many you want to evaluate
   num_envs: 2 # Run parallel envs for side-by-side comparison
   video_dir: "${hydra:runtime.output_dir}/videos" # Force rendering
-  permuter:
-    _target_: policy.utils.permuters.StackCubeObservationPermuter
-    swap_env_indices: [1] # e.g., if num_envs=2, env 0 is standard, env 1 is swapped

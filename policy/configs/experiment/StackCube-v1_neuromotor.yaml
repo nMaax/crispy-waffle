@@ -63,13 +63,13 @@ trainer:
       _target_: lightning.pytorch.callbacks.TQDMProgressBar
 
     rollout_evaluation:
+      permuter: null
       num_val_episodes: 25
       num_test_episodes: 100
       max_episode_steps: 200
       num_envs: null # 1 will lead CPU backend, >1 will lead to GPU, null will let the system automatically set it
       ignore_terminations: true
       clamp_action: true
-      permuter: null
 
     early_stopping:
       monitor: "val/loss" # quantity to be monitored

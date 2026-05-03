@@ -34,6 +34,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def __init__(
         self,
+        permuter: HydraConfigFor[PermuterProtocol] | None = None,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         max_episode_steps: int | None = None,
@@ -43,12 +44,14 @@ class RolloutEvaluationCallback(L.Callback):
         video_dir: str | None = None,
         render_mode: str | None = None,
         seed: int | None = None,
-        permuter: HydraConfigFor[PermuterProtocol] | None = None,
     ):
         super().__init__()
 
         if seed is None:
             raise ValueError("seed must be provided.")
+
+        self.permuter_config = permuter
+        self.permuter: PermuterProtocol | None = None
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
@@ -68,9 +71,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.val_seed = seed + self.OFFSET_SEED_VAL
         self.test_seed = seed + self.OFFSET_SEED_TEST
 
-        self.permuter_config = permuter
-        self.permuter: PermuterProtocol | None = None
-
         self.env_id = None
         self.obs_mode = None
         self.control_mode = None
@@ -84,6 +84,14 @@ class RolloutEvaluationCallback(L.Callback):
         )
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+
+        if self.permuter_config is not None:
+            self.permuter = hydra_zen.instantiate(self.permuter_config)
+        else:
+            self.permuter = NoOpPermuter()
+
+        rank_zero_info(f"Using permuter: {type(self.permuter).__name__}")
+
         datamodule = getattr(trainer, "datamodule", None)
 
         if datamodule is None:
@@ -143,11 +151,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tnum_envs: {self.num_envs}\n"
             f"\tnum_episodes (val/test): {self.num_val_episodes} / {self.num_test_episodes}"
         )
-
-        if self.permuter_config is not None:
-            self.permuter = hydra_zen.instantiate(self.permuter_config)
-        else:
-            self.permuter = NoOpPermuter()
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
