@@ -43,6 +43,9 @@ auto_schema_plugin.config = auto_schema_plugin.AutoSchemaPluginConfig(
     add_headers=False,  # don't fallback to adding headers if we can't use vscode settings file.
 )
 
+# TODO: since I sometimes train on a RTX 4080 I should use `torch.set_float32_matmul_precision=high` instead of default 'highest'
+# tho this is not supported on TITAN X and other architectures, I think Lightning provides a handy way to handle this anyway.
+
 
 @hydra.main(
     config_path=f"pkg://{PROJECT_NAME}.configs",

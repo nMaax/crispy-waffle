@@ -6,6 +6,7 @@ from .h5_utils import (
 from .utils import (
     flatten_tensor_dict,
     get_batch_size,
+    get_device,
     print_config,
     print_dict_tree,
     sum_shapes,
@@ -16,6 +17,7 @@ __all__ = [
     "print_dict_tree",
     "print_config",
     "get_batch_size",
+    "get_device",
     "flatten_tensor_dict",
     "to_tensor",
     "sum_shapes",

@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from logging import getLogger as get_logger
 from typing import Any
 
-import numpy as np
 import rich
 import rich.syntax
 import rich.tree
@@ -102,17 +101,16 @@ def print_dict_tree(
 
 
 def to_tensor(
-    data: np.ndarray | Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
+    data: Any,
+    device: torch.device | None = None,
+    dtype: torch.dtype | None = None,
 ) -> dict[str, Any] | torch.Tensor:
     """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
     tensors."""
-    if isinstance(data, np.ndarray):
-        tensor = torch.from_numpy(data).float()
-    elif isinstance(data, Mapping):
+    if isinstance(data, Mapping):
         return {k: to_tensor(v, device) for k, v in data.items()}
-
-    if device is not None:
-        tensor = tensor.to(device)
+    else:
+        tensor = torch.as_tensor(data, device=device, dtype=dtype)
 
     return tensor
 
@@ -123,6 +121,15 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
         return data.shape[0]
     for value in data.values():
         return get_batch_size(value)
+    raise ValueError("data must contain at least one tensor")
+
+
+def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
+    """Recursively finds the device from a nested dictionary of tensors."""
+    if isinstance(data, torch.Tensor):
+        return data.device
+    for value in data.values():
+        return get_device(value)
     raise ValueError("data must contain at least one tensor")
 
 

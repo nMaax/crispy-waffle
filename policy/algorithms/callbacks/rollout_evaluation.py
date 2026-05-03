@@ -6,6 +6,7 @@ import lightning as L
 import mani_skill.envs  # noqa: F401
 import torch
 from gymnasium.spaces import Box
+from lightning.fabric.utilities import rank_zero_warn
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar
 from lightning.pytorch.utilities import rank_zero_info
 from mani_skill.envs.sapien_env import BaseEnv
@@ -49,10 +50,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
 
-        if num_envs is not None and num_envs > 0:
-            self.num_envs = num_envs
-        else:
-            self.num_envs = min(num_val_episodes, num_test_episodes)
+        self.num_envs = num_envs
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
 
@@ -105,12 +103,39 @@ class RolloutEvaluationCallback(L.Callback):
         self.physx_backend = datamodule.physx_backend
         self.use_physx_env_states = datamodule.use_physx_env_states
 
+        if self.num_envs is None:
+            if "cpu" in self.physx_backend.lower():
+                self.num_envs = 1
+            else:
+                self.num_envs = min(self.num_val_episodes, self.num_test_episodes)
+
+            rank_zero_info(
+                f"In Rollout variable `num_envs` was not provided, automatically set to {self.num_envs} based on the physx_backend {self.physx_backend}."
+            )
+
+        if "cpu" in self.physx_backend.lower() and self.num_envs > 1:
+            rank_zero_warn(
+                f"Dataset specifies CPU backend but num_envs in Rollout was set to {self.num_envs}. "
+                "num_envs > 1 implies the use of GPU backed for simulations, however the model was trained on a CPU backend. "
+                "This is highly unadvised and may lead to failing simulations due to float precision mismatch. "
+                "We will proceed with num_envs > 1, however consider setting num_envs=1 or switching to a GPU replayed data for training."
+            )
+        elif "cuda" in self.physx_backend.lower() and self.num_envs == 1:
+            rank_zero_warn(
+                "Dataset specifies CUDA backend but num_envs in Rollout was set to 1. "
+                "num_envs=1 implies the use of CPU backend for simulations, however the model was trained on a GPU backend. "
+                "This is highly unadvised and may lead to failing simulations due to float precision mismatch. "
+                "We will proceed with num_envs=1, however consider setting num_envs > 1 or switching to a CPU replayed data for training."
+            )
+
         rank_zero_info(
             f"Rollout Config synced from Datamodule:\n"
             f"\tenv_id: {self.env_id},\n"
             f"\tobs_mode: {self.obs_mode} ({self.use_physx_env_states=}),\n"
             f"\tcontrol_mode: {self.control_mode},\n"
-            f"\tbackend: {self.physx_backend}"
+            f"\tbackend: {self.physx_backend}\n"
+            f"\tnum_envs: {self.num_envs}\n"
+            f"\tnum_episodes (val/test): {self.num_val_episodes} / {self.num_test_episodes}"
         )
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
@@ -212,6 +237,10 @@ class RolloutEvaluationCallback(L.Callback):
         obs, info = env.reset(seed=seed)
 
         while episodes_completed < num_episodes:
+            # BUG: When using raw physx tensors we get a mismatch of shapes since
+            # we did not stack subsequent frames physx_states on the conditioning history
+            # the most clean fix here is to make a custom environment wrapper that handles the history by itself
+            # using the same interface as the maniskill FrameStack wrapper, but stacking the physx states instead of the observations
             policy_conditioning = self._get_policy_conditioning(
                 env=env, obs=obs, device=pl_module.device
             )
@@ -232,7 +261,8 @@ class RolloutEvaluationCallback(L.Callback):
                 # We dont use terminated since "_final_info" in the info dict will already identify any early terminations
                 obs, reward, terminated, truncated, info = env.step(action)
 
-                truncated = torch.as_tensor(truncated, dtype=torch.bool, device=pl_module.device)
+                obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
+                truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 
                 # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
                 #
@@ -286,7 +316,7 @@ class RolloutEvaluationCallback(L.Callback):
                         if "success_once" in ep_dict:
                             total_success_once += int(ep_dict["success_once"][env_idx].item())
                         elif "success" in info["final_info"]:
-                            # Fallback if "episode" sub-dict isn't fully populated yet
+                            # Fallback if "episode" sub-dict can't be found
                             total_success_once += int(
                                 info["final_info"]["success"][env_idx].item()
                             )
@@ -353,11 +383,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
 
-    def _get_iteration_seed(self, phase: str, iteration: int) -> int:
-        """Computes the seed for a specific evaluation iteration."""
-        base_seed = self.val_seed if phase == "val" else self.test_seed
-        return base_seed + iteration
-
     def _get_policy_conditioning(
         self,
         env: FrameStack | ManiSkillVectorEnv,
@@ -371,7 +396,6 @@ class RolloutEvaluationCallback(L.Callback):
             returns: [num_envs, cond_horizon, target_dim]
         """
         if self.use_physx_env_states:
-            # .unwrapped contains the raw data from the physics engine
             policy_conditioning = env.unwrapped.get_state()  # type: ignore
             policy_conditioning = to_tensor(policy_conditioning, device=device)
         else:
