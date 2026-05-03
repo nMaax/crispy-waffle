@@ -176,10 +176,10 @@ def evaluate_lightning(
     for key, value in metrics.items():
         rich.print(f"{results_type} {key}: ", value)
 
-    if (success_rate := metrics.get(f"{results_type}/success_rate")) is not None:
+    if (success_once_rate := metrics.get(f"{results_type}/success_once_rate")) is not None:
         # Added for Imitation Learning
-        metric_name = "1-success_rate"
-        error = 1.0 - success_rate
+        metric_name = "1-success_once_rate"
+        error = 1.0 - success_once_rate
     elif (loss := metrics.get(f"{results_type}/loss")) is not None:
         logger.info("Assuming that the objective to minimize is the loss metric.")
         metric_name = "loss"

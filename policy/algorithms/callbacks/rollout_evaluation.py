@@ -16,7 +16,7 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from rich.progress import Progress
 from tqdm import tqdm
 
-from policy.utils import flatten_tensor_dict, to_tensor
+from policy.utils import StackCubeObservationPermuter, flatten_tensor_dict, to_tensor
 from policy.utils.typing_utils import PolicyProtocol
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
@@ -138,6 +138,9 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tnum_episodes (val/test): {self.num_val_episodes} / {self.num_test_episodes}"
         )
 
+        swap_indices = [i for i in range(self.num_envs) if i % 2 != 0]
+        self.permuter = StackCubeObservationPermuter(swap_indices)
+
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
 
@@ -244,7 +247,16 @@ class RolloutEvaluationCallback(L.Callback):
             policy_conditioning = self._get_policy_conditioning(
                 env=env, obs=obs, device=pl_module.device
             )
-            flatten_cond = flatten_tensor_dict(policy_conditioning, device=pl_module.device)
+
+            swapped_policy_conditioning = (
+                self.permuter.apply(policy_conditioning)
+                if phase == "test"
+                else policy_conditioning
+            )
+
+            flatten_cond = flatten_tensor_dict(
+                swapped_policy_conditioning, device=pl_module.device
+            )
 
             with torch.no_grad():
                 action_seq = pl_module.get_action(flatten_cond)

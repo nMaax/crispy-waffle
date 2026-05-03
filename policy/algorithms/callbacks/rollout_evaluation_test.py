@@ -194,5 +194,5 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
 
     # Verify log calls exist and are exactly 1.0 (our fake env always succeeds)
     logged = {name: float(value) for (name, value, _kw) in capture_log}
-    assert logged["val/success_rate"] == 1.0
-    assert logged["test/success_rate"] == 1.0
+    assert logged["val/success_once_rate"] == 1.0
+    assert logged["test/success_once_rate"] == 1.0
