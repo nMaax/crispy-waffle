@@ -171,6 +171,8 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA not initialized. Call configure_model() before on_train_batch_end."
             )
 
+        self.ema.to(self.device)
+
         self.ema.step(self.network.parameters())
 
     def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
