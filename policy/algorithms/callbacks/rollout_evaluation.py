@@ -152,7 +152,7 @@ class RolloutEvaluationCallback(L.Callback):
             return
 
         # On CUDA we run all episodes in parallel, on CPU we run sequentially
-        # TODO: I could rather use AsyncVectorEnv
+        # TODO: I could rather use Sync/AsyncVectorEnv, or maybe CPUGym?
         # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
 
         env = gym.make(
