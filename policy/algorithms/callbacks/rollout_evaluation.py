@@ -34,8 +34,8 @@ class RolloutEvaluationCallback(L.Callback):
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         max_episode_steps: int | None = None,
-        num_envs: int | None = None,  # Default to the min(num_episodes_val, num_episodes_test)
-        ignore_terminations: bool = True,  # Default to the strict ManiSkill way
+        num_envs: int | None = None,
+        ignore_terminations: bool = True,
         clamp_action: bool = True,
         video_dir: str | None = None,
         render_mode: str | None = None,
@@ -207,7 +207,7 @@ class RolloutEvaluationCallback(L.Callback):
         total_episode_lengths = 0
         episodes_completed = 0
 
-        # The Auto-Reset wrapper will handle seeding subsequent episodes automatically based on this initial seed.
+        # Reset will handle seeding subsequent episodes automatically based on this initial seed
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
 
@@ -229,15 +229,14 @@ class RolloutEvaluationCallback(L.Callback):
                         action, action_low.to(action.dtype), action_high.to(action.dtype)
                     )
 
+                # We dont use terminated since "_final_info" in the info dict will already identify any early terminations
                 obs, reward, terminated, truncated, info = env.step(action)
 
                 truncated = torch.as_tensor(truncated, dtype=torch.bool, device=pl_module.device)
 
-                # --- METRICS & COUNTING ---
-
-                # Consider that the info dictionary returned by the environment looks like this:
+                # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
                 #
-                # > final_* entries will only appear once the env is effectively done,
+                # > *final_* entries will only appear once the env is effectively done,
                 # > so in the first iteration do not assume they exist
                 #
                 # info
@@ -264,7 +263,10 @@ class RolloutEvaluationCallback(L.Callback):
                 # ├── _final_observation: shape=torch.Size([25]), dtype=torch.bool
                 # └── _elapsed_steps: shape=torch.Size([25]), dtype=torch.bool
 
-                # "_final_info" is a boolean mask indicating which envs finished THIS exact step
+                # "_final_info" is a boolean mask indicating which envs finished THIS EXACT step,
+                # it is NOT a state variable: once an environment finhishes, "_final_info" will be True for that environment for that single step only!
+                # The only other time it will be True is when, given ignore_terminations=True, the environment reaches the time limit and truncates:
+                # in that case "_final_info" will be True for all environments on the last step
                 if "_final_info" in info:
                     mask = info["_final_info"]
 
@@ -309,10 +311,8 @@ class RolloutEvaluationCallback(L.Callback):
                 else:
                     # NOTE: In a batched GPU environment, if one single environment truncates
                     # on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
-                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of 100 environments,
-                    # even though 99 of them were perfectly happy executing the rest of their chunk.
-                    # It just means that inference will run slightly slower toward the end of an evaluation epoch as environments start finishing at different times, causing more frequent replanning
-                    # However, fixing this would require complex tensor masking etc., so I will keepm it this way for now for simplicity
+                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of the next environments,
+                    # A truly pure asynchronous approach would require a complicated work of masks and action chunking, which is honestly useless.
                     #
                     # In fact, this is actually desired: what happens if you set ignore_terminations=False
                     # is that early successes cause that specific environment to quietly auto-reset in the background.

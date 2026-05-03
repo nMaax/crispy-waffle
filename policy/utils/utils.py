@@ -102,15 +102,18 @@ def print_dict_tree(
 
 
 def to_tensor(
-    data: np.ndarray | Mapping[str, Any], device: torch.device | None = None
+    data: np.ndarray | Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
 ) -> dict[str, Any] | torch.Tensor:
     """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
     tensors."""
-    if isinstance(data, dict):
+    if isinstance(data, np.ndarray):
+        tensor = torch.from_numpy(data).float()
+    elif isinstance(data, Mapping):
         return {k: to_tensor(v, device) for k, v in data.items()}
-    tensor = torch.from_numpy(data).float()
+
     if device is not None:
         tensor = tensor.to(device)
+
     return tensor
 
 
