@@ -71,6 +71,12 @@ trainer:
       ignore_terminations: true
       clamp_action: true
 
+      env_id: null
+      obs_mode: null
+      control_mode: null
+      physx_backend: null
+      use_physx_env_states: null
+
     early_stopping:
       monitor: "val/loss" # quantity to be monitored
       min_delta: 1e-5 # minimum change in the monitored quantity to qualify as an improvement

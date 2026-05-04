@@ -10,3 +10,9 @@ rollout_evaluation:
   clamp_action: true
   video_dir: null
   seed: ${seed} # Seed is passed by config.py
+
+  env_id: null
+  obs_mode: null
+  control_mode: null
+  physx_backend: null
+  use_physx_env_states: null

@@ -44,6 +44,12 @@ class RolloutEvaluationCallback(L.Callback):
         video_dir: str | None = None,
         render_mode: str | None = None,
         seed: int | None = None,
+        # Optional overrides to decouple from datamodule
+        env_id: str | None = None,
+        obs_mode: str | None = None,
+        control_mode: str | None = None,
+        physx_backend: str | None = None,
+        use_physx_env_states: bool | None = None,
     ):
         super().__init__()
 
@@ -71,11 +77,12 @@ class RolloutEvaluationCallback(L.Callback):
         self.val_seed = seed + self.OFFSET_SEED_VAL
         self.test_seed = seed + self.OFFSET_SEED_TEST
 
-        self.env_id = None
-        self.obs_mode = None
-        self.control_mode = None
-        self.physx_backend = None
-        self.use_physx_env_states = None
+        # Set environment properties directly (fallback to datamodule happens in setup)
+        self.env_id = env_id
+        self.obs_mode = obs_mode
+        self.control_mode = control_mode
+        self.physx_backend = physx_backend
+        self.use_physx_env_states = use_physx_env_states
 
         rank_zero_info(
             f"Seeds for rollout simulation fetched from main seed: {seed}\n"
@@ -94,28 +101,35 @@ class RolloutEvaluationCallback(L.Callback):
 
         datamodule = getattr(trainer, "datamodule", None)
 
-        if datamodule is None:
-            raise ValueError("A datamodule must be attached to the trainer to use this callback.")
+        # Fallback logic: Use provided config, otherwise fetch from Datamodule
+        def _resolve_param(param_value: Any, param_name: str) -> Any:
+            if param_value is not None:
+                return param_value
+            if datamodule is not None and hasattr(datamodule, param_name):
+                return getattr(datamodule, param_name)
+            raise ValueError(
+                f"`{param_name}` must be explicitly provided to RolloutEvaluationCallback "
+                f"or attached to trainer.datamodule."
+            )
 
-        if not getattr(datamodule, "env_id", None):
-            raise ValueError("Datamodule must specify an env_id.")
+        self.env_id = _resolve_param(self.env_id, "env_id")
+        self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
+        self.control_mode = _resolve_param(self.control_mode, "control_mode")
+        self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
+        self.use_physx_env_states = _resolve_param(
+            self.use_physx_env_states, "use_physx_env_states"
+        )
 
-        if datamodule.env_id not in gym.envs.registry:
+        if self.env_id not in gym.envs.registry:
             raise RuntimeError(
                 f"Environment '{self.env_id}' is not registered in Gymnasium + Maniskill."
             )
 
-        if "cuda" in datamodule.physx_backend.lower() and not torch.cuda.is_available():
+        if "cuda" in self.physx_backend.lower() and not torch.cuda.is_available():
             raise RuntimeError(
-                f"Dataset specifies CUDA backend '{self.physx_backend}', "
+                f"Rollout specifies CUDA backend '{self.physx_backend}', "
                 "but CUDA is not available on this machine. Cannot run parallel CUDA environments."
             )
-
-        self.env_id = datamodule.env_id
-        self.obs_mode = datamodule.obs_mode
-        self.control_mode = datamodule.control_mode
-        self.physx_backend = datamodule.physx_backend
-        self.use_physx_env_states = datamodule.use_physx_env_states
 
         if self.num_envs is None:
             if "cpu" in self.physx_backend.lower():
@@ -143,7 +157,7 @@ class RolloutEvaluationCallback(L.Callback):
             )
 
         rank_zero_info(
-            f"Rollout Config synced from Datamodule:\n"
+            f"Rollout Config setup complete:\n"
             f"\tenv_id: {self.env_id},\n"
             f"\tobs_mode: {self.obs_mode} ({self.use_physx_env_states=}),\n"
             f"\tcontrol_mode: {self.control_mode},\n"

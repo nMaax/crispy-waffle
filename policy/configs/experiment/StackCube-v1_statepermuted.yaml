@@ -17,3 +17,9 @@ trainer:
       num_test_episodes: 2 # How many you want to evaluate
       num_envs: 2 # Run parallel envs for side-by-side comparison
       video_dir: "${hydra:runtime.output_dir}/renderings/${name}/" # Force rendering
+
+      env_id: "StackCube-v1"
+      obs_mode: null
+      control_mode: null
+      physx_backend: null
+      use_physx_env_states: null
