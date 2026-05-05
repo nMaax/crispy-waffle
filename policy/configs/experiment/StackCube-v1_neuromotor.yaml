@@ -63,7 +63,7 @@ trainer:
       _target_: lightning.pytorch.callbacks.TQDMProgressBar
 
     rollout_evaluation:
-      permuter: null
+      adapter: null
       num_val_episodes: 25
       num_test_episodes: 100
       max_episode_steps: 200

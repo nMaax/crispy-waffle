@@ -118,9 +118,9 @@ class DiffusionSchedulerProtocol(Protocol):
 
 
 @runtime_checkable
-class PermuterProtocol(Protocol):
-    """Protocol for permuters used during rollouts."""
+class AdapterProtocol(Protocol):
+    """Protocol for adapters used during rollouts."""
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
-        """Applies a permutation to the batched observation."""
+        """Adapts the given observation to be compatible with the policy's expected input."""
         ...

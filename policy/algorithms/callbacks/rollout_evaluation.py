@@ -19,8 +19,8 @@ from rich.progress import Progress
 from tqdm import tqdm
 
 from policy.utils import flatten_tensor_dict, to_tensor
-from policy.utils.permuters import NoOpPermuter
-from policy.utils.typing_utils import HydraConfigFor, PermuterProtocol, PolicyProtocol
+from policy.utils.adapters import NoOpAdapter
+from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
@@ -35,7 +35,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def __init__(
         self,
-        permuter: HydraConfigFor[PermuterProtocol] | None = None,
+        adapter: HydraConfigFor[AdapterProtocol] | None = None,
         num_val_episodes: int = 20,
         num_test_episodes: int = 100,
         max_episode_steps: int | None = None,
@@ -57,8 +57,8 @@ class RolloutEvaluationCallback(L.Callback):
         if seed is None:
             raise ValueError("seed must be provided.")
 
-        self.permuter_config = permuter
-        self.permuter: PermuterProtocol | None = None
+        self.adapter_config = adapter
+        self.adapter: AdapterProtocol | None = None
 
         self.num_val_episodes = num_val_episodes
         self.num_test_episodes = num_test_episodes
@@ -93,12 +93,12 @@ class RolloutEvaluationCallback(L.Callback):
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
 
-        if self.permuter_config is not None:
-            self.permuter = hydra_zen.instantiate(self.permuter_config)
+        if self.adapter_config is not None:
+            self.adapter = hydra_zen.instantiate(self.adapter_config)
         else:
-            self.permuter = NoOpPermuter()
+            self.adapter = NoOpAdapter()
 
-        rank_zero_info(f"Using permuter: {type(self.permuter).__name__}")
+        rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
         datamodule = getattr(trainer, "datamodule", None)
 
@@ -199,10 +199,10 @@ class RolloutEvaluationCallback(L.Callback):
                 f"but got {type(pl_module).__name__}."
             )
 
-        if not isinstance(self.permuter, PermuterProtocol):
+        if not isinstance(self.adapter, AdapterProtocol):
             raise AttributeError(
-                f"Expected the permuter to implement PermuterProtocol, "
-                f"but got {type(self.permuter).__name__}."
+                f"Expected the adapter to implement AdapterProtocol, "
+                f"but got {type(self.adapter).__name__}."
             )
 
         self._validate_setup()
@@ -283,7 +283,7 @@ class RolloutEvaluationCallback(L.Callback):
                 env=env, obs=obs, device=pl_module.device
             )
 
-            permuted_policy_conditioning = self.permuter.apply(policy_conditioning)
+            permuted_policy_conditioning = self.adapter.apply(policy_conditioning)
 
             flatten_cond = flatten_tensor_dict(
                 permuted_policy_conditioning, device=pl_module.device

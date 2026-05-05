@@ -10,8 +10,8 @@ trainer:
   limit_val_batches: 0 # Disable validation
   callbacks:
     rollout_evaluation:
-      permuter:
-        _target_: policy.utils.permuters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter
+      adapter:
+        _target_: policy.utils.adapters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter
       num_val_episodes: 0 # No validation rollouts
       num_test_episodes: 9 # How many you want to evaluate
       num_envs: 9 # Run parallel envs for side-by-side comparison

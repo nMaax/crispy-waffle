@@ -10,8 +10,8 @@ trainer:
   limit_val_batches: 0 # Disable validation
   callbacks:
     rollout_evaluation:
-      permuter:
-        _target_: policy.utils.permuters.StackCubeObservationPermuter
+      adapter:
+        _target_: policy.utils.adapters.StackCubeObservationPermuter
         swap_env_indices: [1] # e.g., if num_envs=2, env 0 is standard, env 1 is swapped
       num_val_episodes: 0 # No validation rollouts
       num_test_episodes: 2 # How many you want to evaluate
