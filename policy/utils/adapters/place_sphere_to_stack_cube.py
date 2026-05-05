@@ -4,27 +4,14 @@ import torch
 
 
 class PlaceSphereToStackCubeAdapter:
-    """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1.
-
-    Maps the 'Sphere' state to 'Cube A' and the 'Bin' state to 'Cube B'. Injects a Z-offset to
-    account for the difference between stacking on a 4cm tall cube versus placing inside a shallow
-    bin.
-    """
+    """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 
     # NOTE: the following offset have been found by repeated experiments,
     # we guess that other than representing natural physical offset due to geometrical
-    # differences between the actors (cubes vs sphere + basket) in the two environments,
-    # they also likely compesate for some intrinsic bias in the ground truth motionplanning
-    # episodes where, for example, the cube used to be gripped not exactly at its center, but slightly off-centered,
-    # which would cause the TCP w.r.t. the sphere to be slightly off-centered as well;
-    # or, the cube used to be placed not exactly at the center of the other cube, but slightly off-centered as well;
-    # while such behaviour did not have bad consequences in a cube grabbing task, for a sphere this means, for instance,
-    # slipping away from the gripped, or not being collocated within the basket boundaries with precision.
-    # A more appropriate and scientific solution for this would be to compute such offsets deterministically
-    # from the training dataset, computing for example the average TCP-to-sphere position at the instance of grabbing across
-    # the training episodes, and the average sphere-to-basket position at the end of the training episodes.
-    # Or, even better, fix the original dataset by chirurgically adjusting the recorded TCP and object positions to be perfectly centered
-    # and collocated, and then retrain the policy on this fixed dataset.
+    # differences between the actors (cubes vs sphere + basket) in the two environments.
+    # With regards to a guess of intrisict bias on the demostrations: we found out there is none.
+    # The demostrator grabbed the cube perfectly at its center and placed it perfectly at the center of the other cube,
+    # so the bias is not due to the demonstrator's behavior but rather due to the geometrical differences between the two environments.
 
     SPHERE_X_OFFSET = 0.04
     SPHERE_Y_OFFSET = 0.08
@@ -44,10 +31,9 @@ class PlaceSphereToStackCubeAdapter:
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        """Projects a 39-dim PlaceSphere state into a 48-dim StackCube state.
+        """Projects a 39-dim PlaceSphere state into a 48-dim StackCube state."""
 
-        Works across arbitrary batch dimensions [..., 39] -> [..., 48].
-        """
+        # TODO: add small scheme that describes both tensors and the meaning at each index/slice
 
         proprioception = obs[..., 0:18].clone()  # Proprioception
         tcp_pose = obs[..., 19:26].clone()  # TCP

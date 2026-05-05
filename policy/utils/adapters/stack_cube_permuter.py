@@ -5,11 +5,7 @@ import torch
 
 class StackCubeObservationPermuter:
     """Tricks a policy trained on StackCube-v1 into stacking Cube B on Cube A by swapping their
-    identities in the observation space.
-
-    Supports both dictionaries of batched tensors and batched tensors themselves of arbitrary
-    dimensionality grater than 2.
-    """
+    identities in the observation space."""
 
     def __init__(self, swap_env_indices: list[int] | torch.Tensor):
         self.swap_indices = torch.as_tensor(swap_env_indices, dtype=torch.long)
@@ -24,6 +20,9 @@ class StackCubeObservationPermuter:
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
+        """Simply swaps the relevant parts of the observation tensor to permute the identities of
+        Cube A and Cube B."""
+
         swapped = obs.clone()
 
         a_pose = swapped[self.swap_indices, ..., 25:32].clone()

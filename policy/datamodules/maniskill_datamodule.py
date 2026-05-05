@@ -246,8 +246,6 @@ class ManiSkillDataModule(L.LightningDataModule):
         # but we also allow users to explicitly specify their own masks if we are not working with Franka/UR5
         is_non_abs_mode = "delta" in self.control_mode or "vel" in self.control_mode
 
-        # TODO: Review better this part, from renderings it looks like the robot tend to clutch the cube again really briefly once finished, it should just stand still
-
         if is_non_abs_mode:
             franka_mask = np.ones(self.act_dim, dtype=bool)
             franka_mask[-1] = False
