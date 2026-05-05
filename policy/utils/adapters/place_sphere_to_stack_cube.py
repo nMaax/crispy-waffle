@@ -11,8 +11,6 @@ class PlaceSphereToStackCubeAdapter:
     # on the point where gripper tries to grab the cube. I think then I should modify the training loss of the policy with a high penalty for not pointing to the
     # exact center of the cube when grabbing (note also that motionplanning data is extremely precise, it grabs the cube at the center basically all times, tho it places the faces of the two cubes slightly\
     # offsetted)
-    # On top of that, there is also a bian on the X value of the spawning position of the sphere, that tend to be OOD w.r.t the spawn X value of Cube A
-    # so I either need to scale the training data to more general situations, or force the sphereto spawn within an in-distribution X value
 
     SPHERE_X_OFFSET = 0.07
     SPHERE_Y_OFFSET = 0.06
@@ -50,7 +48,18 @@ class PlaceSphereToStackCubeAdapter:
         basket_pos[..., 1] += self.BASKET_Y_OFFSET
         basket_pos[..., 2] += self.BASKET_Z_OFFSET
 
-        tcp_to_sphere_pos = obs[..., 36:39].clone()  # TCP to Cube A
+        # NOTE: When using `obs[..., 36:39]` in place of the difference `sphere_pos - tcp_pos` we achieve
+        # final success. We explain this due to two main factors:
+        #   1. obs[.., 36:39] is ignoring the sphere offset we introduced above
+        #   2. the model is shifting its attention on the tensor entries before and after grabbing the cube, more specifically:
+        #       a. before grabbing the cube it focuses on the absolute position, which is shifted if X_OFFSET
+        #           (thus wrong! A truly general policy should grab air with this modification, but our does not)
+        #       b. after grabbing the cube it shifts the attention to relative distances vectors.
+        #   If the absolute position is offsetted we indeed indicate a position where no sphere exists, but we also force the model to grab in a zone out of its distribution
+        #   if we are precise enough we can effectively "guide" the model to find this "so-distant" sphere
+        #   then once the robot starts to move the sphere it will focus more on the relative distacne instead of the absolute, which in such case will be
+        #   CORRECT (it is not offsetted!)
+        tcp_to_sphere_pos = sphere_pos - tcp_pose[..., 0:3]  # TCP to Cube A
         tcp_to_basket = basket_pos - tcp_pose[..., 0:3]  # TCP to Cube B
         sphere_to_basket = basket_pos - sphere_pos  # Cube A to Cube B
 
