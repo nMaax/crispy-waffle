@@ -1,3 +1,4 @@
+# pyright: reportIndexIssue=false, reportOperatorIssue=false, reportArgumentType=false, reportCallIssue=false
 from pathlib import Path
 
 import h5py
