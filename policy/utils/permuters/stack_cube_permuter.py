@@ -24,26 +24,20 @@ class StackCubeObservationPermuter:
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        # Avoid in-place modification of the original environment state
         swapped = obs.clone()
 
-        # Extract the slices for the specific environments we want to swap.
-        # The ellipsis (...) ensures this works whether the shape is [25, 48] or [25, 2, 48]
         a_pose = swapped[self.swap_indices, ..., 25:32].clone()
         b_pose = swapped[self.swap_indices, ..., 32:39].clone()
         tcp_to_a = swapped[self.swap_indices, ..., 39:42].clone()
         tcp_to_b = swapped[self.swap_indices, ..., 42:45].clone()
         a_to_b = swapped[self.swap_indices, ..., 45:48].clone()
 
-        # Swap Absolute Poses
         swapped[self.swap_indices, ..., 25:32] = b_pose
         swapped[self.swap_indices, ..., 32:39] = a_pose
 
-        # Swap TCP to Cube vectors
         swapped[self.swap_indices, ..., 39:42] = tcp_to_b
         swapped[self.swap_indices, ..., 42:45] = tcp_to_a
 
-        # Invert Cube to Cube vector
         swapped[self.swap_indices, ..., 45:48] = -a_to_b
 
         return swapped
