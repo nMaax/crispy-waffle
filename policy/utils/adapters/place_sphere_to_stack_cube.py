@@ -6,6 +6,11 @@ import torch
 class PlaceSphereToStackCubeAdapter:
     """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 
+    # TODO:
+    #   - visualize attention on the input tensor
+    #   - Penalize not centering the object
+    #   - Bring sphere spawn values in-distribution w.r.t. StackCube spawn ranges
+
     # NOTE: the following offset have been found by repeated experiments on checkpoint 2026-05-03/18-01-47/checkpoints/step_035000,
     # however we noted different checkpoints, also within the same training run, lead to different biases (e.g. sometimes southewest, sometimes norteast)
     # on the point where gripper tries to grab the cube. I think then I should modify the training loss of the policy with a high penalty for not pointing to the
