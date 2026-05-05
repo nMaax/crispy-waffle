@@ -6,22 +6,24 @@ import torch
 class PlaceSphereToStackCubeAdapter:
     """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 
-    # NOTE: the following offset have been found by repeated experiments,
-    # we guess that other than representing natural physical offset due to geometrical
-    # differences between the actors (cubes vs sphere + basket) in the two environments.
-    # With regards to a guess of intrisict bias on the demostrations: we found out there is none.
-    # The demostrator grabbed the cube perfectly at its center and placed it perfectly at the center of the other cube,
-    # so the bias is not due to the demonstrator's behavior but rather due to the geometrical differences between the two environments.
+    # NOTE: the following offset have been found by repeated experiments on checkpoint 2026-05-03/18-01-47/checkpoints/step_035000,
+    # however we noted different checkpoints, also within the same training run, lead to different biases (e.g. sometimes southewest, sometimes norteast)
+    # on the point where gripper tries to grab the cube. I think then I should modify the training loss of the policy with a high penalty for not pointing to the
+    # exact center of the cube when grabbing (note also that motionplanning data is extremely precise, it grabs the cube at the center basically all times, tho it places the faces of the two cubes slightly\
+    # offsetted)
+    # On top of that, there is also a bian on the X value of the spawning position of the sphere, that tend to be OOD w.r.t the spawn X value of Cube A
+    # so I either need to scale the training data to more general situations, or force the sphereto spawn within an in-distribution X value
 
-    SPHERE_X_OFFSET = 0.04
-    SPHERE_Y_OFFSET = 0.08
+    SPHERE_X_OFFSET = 0.07
+    SPHERE_Y_OFFSET = 0.06
     SPHERE_Z_OFFSET = 0.01
 
-    BASKET_X_OFFSET = 0.098
-    BASKET_Y_OFFSET = 0.076
+    BASKET_X_OFFSET = 0.058
+    BASKET_Y_OFFSET = 0.056
     BASKET_Z_OFFSET = 0.018
 
-    FAKE_QUAT = [1.0, 0.0, 0.0, 0.0]
+    FAKE_QUAT_A = [0.694755, 0, 0, 0.08153171]  # Cube A quaternon median
+    FAKE_QUAT_B = [0.69651794, 0, 0, 0.05261808]  # Cube B quaternon median
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
 
@@ -59,13 +61,13 @@ class PlaceSphereToStackCubeAdapter:
         # We completely drop `is_grasped` (index 18) as StackCube doesn't use it
         swapped[..., 18:25] = tcp_pose
 
-        fake_quat_A = torch.tensor(self.FAKE_QUAT, dtype=obs.dtype, device=obs.device)
+        fake_quat_A = torch.tensor(self.FAKE_QUAT_A, dtype=obs.dtype, device=obs.device)
         fake_quat_A = fake_quat_A.expand(*sphere_pos.shape[:-1], 4)
         obj_pose = torch.cat([sphere_pos, fake_quat_A], dim=-1)
 
         swapped[..., 25:32] = obj_pose
 
-        fake_quat_B = torch.tensor(self.FAKE_QUAT, dtype=obs.dtype, device=obs.device)
+        fake_quat_B = torch.tensor(self.FAKE_QUAT_B, dtype=obs.dtype, device=obs.device)
         fake_quat_B = fake_quat_B.expand(*sphere_pos.shape[:-1], 4)
         bin_pose = torch.cat([basket_pos, fake_quat_B], dim=-1)
         swapped[..., 32:39] = bin_pose

@@ -7,8 +7,11 @@ class StackCubeObservationPermuter:
     """Tricks a policy trained on StackCube-v1 into stacking Cube B on Cube A by swapping their
     identities in the observation space."""
 
-    def __init__(self, swap_env_indices: list[int] | torch.Tensor):
-        self.swap_indices = torch.as_tensor(swap_env_indices, dtype=torch.long)
+    def __init__(self, swap_env_indices: list[int] | torch.Tensor | None):
+        if swap_env_indices is not None:
+            self.swap_indices = torch.as_tensor(swap_env_indices, dtype=torch.long)
+        else:
+            self.swap_indices = torch.tensor([], dtype=torch.long)
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
         if len(self.swap_indices) == 0:
