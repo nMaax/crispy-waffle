@@ -2,7 +2,7 @@
 defaults:
   - StackCube-v1_neuromotor # Inherit everything from the base experiment
 
-name: PlaceSphere_tricked_run # The name of the experiment (for logging)
+name: PlaceSphere-v1_tricked_run # The name of the experiment (for logging)
 ckpt_path: ???
 
 trainer:
