@@ -1,3 +1,4 @@
+import time
 import warnings
 from typing import Any, cast
 
@@ -270,6 +271,9 @@ class RolloutEvaluationCallback(L.Callback):
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
 
+        if self.render_mode == "human":
+            env.render()
+
         while episodes_completed < num_episodes:
             # BUG: When using raw physx tensors we get a mismatch of shapes since
             # we did not stack subsequent frames physx_states on the conditioning history
@@ -299,6 +303,10 @@ class RolloutEvaluationCallback(L.Callback):
 
                 # We dont use terminated since "_final_info" in the info dict will already identify any early terminations
                 obs, reward, terminated, truncated, info = env.step(action)
+
+                if self.render_mode == "human":
+                    time.sleep(0.05)
+                    env.render()
 
                 obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
                 truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
