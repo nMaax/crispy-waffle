@@ -14,8 +14,11 @@ class PlaceSphereToStackCubeAdapter:
     BASKET_Y_OFFSET = 0.0
     BASKET_Z_OFFSET = 0.018
 
-    FAKE_QUAT_A = [0.694755, 0, 0, 0.08153171]  # Cube A quaternon median
-    FAKE_QUAT_B = [0.69651794, 0, 0, 0.05261808]  # Cube B quaternon median
+    FAKE_QUAT_A = [1, 0, 0, 0]
+    # Or [0.694755, 0, 0, 0.08153171]  # Cube A quaternon median, but it doesn't sum to 1!
+
+    FAKE_QUAT_B = [1, 0, 0, 0]
+    # Or [0.69651794, 0, 0, 0.05261808]  # Cube B quaternon median, but it doesn't sum to 1!
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
 
