@@ -1,22 +1,22 @@
 # @package _global_
 defaults:
-  - StackCube-v1_neuromotor # Inherit everything from the base experiment
+  - StackCube-v1_neuromotor
 
-name: StackCube-v1_statepermuted_run # The name of the experiment (for logging)
+name: StackCube-v1_statepermuted_run
 ckpt_path: ???
 
 trainer:
   limit_train_batches: 0
-  limit_val_batches: 0 # Disable validation
+  limit_val_batches: 0
   callbacks:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.StackCubeObservationPermuter
         swap_env_indices: [0] # e.g., if num_envs=2, env 0 is swapped, env 1 is standard
-      num_val_episodes: 0 # No validation rollouts
-      num_test_episodes: 2 # How many you want to evaluate
-      num_envs: 2 # Run parallel envs for side-by-side comparison
-      video_dir: "${hydra:runtime.output_dir}/renderings/" # Force rendering
+      num_val_episodes: 0
+      num_test_episodes: 2
+      num_envs: 2
+      video_dir: "${hydra:runtime.output_dir}/renderings/"
 
       env_id: "StackCube-v1"
       obs_mode: null

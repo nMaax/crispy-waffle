@@ -221,6 +221,24 @@ if __name__ == "__main__":
     # Mean and Median Initial Position (Cube B):
     # [-0.0034901  -0.00025871  0.02000021] [-0.00089826 -0.0026188   0.02      ]
     #
+    # Std Initial Position (Cube A):
+    # [7.9126790e-02 1.3040744e-01 2.1234155e-07]
+    #
+    # Std Initial Position (Cube B):
+    # [8.5600525e-02 1.3171417e-01 2.1234155e-07]
+    #
+    # Proposed in-distribution (within 1 std) coordinates for Cube A (x, y):
+    # x: [-0.08243, 0.07583]
+    # y: [-0.12941, 0.13140]
+    #
+    # Proposed in-distribution (within 1 std) coordinates for Cube B (x, y):
+    # x: [-0.08909, 0.08211]
+    # y: [-0.13197, 0.13146]
+    #
+    # Random in-distribution (Cube A): x=0.05044, y=0.09347
+    #
+    # Random in-distribution (Cube B): x=0.05253, y=-0.05561
+    #
     # Mean Initial Quaternion (Cube A orientation at episode start):
     # [0.6189906  0.         0.         0.03655364]
     # Median and IQR Initial Quaternion (Cube A orientation at episode start):
@@ -235,7 +253,7 @@ if __name__ == "__main__":
     # [-0.00032287  0.00020988 -0.00015297]
     #
     # Mean Place offset (CubeA-to-CubeB):
-    # [ 0.00596169 -0.00024662 -0.03997973]
+    # [ 0.00596169 -0.00024662 -0.03997973]#
     #
     # SIGNIFICANT BIAS IN THE X VALUES, WHILE STACK CUBE EXPECTS EVERYTHING CENTERED AT (0, 0)
     # PUSH SPHERE PLACE ITS SPHERE AT 6cm AWAY ON THE X AXIS

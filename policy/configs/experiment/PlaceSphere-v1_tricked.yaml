@@ -1,24 +1,24 @@
 # @package _global_
 defaults:
-  - StackCube-v1_neuromotor # Inherit everything from the base experiment
+  - StackCube-v1_neuromotor
 
-name: PlaceSphere-v1_tricked_run # The name of the experiment (for logging)
+name: PlaceSphere-v1_tricked_run
 ckpt_path: ???
 
 trainer:
   limit_train_batches: 0
-  limit_val_batches: 0 # Disable validation
+  limit_val_batches: 0
   callbacks:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter
-      num_val_episodes: 0 # No validation rollouts
-      num_test_episodes: 4 # How many you want to evaluate
-      num_envs: 4 # Run parallel envs for side-by-side comparison
-      video_dir: "${hydra:runtime.output_dir}/renderings/" # Force rendering
+      num_val_episodes: 0
+      num_test_episodes: 4
+      num_envs: 4
+      video_dir: "${hydra:runtime.output_dir}/renderings/"
 
       env_id: "PlaceSphere-v1"
       obs_mode: "state"
-      control_mode: "pd_ee_delta_pos" # (Or whatever StackCube used)
-      physx_backend: null # Fetch from datamodule associated to the trainer inside checkpoint
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: null
       use_physx_env_states: False
