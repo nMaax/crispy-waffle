@@ -1,4 +1,5 @@
 # pyright: reportIndexIssue=false, reportOperatorIssue=false, reportArgumentType=false, reportCallIssue=false
+import random
 from pathlib import Path
 
 import h5py
@@ -71,6 +72,9 @@ def compute_demonstration_biases(h5_path: str | Path):
     mean_initial_position_b = np.mean(all_initial_positions_b, axis=0)
     median_initial_position_b = np.median(all_initial_positions_b, axis=0)
 
+    std_initial_position_a = np.std(all_initial_positions_a, axis=0)
+    std_initial_position_b = np.std(all_initial_positions_b, axis=0)
+
     mean_initial_quaternion_a = np.mean(all_initial_quaternions_a, axis=0)
     median_initial_quaternion_a = np.quantile(all_initial_quaternions_a, 0.5, axis=0)
     q25_initial_quaternion_a = np.quantile(all_initial_quaternions_a, 0.25, axis=0)
@@ -90,6 +94,52 @@ def compute_demonstration_biases(h5_path: str | Path):
     print()
     print("Mean and Median Initial Position (Cube B):")
     print(mean_initial_position_b, median_initial_position_b)
+    print()
+
+    print("Std Initial Position (Cube A):")
+    print(std_initial_position_a)
+    print()
+    print("Std Initial Position (Cube B):")
+    print(std_initial_position_b)
+    print()
+    # Propose in-distribution coordinates within 1 std (ignore z)
+    print("Proposed in-distribution (within 1 std) coordinates for Cube A (x, y):")
+    print(
+        f"x: [{mean_initial_position_a[0] - std_initial_position_a[0]:.5f}, {mean_initial_position_a[0] + std_initial_position_a[0]:.5f}]"
+    )
+    print(
+        f"y: [{mean_initial_position_a[1] - std_initial_position_a[1]:.5f}, {mean_initial_position_a[1] + std_initial_position_a[1]:.5f}]"
+    )
+    print()
+    print("Proposed in-distribution (within 1 std) coordinates for Cube B (x, y):")
+    print(
+        f"x: [{mean_initial_position_b[0] - std_initial_position_b[0]:.5f}, {mean_initial_position_b[0] + std_initial_position_b[0]:.5f}]"
+    )
+    print(
+        f"y: [{mean_initial_position_b[1] - std_initial_position_b[1]:.5f}, {mean_initial_position_b[1] + std_initial_position_b[1]:.5f}]"
+    )
+    print()
+
+    rand_x_a = random.uniform(
+        mean_initial_position_a[0] - std_initial_position_a[0],
+        mean_initial_position_a[0] + std_initial_position_a[0],
+    )
+    rand_y_a = random.uniform(
+        mean_initial_position_a[1] - std_initial_position_a[1],
+        mean_initial_position_a[1] + std_initial_position_a[1],
+    )
+    print(f"Random in-distribution (Cube A): x={rand_x_a:.5f}, y={rand_y_a:.5f}")
+    print()
+
+    rand_x_b = random.uniform(
+        mean_initial_position_b[0] - std_initial_position_b[0],
+        mean_initial_position_b[0] + std_initial_position_b[0],
+    )
+    rand_y_b = random.uniform(
+        mean_initial_position_b[1] - std_initial_position_b[1],
+        mean_initial_position_b[1] + std_initial_position_b[1],
+    )
+    print(f"Random in-distribution (Cube B): x={rand_x_b:.5f}, y={rand_y_b:.5f}")
     print()
 
     print("Mean Initial Quaternion (Cube A orientation at episode start):")

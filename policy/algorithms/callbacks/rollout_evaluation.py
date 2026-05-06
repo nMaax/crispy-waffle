@@ -18,6 +18,7 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from rich.progress import Progress
 from tqdm import tqdm
 
+import policy.algorithms.environments  # noqa: F401
 from policy.utils import flatten_tensor_dict, to_tensor
 from policy.utils.adapters import NoOpAdapter
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol

@@ -17,12 +17,12 @@ class PlaceSphereToStackCubeAdapter:
     # exact center of the cube when grabbing (note also that motionplanning data is extremely precise, it grabs the cube at the center basically all times, tho it places the faces of the two cubes slightly\
     # offsetted)
 
-    SPHERE_X_OFFSET = 0.07
-    SPHERE_Y_OFFSET = 0.06
-    SPHERE_Z_OFFSET = 0.01
+    SPHERE_X_OFFSET = 0.0
+    SPHERE_Y_OFFSET = 0.0
+    SPHERE_Z_OFFSET = 0.0
 
-    BASKET_X_OFFSET = 0.058
-    BASKET_Y_OFFSET = 0.056
+    BASKET_X_OFFSET = 0.0
+    BASKET_Y_OFFSET = 0.0
     BASKET_Z_OFFSET = 0.018
 
     FAKE_QUAT_A = [0.694755, 0, 0, 0.08153171]  # Cube A quaternon median
