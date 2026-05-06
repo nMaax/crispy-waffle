@@ -26,6 +26,9 @@ class StackCubeObservationPermuter:
         """Simply swaps the relevant parts of the observation tensor to permute the identities of
         Cube A and Cube B."""
 
+        # StackCube-v1: [0:18 (proprio), 18:25 (TCP pose), 25:32 (Cube A pose), 32:39 (Cube B pose), 39:42 (TCP to A), 42:45 (TCP to B), 45:48 (A to B)]
+        # NOTE: StackCube do not use is_grasped bool
+
         swapped = obs.clone()
 
         a_pose = swapped[self.swap_indices, ..., 25:32].clone()

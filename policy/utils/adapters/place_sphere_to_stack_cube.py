@@ -12,13 +12,13 @@ class PlaceSphereToStackCubeAdapter:
 
     BASKET_X_OFFSET = 0.0
     BASKET_Y_OFFSET = 0.0
-    BASKET_Z_OFFSET = 0.018
+    BASKET_Z_OFFSET = 0.018  # Cube B height (2cm) - basket border height (2mm)
 
     FAKE_QUAT_A = [1, 0, 0, 0]
-    # Or [0.694755, 0, 0, 0.08153171]  # Cube A quaternon median, but it doesn't sum to 1!
+    # Or [0.694755, 0, 0, 0.08153171]  # Cube A quaternon entry-wise median, # XXX: but it doesn't sum to 1!
 
     FAKE_QUAT_B = [1, 0, 0, 0]
-    # Or [0.69651794, 0, 0, 0.05261808]  # Cube B quaternon median, but it doesn't sum to 1!
+    # Or [0.69651794, 0, 0, 0.05261808]  # Cube B quaternon entry-wise median, # XXX: but it doesn't sum to 1!
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
 
@@ -47,16 +47,18 @@ class PlaceSphereToStackCubeAdapter:
         basket_pos[..., 2] += self.BASKET_Z_OFFSET
 
         # NOTE: When using `obs[..., 36:39]` in place of the difference `sphere_pos - tcp_pos` we achieve
-        # final success. We explain this due to two main factors:
+        # final success (also under seed 4803 and specific X,Y,Z offsets).
+        # We explain this due to two main factors:
         #   1. obs[.., 36:39] is ignoring the sphere offset we introduced above
         #   2. the model is shifting its attention on the tensor entries before and after grabbing the cube, more specifically:
         #       a. before grabbing the cube it focuses on the absolute position, which is shifted if X_OFFSET
         #           (thus wrong! A truly general policy should grab air with this modification, but our does not)
-        #       b. after grabbing the cube it shifts the attention to relative distances vectors.
+        #       b. after grabbing the cube it shifts the attention to relative distances vectors
         #   If the absolute position is offsetted we indeed indicate a position where no sphere exists, but we also force the model to grab in a zone out of its distribution
         #   if we are precise enough we can effectively "guide" the model to find this "so-distant" sphere
         #   then once the robot starts to move the sphere it will focus more on the relative distacne instead of the absolute, which in such case will be
         #   CORRECT (it is not offsetted!)
+
         tcp_to_sphere_pos = sphere_pos - tcp_pose[..., 0:3]  # TCP to Cube A
         tcp_to_basket = basket_pos - tcp_pose[..., 0:3]  # TCP to Cube B
         sphere_to_basket = basket_pos - sphere_pos  # Cube A to Cube B
@@ -86,36 +88,7 @@ class PlaceSphereToStackCubeAdapter:
         return swapped
 
     def _apply_to_dict(self, obs_dict: dict[str, Any]) -> dict[str, Any]:
-        adapted = obs_dict.copy()
 
-        sphere_pose = adapted["obj_pose"].clone()
-        basket_pos = adapted["bin_pos"].clone()
-        tcp_to_sphere_pos = adapted["tcp_to_obj_pos"].clone()
-        tcp_pose = adapted["tcp_pose"].clone()
-
-        sphere_pose[..., 0] += self.SPHERE_X_OFFSET
-        sphere_pose[..., 1] += self.SPHERE_Y_OFFSET
-        sphere_pose[..., 2] += self.SPHERE_Z_OFFSET
-
-        basket_pos[..., 0] += self.BASKET_X_OFFSET
-        basket_pos[..., 1] += self.BASKET_Y_OFFSET
-        basket_pos[..., 2] += self.BASKET_Z_OFFSET
-
-        batch_shape = basket_pos.shape[:-1]
-        fake_quat = torch.tensor(self.FAKE_QUAT, device=basket_pos.device, dtype=basket_pos.dtype)
-        fake_quat = fake_quat.expand(*batch_shape, 4)
-        cubeB_pose = torch.cat([basket_pos, fake_quat], dim=-1)
-
-        tcp_to_cubeB_pos = basket_pos - tcp_pose[..., 0:3]
-        cubeA_to_cubeB_pos = basket_pos - sphere_pose[..., 0:3]
-
-        adapted["cubeA_pose"] = sphere_pose
-        adapted["cubeB_pose"] = cubeB_pose
-        adapted["tcp_to_cubeA_pos"] = tcp_to_sphere_pos
-        adapted["tcp_to_cubeB_pos"] = tcp_to_cubeB_pos
-        adapted["cubeA_to_cubeB_pos"] = cubeA_to_cubeB_pos
-
-        for key in ["obj_pose", "bin_pos", "tcp_to_obj_pos", "is_grasped"]:
-            adapted.pop(key, None)
-
-        return adapted
+        raise NotImplementedError(
+            "Dict observation adaptation is not implemented yet. Only tensor observations are supported."
+        )

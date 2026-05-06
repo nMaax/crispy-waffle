@@ -6,8 +6,8 @@ from mani_skill.utils.registration import register_env
 from mani_skill.utils.structs.pose import Pose
 
 
-@register_env("CustomPlaceSphere-v1", max_episode_steps=200)
-class CustomPlaceSphereEnv(PlaceSphereEnv):
+@register_env("RestrctedSpawnPlaceSphere-v1", max_episode_steps=200)
+class PlaceSphereWithRestrictedSpawnEnv(PlaceSphereEnv):
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         super()._initialize_episode(env_idx, options)
 
@@ -29,7 +29,7 @@ class CustomPlaceSphereEnv(PlaceSphereEnv):
             new_obj_p = current_obj_pose.p.clone()
             new_obj_p[:, 0] = sphere_x
             new_obj_p[:, 1] = sphere_y
-            self.obj.set_pose(Pose.create(new_obj_p, current_obj_pose.q))
+            self.obj.set_pose(Pose.create(new_obj_p, current_obj_pose.q))  # type: ignore
 
             current_bin_pose = self.bin.pose
 
@@ -37,4 +37,4 @@ class CustomPlaceSphereEnv(PlaceSphereEnv):
             new_bin_p[:, 0] = bin_x
             new_bin_p[:, 1] = bin_y
 
-            self.bin.set_pose(Pose.create(new_bin_p, current_bin_pose.q))
+            self.bin.set_pose(Pose.create(new_bin_p, current_bin_pose.q))  # type: ignore

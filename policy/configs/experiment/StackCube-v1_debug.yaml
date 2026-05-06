@@ -2,7 +2,7 @@
 defaults:
   - StackCube-v1_neuromotor
 
-name: StackCube-v1_statepermuted_run
+name: StackCube-v1_debug_run
 ckpt_path: ???
 
 trainer:
@@ -10,12 +10,9 @@ trainer:
   limit_val_batches: 0
   callbacks:
     rollout_evaluation:
-      adapter:
-        _target_: policy.utils.adapters.StackCubeObservationPermuter
-        swap_env_indices: [0] # e.g., if num_envs=2, env 0 is swapped, env 1 is standard
       num_val_episodes: 0
-      num_test_episodes: 2
-      num_envs: 2
+      num_test_episodes: 9
+      num_envs: 9
       video_dir: "${hydra:runtime.output_dir}/renderings/"
 
       env_id: "StackCube-v1"
