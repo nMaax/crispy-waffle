@@ -27,9 +27,6 @@ class CustomPlaceSphereEnv(PlaceSphereEnv):
             current_obj_pose = self.obj.pose
 
             new_obj_p = current_obj_pose.p.clone()
-            # In case you want to fix it:
-            # new_obj_p[:, 0] = 0.02735
-            # new_obj_p[:, 1] = -0.06520
             new_obj_p[:, 0] = sphere_x
             new_obj_p[:, 1] = sphere_y
             self.obj.set_pose(Pose.create(new_obj_p, current_obj_pose.q))
@@ -37,9 +34,6 @@ class CustomPlaceSphereEnv(PlaceSphereEnv):
             current_bin_pose = self.bin.pose
 
             new_bin_p = current_bin_pose.p.clone()
-            # In case you want to fix it:
-            # new_bin_p[:, 0] = 0.07276
-            # new_bin_p[:, 1] = 0.05176
             new_bin_p[:, 0] = bin_x
             new_bin_p[:, 1] = bin_y
 

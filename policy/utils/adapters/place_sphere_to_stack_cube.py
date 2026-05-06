@@ -6,17 +6,6 @@ import torch
 class PlaceSphereToStackCubeAdapter:
     """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 
-    # TODO:
-    #   - visualize attention on the input tensor
-    #   - Penalize not centering the object
-    #   - Bring sphere spawn values in-distribution w.r.t. StackCube spawn ranges
-
-    # NOTE: the following offset have been found by repeated experiments on checkpoint 2026-05-03/18-01-47/checkpoints/step_035000,
-    # however we noted different checkpoints, also within the same training run, lead to different biases (e.g. sometimes southewest, sometimes norteast)
-    # on the point where gripper tries to grab the cube. I think then I should modify the training loss of the policy with a high penalty for not pointing to the
-    # exact center of the cube when grabbing (note also that motionplanning data is extremely precise, it grabs the cube at the center basically all times, tho it places the faces of the two cubes slightly\
-    # offsetted)
-
     SPHERE_X_OFFSET = 0.0
     SPHERE_Y_OFFSET = 0.0
     SPHERE_Z_OFFSET = 0.0
@@ -38,7 +27,8 @@ class PlaceSphereToStackCubeAdapter:
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
         """Projects a 39-dim PlaceSphere state into a 48-dim StackCube state."""
 
-        # TODO: add small scheme that describes both tensors and the meaning at each index/slice
+        # PlaceSphere-v1: [0:18 (proprio), 18:19 (is_grasped), 19:26 (TCP pose), 26:29 (bin pos), 29:36 (obj pose), 36:39 (TCP to obj pos)
+        # StackCube-v1: [0:18 (proprio), 18:25 (TCP pose), 25:32 (Cube A pose), 32:39 (Cube B pose), 39:42 (TCP to A), 42:45 (TCP to B), 45:48 (A to B)]
 
         proprioception = obs[..., 0:18].clone()  # Proprioception
         tcp_pose = obs[..., 19:26].clone()  # TCP
