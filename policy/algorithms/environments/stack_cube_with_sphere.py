@@ -12,12 +12,8 @@ from mani_skill.utils.structs.pose import Pose
 
 @register_env("StackCubeWithSphere-v1", max_episode_steps=50)
 class StackCubeWithSphereEnv(StackCubeEnv):
-    """
-    Sanity check environment: Uses StackCube-v1 spatial boundaries and observations,
-    but physically spawns the PlaceSphere-v1 actors (Sphere and Bin).
-    """
+    """Sanity check environment: uses StackCube-v1 but physically spawns the PlaceSphere-v1 Sphere and Bin."""
 
-    # --- PlaceSphere Constants ---
     radius = 0.02
     inner_side_half_len = 0.02
     short_side_half_size = 0.0025
@@ -32,8 +28,11 @@ class StackCubeWithSphereEnv(StackCubeEnv):
         2 * short_side_half_size,
     ]
 
+    def __init__(self, *args, robot_uids="panda-wristcam", robot_init_qpos_noise=0.02, **kwargs):
+        self.robot_init_qpos_noise = robot_init_qpos_noise
+        super().__init__(*args, robot_uids=robot_uids, **kwargs)
+
     def _build_bin(self):
-        """Helper to build the bin exactly as PlaceSphere does."""
         builder = self.scene.create_actor_builder()
         dx = self.block_half_size[1] - self.block_half_size[0]
         dy = self.block_half_size[1] - self.block_half_size[0]
@@ -68,16 +67,13 @@ class StackCubeWithSphereEnv(StackCubeEnv):
         return builder.build_kinematic(name="bin")
 
     def _load_scene(self, options: dict):
-        # 1. Define the cube half size (StackCube's reward/evaluate functions still expect this variable to exist)
         self.cube_half_size = common.to_tensor([0.02] * 3, device=self.device)
 
-        # 2. Load the table manually (bypassing super()._load_scene)
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
         self.table_scene.build()
 
-        # 3. Load Sphere as cubeA
         self.cubeA = actors.build_sphere(
             self.scene,
             radius=self.radius,
@@ -86,7 +82,6 @@ class StackCubeWithSphereEnv(StackCubeEnv):
             body_type="dynamic",
         )
 
-        # 4. Load Bin as cubeB
         self.cubeB = self._build_bin()
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
@@ -145,7 +140,6 @@ class StackCubeWithSphereEnv(StackCubeEnv):
         return obs
 
     def evaluate(self):
-        # Dummy evaluate to prevent evaluation crashes
         return {
             "success": torch.zeros(len(self.cubeA.pose.p), dtype=torch.bool, device=self.device)
         }
