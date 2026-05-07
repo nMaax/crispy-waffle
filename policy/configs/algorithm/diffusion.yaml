@@ -1,5 +1,4 @@
 defaults:
-  # Many of these below are redundant, but I like to specify them for clarity
   - network: unet1d
   - noise_scheduler: ddpm
   - ema: default
@@ -11,30 +10,6 @@ _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
 
 act_horizon: 8
-prediction_type: "epsilon"
 
-# --- OVERRIDES ---
-# Many of these below are redundant, but I like to specify them for clarity
-
-# Overrides network/unet1d.yaml
-network:
-  down_dims: [64, 128, 256]
-  kernel_size: 5
-
-# Overrides noise_scheduler/ddpm.yaml
-noise_scheduler:
-  beta_schedule: "squaredcos_cap_v2"
-  num_train_timesteps: 100
-
-# Overrides ema/default.yaml
-ema:
-  decay: 0.9999
-
-# Overrides optimizer/AdamW.yaml
-optimizer:
-  weight_decay: 1e-5 # Overrides the weight decay in AdamW.yaml
-
-# Overrides lr_scheduler/CosineAnnealingLR.yaml
 lr_scheduler:
-  num_warmup_steps: 500
   num_training_steps: ${trainer.max_steps}
