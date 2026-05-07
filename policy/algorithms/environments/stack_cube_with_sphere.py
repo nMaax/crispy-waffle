@@ -32,8 +32,8 @@ class StackCubeWithSphereEnv(StackCubeEnv):
 
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
 
-    # NOTE: PlaceSphere DOES support "panda-wristcam", so no issues here!
-    def __init__(self, *args, robot_uids="panda-wristcam", robot_init_qpos_noise=0.02, **kwargs):
+    # NOTE: PlaceSphere DOES support "panda_wristcam", so no issues here!
+    def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 

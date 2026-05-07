@@ -15,9 +15,9 @@ class PlaceSphereWithCubesEnv(PlaceSphereEnv):
     CUBE_HALF_SIZE = 0.02
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
 
-    # NOTE: PlaceSphere does not support "panda-wristcam", but "panda" and "fetch" only
-    # however our neuromotor was trained on panda-wristcam, so this won't work!
-    def __init__(self, *args, robot_uids="panda", robot_init_qpos_noise=0.02, **kwargs):
+    # NOTE: PlaceSphere does not support "panda_wristcam", but "panda" and "fetch" only
+    # however our neuromotor was trained on panda_wristcam, so this won't work!
+    def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
