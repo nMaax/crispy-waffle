@@ -1,33 +1,20 @@
-import warnings
-
 import sapien
 import torch
-from mani_skill.envs.tasks.tabletop.place_sphere import PlaceSphereEnv
 from mani_skill.envs.utils import randomization
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs import Pose
 
+from policy.algorithms.environments import PlaceSphereWristcamEnv
+
 
 @register_env("PlaceSphereWithCubes-v1", max_episode_steps=50)
-class PlaceSphereWithCubesEnv(PlaceSphereEnv):
+class PlaceSphereWithCubesEnv(PlaceSphereWristcamEnv):
     """Sanity check environment: uses PlaceSphere-v1 but physically spawns the StackCube-v1 Cube A and Cube B."""
 
     CUBE_HALF_SIZE = 0.02
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
-
-    def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
-        self.robot_init_qpos_noise = robot_init_qpos_noise
-        super().__init__(*args, robot_uids=robot_uids, **kwargs)
-
-        # NOTE: Officially PlaceSphere does not support "panda_wristcam", but "panda" and "fetch" only
-        # however if I pass it, it will still accept it. So I just notify it and move on with my life
-        if robot_uids not in self.SUPPORTED_ROBOTS:
-            warnings.warn(
-                f"Unsupported robot_uids: {robot_uids}. Supported: {self.SUPPORTED_ROBOTS}. "
-                "However it may still work, so we let it pass."
-            )
 
     def _load_scene(self, options: dict):
         """Borrow logic from StackCube, spawning cubes instead of sphere and bin."""

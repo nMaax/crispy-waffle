@@ -2,7 +2,7 @@
 defaults:
   - StackCube-v1_neuromotor
 
-name: StackCube-v1_statepermuted_run
+name: StackCube-v1_swapped-cubes_run
 ckpt_path: ???
 
 trainer:

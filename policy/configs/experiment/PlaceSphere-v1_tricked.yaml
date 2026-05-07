@@ -17,7 +17,7 @@ trainer:
       num_envs: 4
       video_dir: "${hydra:runtime.output_dir}/renderings/"
 
-      env_id: "PlaceSphere-v1"
+      env_id: "PlaceSphereWristcam-v1"
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
       physx_backend: null

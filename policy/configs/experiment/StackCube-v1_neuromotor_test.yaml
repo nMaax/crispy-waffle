@@ -2,7 +2,7 @@
 defaults:
   - StackCube-v1_neuromotor
 
-name: StackCube-v1_debug_run
+name: StackCube-v1_neuromotor_test_run
 ckpt_path: ???
 
 trainer:
