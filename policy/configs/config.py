@@ -55,3 +55,5 @@ class Config:
 
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
+
+    # TODO: add a new config group to allow live rendering (as described in the README)

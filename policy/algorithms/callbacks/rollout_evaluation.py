@@ -101,6 +101,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
+        # TODO: allow to not use datamodule
         datamodule = getattr(trainer, "datamodule", None)
 
         # Fallback logic: Use provided config, otherwise fetch from Datamodule

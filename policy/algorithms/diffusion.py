@@ -37,6 +37,7 @@ class DiffusionPolicy(L.LightningModule):
     ):
         super().__init__()
 
+        # TODO: are you sure? What if I need to log control_mode, obs_mode etc.? I should not rely on those in Rollout!
         self.save_hyperparameters(ignore=["datamodule"])
 
         self.network_config = network
