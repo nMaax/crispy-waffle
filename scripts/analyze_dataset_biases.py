@@ -5,7 +5,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
-OBS_MAPPING = {
+STACKCUBE_STATE_MAPPING = {
     "cube_a_pos": slice(25, 28),
     "cube_a_quat": slice(28, 32),
     "cube_b_pos": slice(32, 35),
@@ -23,7 +23,7 @@ BIN_INITIAL_POSE = ([0.0410624, 0.0479882, 0.0025], [1, 0, 0, 0])
 
 def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
     """Extracts raw observation slices from the HDF5 dataset."""
-    data = {key: [] for key in OBS_MAPPING.keys()}
+    data = {key: [] for key in STACKCUBE_STATE_MAPPING.keys()}
     grasp_offsets = []
     place_offsets = []
 
@@ -37,7 +37,7 @@ def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
 
             obs = f[traj_key]["obs"][:]
 
-            for key, slc in OBS_MAPPING.items():
+            for key, slc in STACKCUBE_STATE_MAPPING.items():
                 if "pos" in key or "quat" in key:
                     data[key].append(obs[0, slc])
 
@@ -45,10 +45,10 @@ def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
             lifted_mask = cube_a_z > LIFT_THRESHOLD
             if np.any(lifted_mask):
                 grasp_offsets.append(
-                    np.mean(obs[lifted_mask, OBS_MAPPING["tcp_to_cube_a"]], axis=0)
+                    np.mean(obs[lifted_mask, STACKCUBE_STATE_MAPPING["tcp_to_cube_a"]], axis=0)
                 )
 
-            place_offsets.append(obs[-1, OBS_MAPPING["cube_a_to_cube_b"]])
+            place_offsets.append(obs[-1, STACKCUBE_STATE_MAPPING["cube_a_to_cube_b"]])
 
     return {
         "cube_a_pos": np.array(data["cube_a_pos"]),
