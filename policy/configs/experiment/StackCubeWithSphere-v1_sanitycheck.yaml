@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - StackCube-v1_neuromotor
+
+name: StackCubeWithSphere-v1_sanitycheck_run
+ckpt_path: ???
+
+trainer:
+  limit_train_batches: 0
+  limit_val_batches: 0
+  callbacks:
+    rollout_evaluation:
+      num_val_episodes: 0
+      num_test_episodes: 4
+      num_envs: 4
+      video_dir: "${hydra:runtime.output_dir}/renderings/"
+
+      env_id: "StackCubeWithSphere-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: null
+      use_physx_env_states: False
