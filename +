@@ -32,14 +32,11 @@ class StackCubeWithSphereEnv(StackCubeEnv):
 
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
 
-    # NOTE: PlaceSphere DOES support "panda-wristcam", so no issues here!
     def __init__(self, *args, robot_uids="panda-wristcam", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     def _build_bin(self):
-        """Helper to build the bin out of 5 boces: 1 for the bottom and 4 for the edges."""
-
         builder = self.scene.create_actor_builder()
         dx = self.BLOCK_HALF_SIZES[1] - self.BLOCK_HALF_SIZES[0]
         dy = self.BLOCK_HALF_SIZES[1] - self.BLOCK_HALF_SIZES[0]
@@ -74,7 +71,7 @@ class StackCubeWithSphereEnv(StackCubeEnv):
         return builder.build_kinematic(name="bin")
 
     def _load_scene(self, options: dict):
-        """Borrow logic from PlaceSphere, spawning sphere and bin instead of cubes."""
+        """Borrow logic from StackCube but spawn sphere and bin."""
 
         self.cube_half_size = common.to_tensor([0.02] * 3, device=self.device)
 
@@ -96,7 +93,7 @@ class StackCubeWithSphereEnv(StackCubeEnv):
         self.cubeB = bin
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        """Borrow logic from PlaceSphere, spawning sphere and bin instead of cubes."""
+        "Same as StackCube."
 
         with torch.device(self.device):
             b = len(env_idx)

@@ -22,7 +22,7 @@ class PlaceSphereWithCubesEnv(PlaceSphereEnv):
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     def _load_scene(self, options: dict):
-        """Borrow logic from StackCube but spawn cubes instead of sphere and bin."""
+        """Borrow logic from StackCube, spawning cubes instead of sphere and bin."""
 
         self.table_scene = TableSceneBuilder(
             env=self, robot_init_qpos_noise=self.robot_init_qpos_noise
@@ -50,7 +50,7 @@ class PlaceSphereWithCubesEnv(PlaceSphereEnv):
         self.bin = cubeB
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        """Borrow logic from StackCube but pass poses to the (fake) sphere and bin."""
+        """Borrow logic from StackCube, spawning cubes instead of sphere and bin."""
 
         with torch.device(self.device):
             b = len(env_idx)
@@ -97,7 +97,7 @@ class PlaceSphereWithCubesEnv(PlaceSphereEnv):
     def _get_obs_extra(self, info: dict):
         """Same as StackCube observations.
 
-        This will be compatible with Adapters taking StackCube-like tensors only, e.g. comptaible
+        This will be compatible with Adapters taking StackCube-like tensors only, e.g. comtible
         with NoOpAdapter, but not PlaceSphereToStackCubeAdapter
         """
 
