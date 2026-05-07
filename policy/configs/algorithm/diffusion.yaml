@@ -4,7 +4,6 @@ defaults:
   - ema: default
   - optimizer: AdamW
   - lr_scheduler: cosine_with_warmup
-  - _self_
 
 _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before

@@ -57,3 +57,12 @@ To enable automatic linting and formatting on your machine, follow these steps:
 ```bash
 uv run pytest --cov=policy --cov-fail-under=70
 ```
+
+### Live rendering
+
+ ```
+  +trainer.callbacks.rollout_evaluation.render_mode="human" \
+  trainer.callbacks.rollout_evaluation.num_envs=1 \
+  trainer.callbacks.rollout_evaluation.num_test_episodes=1 \
+  trainer.callbacks.rollout_evaluation.video_dir=null
+```
