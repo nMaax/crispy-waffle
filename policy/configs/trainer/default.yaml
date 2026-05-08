@@ -1,6 +1,7 @@
 defaults:
   - callbacks: default.yaml
   - logger: null # use trainer/logger=wandb to enable wandb logging.
+
 _target_: lightning.Trainer
 accelerator: auto
 strategy: auto
@@ -13,10 +14,15 @@ fast_dev_run: false
 min_epochs: -1 # -1 disables epoch limits
 max_epochs: -1 # -1 disables epoch limits
 max_steps: 100000 # Train for exactly 100,000 iterations (batches)
-log_every_n_steps: 50 # Print progress to the terminal every 50 batches
+log_every_n_steps: 50 # Log progress (e.g. wandb) every 50 batches
+
+num_sanity_val_steps: 2 # Set to 0 to avoid sanity check, tho this should not be done...
 
 limit_val_batches: 0 # Tells experiment.py to skip validation
 limit_test_batches: 0 # Tells experiment.py to skip testing
+
+val_check_interval: 5000 # Run the validation (loss) + rollout callback (success_rate) every 5000 steps
+check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 
 # path to output directory, created dynamically by hydra
 # path generation pattern is specified in `configs/hydra/default.yaml`
