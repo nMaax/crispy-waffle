@@ -323,6 +323,7 @@ def trainer(
 def train_dataloader(
     datamodule: lightning.LightningDataModule | None, request: pytest.FixtureRequest
 ) -> DataLoader:
+    """Fixture that creates the training dataloader for the given datamodule."""
     if hasattr(datamodule, "num_workers"):
         datamodule.num_workers = 0  # type: ignore
     if datamodule is None:
