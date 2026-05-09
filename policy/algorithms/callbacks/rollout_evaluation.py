@@ -19,7 +19,7 @@ from rich.progress import Progress
 from tqdm import tqdm
 
 import policy.algorithms.environments  # noqa: F401
-from policy.utils import flatten_tensor_dict, to_tensor
+from policy.utils import flatten_tensor_from_mapping, to_tensor
 from policy.utils.adapters import NoOpAdapter
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 
@@ -271,7 +271,7 @@ class RolloutEvaluationCallback(L.Callback):
         while episodes_completed < num_episodes:
             adapted_obs = self.adapter.apply(obs)
 
-            flatten_obs = flatten_tensor_dict(adapted_obs, device=pl_module.device)
+            flatten_obs = flatten_tensor_from_mapping(adapted_obs, device=pl_module.device)
 
             with torch.no_grad():
                 action_seq = pl_module.get_action(flatten_obs)

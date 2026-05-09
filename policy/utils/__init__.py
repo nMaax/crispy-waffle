@@ -4,7 +4,7 @@ from .h5_utils import (
     peek_trajectory_dimension,
 )
 from .utils import (
-    flatten_tensor_dict,
+    flatten_tensor_from_mapping,
     get_batch_size,
     get_device,
     print_config,
@@ -18,7 +18,7 @@ __all__ = [
     "print_config",
     "get_batch_size",
     "get_device",
-    "flatten_tensor_dict",
+    "flatten_tensor_from_mapping",
     "to_tensor",
     "sum_shapes",
     "extract_h5_shapes",

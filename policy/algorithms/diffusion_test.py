@@ -5,7 +5,7 @@ import torch
 
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
-from policy.utils import flatten_tensor_dict
+from policy.utils import flatten_tensor_from_mapping
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
@@ -47,7 +47,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 
         # Execute inference
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_tensor_dict(obs_seq, device=algorithm.device)
+        obs_seq = flatten_tensor_from_mapping(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 
@@ -74,7 +74,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm.to(batch_device)
 
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_tensor_dict(obs_seq, device=algorithm.device)
+        obs_seq = flatten_tensor_from_mapping(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 

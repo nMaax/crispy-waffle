@@ -133,7 +133,7 @@ def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
-def flatten_tensor_dict(
+def flatten_tensor_from_mapping(
     data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
 ) -> torch.Tensor:
     """Recursively flattens a dictionary of tensors and concatenates them."""
@@ -144,7 +144,7 @@ def flatten_tensor_dict(
 
     tensors: list[torch.Tensor] = []
     for value in data.values():
-        tensors.append(flatten_tensor_dict(value))
+        tensors.append(flatten_tensor_from_mapping(value))
 
     if not tensors:
         raise ValueError("data must contain at least one tensor")

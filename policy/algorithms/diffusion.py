@@ -10,7 +10,7 @@ from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.utils import flatten_tensor_dict
+from policy.utils import flatten_tensor_from_mapping
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 
@@ -140,7 +140,7 @@ class DiffusionPolicy(L.LightningModule):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
-        flatten_obs = flatten_tensor_dict(batch["obs_seq"])
+        flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
         action_seq = batch["act_seq"]
 
         loss = self._compute_loss(flatten_obs, action_seq)

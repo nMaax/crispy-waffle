@@ -535,19 +535,6 @@ def _setup_hydra_for_tests_and_compose(
             return_hydra_config=True,
         )
 
-        # BUG: Weird errors with Hydra variable interpolation.. Setting these manually seems
-        # to fix it for now..
-
-        # with open_dict(config):
-        #     # BUG: Getting some weird Hydra omegaconf error in unit tests:
-        #     # "MissingMandatoryValue while resolving interpolation: Missing mandatory value:
-        #     # hydra.job.num"
-        #     config.hydra.job.num = 0
-        #     config.hydra.hydra_help = HydraHelpConf(hydra_help="", template="")
-        #     config.hydra.job.id = 0
-        #     config.hydra.runtime.output_dir = str(
-        #         tmp_path_factory.mktemp(basename="output", numbered=True)
-        #     )
         HydraConfig.instance().set_config(config)
         yield config
 
