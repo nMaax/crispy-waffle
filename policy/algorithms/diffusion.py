@@ -84,13 +84,6 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
-        # TODO: Normalize observation/env_states
-        #   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)
-        #   - Then the diffusion policy can load them and apply the normalization using the TensorZNormalizer from utils/normalizer.py
-        #   - The Diffusion should correctly select the file related to what we are looking for: obs_source, then select physix_env_states vs obs, and apply the normalization accordingly.
-        #   - Thus Diffusion should have access to the datamodule's parameters about obs_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
-        #   - Can diffusion access such data? YES, since datamodule is passed in the init
-
     def configure_model(self) -> None:
         if self.network is not None:
             return
