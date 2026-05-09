@@ -88,7 +88,7 @@ from policy.experiment import instantiate_trainer
 from policy.main import PROJECT_NAME, instantiate_algorithm, setup_logging
 from policy.utils.env_vars import NUM_WORKERS, REPO_ROOTDIR
 from policy.utils.hydra_utils import resolve_dictconfig
-from policy.utils.testutils import (
+from policy.utils.test_utils import (
     IN_GITHUB_CI,
     PARAM_WHEN_USED_MARK_NAME,
     default_marks_for_config_combinations,
@@ -186,7 +186,7 @@ def command_line_arguments(
     experiment.
 
     The `algorithm_config`, `network_config` and `datamodule_config` values here are parametrized
-    indirectly by most tests using the [`policy.utils.testutils.run_for_all_configs_of_type`][]
+    indirectly by most tests using the [`policy.utils.test_utils.run_for_all_configs_of_type`][]
     function so that the respective components are created in the same way as they
     would be by Hydra in a regular run.
     """
