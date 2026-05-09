@@ -56,3 +56,6 @@ class Config:
 
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
+
+    render: Any | None = None
+    """Optional render mode."""

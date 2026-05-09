@@ -2,7 +2,7 @@
 
 wandb:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
-  project: "cupcake-00"
+  project: "cupcake-01"
   name: ${name}
   save_dir: "."
   offline: false # set true to store all logs only locally
