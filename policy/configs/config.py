@@ -1,7 +1,7 @@
 import random
 from dataclasses import dataclass, field
 from logging import getLogger as get_logger
-from typing import Any, Optional
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -23,7 +23,7 @@ class Config:
     For more info, see the [instantiate_algorithm][policy.main.instantiate_algorithm] function.
     """
 
-    datamodule: Optional[Any] = None  # noqa
+    datamodule: Any | None = None
     """Configuration for the datamodule (dataset + transforms + dataloader creation).
 
     This should normally create a [LightningDataModule][lightning.pytorch.core.datamodule.LightningDataModule].
@@ -36,7 +36,6 @@ class Config:
     log_level: str = "info"
     """Logging level."""
 
-    # Random seed.
     seed: int = field(default_factory=lambda: random.randint(0, int(1e5)))
     """Random seed for reproducibility.
 
@@ -47,13 +46,13 @@ class Config:
     """Name for the experiment."""
 
     debug: bool = False
+    """Debug mode flag."""
 
     verbose: bool = False
+    """Verbose mode flag."""
 
     ckpt_path: str | None = None
     """Path to a checkpoint to load the training state and resume the training run.
 
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
-
-    # TODO: add a new config group to allow live rendering (as described in the README)

@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test
+
+name: DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test__StackCubeObservationPermuter
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      adapter:
+        _target_: policy.utils.adapters.StackCubeObservationPermuter
+        swap_env_indices: [0] # e.g., if num_envs=2, env 0 is swapped, env 1 is standard

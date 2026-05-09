@@ -28,6 +28,11 @@ or
 uv run python policy/main.py --help
 ```
 
+### Experiments naming converiont
+
+`<Algorithm>__<Datamodule>__<Trainer>__<Phase>__[<Adapter>]__[<Extra>].yaml`
+
+`<Phase>` can take `train`, `test`, `val`, `sanitycheck` or whatever you want.
 
 ### Dataset and replay
 
@@ -52,13 +57,13 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
   --save-traj
 ```
 
-### Live rendering
+### Rendering
 
  ```bash
-  trainer.callbacks.rollout_evaluation.num_envs=1 \
-  trainer.callbacks.rollout_evaluation.num_test_episodes=1 \
-  trainer.callbacks.rollout_evaluation.video_dir=null \
-  +trainer.callbacks.rollout_evaluation.render_mode="human"
+uv run python policy/eval.py \
+    experiment=DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test \
+    ckpt_path=logs/.../step_035000.ckpt \
+    render=live # | video
 ```
 
 ### Pre-commit setup

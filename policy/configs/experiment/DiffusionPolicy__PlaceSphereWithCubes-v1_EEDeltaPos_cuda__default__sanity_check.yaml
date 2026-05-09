@@ -1,16 +1,14 @@
 # @package _global_
 defaults:
-  - StackCube-v1_neuromotor
+  - DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test
 
-name: PlaceSphereWithCubes-v1_sanitycheck_run
+name: DiffusionPolicy__PlaceSphereWithCubes-v1_EEDeltaPos_cuda__default__sanity_check
 ckpt_path: ???
 
 trainer:
   callbacks:
     rollout_evaluation:
-      num_episodes: 4
-      num_envs: 4
-      video_dir: "${hydra:runtime.output_dir}/renderings/"
+      num_episodes: 10
 
       env_id: "PlaceSphereWithCubes-v1"
       obs_mode: "state"

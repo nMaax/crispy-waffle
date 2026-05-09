@@ -1,0 +1,9 @@
+# policy/configs/render/video.yaml
+# @package _global_
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      num_episodes: 9
+      num_envs: 9
+      video_dir: "${hydra:runtime.output_dir}/renderings/"

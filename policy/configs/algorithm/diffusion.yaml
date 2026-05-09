@@ -10,7 +10,6 @@ _recursive_: false # Since we instantiate the network and optimizer inside the a
 
 obs_horizon: ${datamodule.obs_horizon}
 pred_horizon: ${datamodule.pred_horizon}
-
 act_horizon: 8
 
 obs_dim: ${datamodule.obs_dim}

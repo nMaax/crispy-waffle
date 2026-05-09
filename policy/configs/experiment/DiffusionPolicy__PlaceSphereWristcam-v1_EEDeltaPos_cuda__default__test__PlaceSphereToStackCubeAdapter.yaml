@@ -1,8 +1,8 @@
 # @package _global_
 defaults:
-  - StackCube-v1_neuromotor
+  - DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test
 
-name: PlaceSphere-v1_tricked_run
+name: DiffusionPolicy__PlaceSphereWristcam-v1_EEDeltaPos_cuda__default__test__PlaceSphereToStackCubeAdapter
 ckpt_path: ???
 
 trainer:
@@ -10,9 +10,6 @@ trainer:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter
-      num_episodes: 4
-      num_envs: 4
-      video_dir: "${hydra:runtime.output_dir}/renderings/"
 
       env_id: "PlaceSphereWristcam-v1"
       obs_mode: "state"
