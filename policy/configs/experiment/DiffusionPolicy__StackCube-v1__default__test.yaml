@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1__default__train
+
+name: DiffusionPolicy__StackCube-v1__default__test
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      num_episodes: 100
+      env_id: "StackCube-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"

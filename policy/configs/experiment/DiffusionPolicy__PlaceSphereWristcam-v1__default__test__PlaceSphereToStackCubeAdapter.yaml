@@ -1,8 +1,8 @@
 # @package _global_
 defaults:
-  - DiffusionPolicy__StackCube-v1_EEDeltaPos_cuda__default__test
+  - DiffusionPolicy__StackCube-v1__default__test
 
-name: DiffusionPolicy__PlaceSphereWristcam-v1_EEDeltaPos_cuda__default__test__PlaceSphereToStackCubeAdapter
+name: DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter
 ckpt_path: ???
 
 trainer:
