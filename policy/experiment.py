@@ -119,7 +119,6 @@ def train_lightning(
         elif isinstance(config.datamodule, lightning.LightningDataModule):
             datamodule = config.datamodule
         elif config.datamodule is not None:
-            # TODO: what about using hydra_zen?
             datamodule = hydra.utils.instantiate(config.datamodule)
 
     trainer.fit(algorithm, datamodule=datamodule, ckpt_path=config.ckpt_path)

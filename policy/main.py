@@ -128,7 +128,6 @@ def instantiate_algorithm(
     """Function used to instantiate the algorithm."""
     # Create the algorithm
 
-    # TODO: can I use hydra_zen?
     algo_or_algo_partial = hydra.utils.instantiate(algorithm_config)
 
     if isinstance(algo_or_algo_partial, functools.partial):

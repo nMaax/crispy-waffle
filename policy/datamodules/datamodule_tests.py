@@ -2,7 +2,7 @@ import abc
 import sys
 from typing import Generic, TypeVar
 
-import hydra_zen
+import hydra
 import lightning
 import omegaconf
 import pytest
@@ -49,7 +49,7 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
     @pytest.fixture(scope="class")
     def datamodule(self, dict_config: omegaconf.DictConfig) -> DataModuleType:
         """Fixture that creates the datamodule instance, given the current Hydra config."""
-        datamodule = hydra_zen.instantiate(dict_config["datamodule"])
+        datamodule = hydra.utils.instantiate(dict_config["datamodule"])
         return datamodule
 
     @pytest.fixture(scope="class")

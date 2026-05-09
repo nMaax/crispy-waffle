@@ -97,18 +97,18 @@ class RolloutEvaluationCallback(L.Callback):
 
         rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
-        # TODO: allow to not use datamodule
         datamodule = getattr(trainer, "datamodule", None)
 
         def _resolve_param(param_value: Any, param_name: str) -> Any:
             if param_value is not None:
                 return param_value
-            if datamodule is not None and hasattr(datamodule, param_name):
+            elif datamodule is not None and hasattr(datamodule, param_name):
                 return getattr(datamodule, param_name)
-            raise ValueError(
-                f"`{param_name}` must be explicitly provided to RolloutEvaluationCallback "
-                f"or attached to trainer.datamodule."
-            )
+            else:
+                raise ValueError(
+                    f"`{param_name}` must be explicitly provided to RolloutEvaluationCallback "
+                    f"or attached to trainer.datamodule."
+                )
 
         self.env_id = _resolve_param(self.env_id, "env_id")
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
