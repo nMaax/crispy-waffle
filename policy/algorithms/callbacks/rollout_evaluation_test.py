@@ -71,6 +71,15 @@ class FakeUnwrappedEnv(gym.Env):
         self._init_raw_obs = obs
         self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=obs.shape[1:])
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,))
+        self._num_envs = obs.shape[0]
+
+    @property
+    def num_envs(self):
+        return self._num_envs
+
+    @property
+    def single_observation_space(self):
+        return gym.spaces.Box(low=-np.inf, high=np.inf, shape=self._obs.shape[1:])
 
     # Used only if use_phsyx_env_states=True
     def get_state(self):
@@ -172,7 +181,7 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
     datamodule = FakeRolloutDataModule(physx_backend=physx_backend)
     model = FakeRolloutPolicyModule()
 
-    rollout_cb = RolloutEvaluationCallback(num_val_episodes=3, num_test_episodes=5, seed=123)
+    rollout_cb = RolloutEvaluationCallback(num_episodes=5, seed=123)
 
     # Minimal trainer; disable progress bars/logging overhead
     trainer = L.Trainer(

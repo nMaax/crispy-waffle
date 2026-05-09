@@ -73,7 +73,6 @@ class TestManiSkillDataset:
         with pytest.raises(ValueError, match="Invalid file extension"):
             ManiSkillDataset(
                 dataset_file=bad_extension,
-                use_phsyx_env_states=False,
                 obs_horizon=2,
                 pred_horizon=4,
             )
@@ -82,7 +81,6 @@ class TestManiSkillDataset:
         with pytest.raises(FileNotFoundError, match="not found"):
             ManiSkillDataset(
                 dataset_file=missing_file,
-                use_phsyx_env_states=False,
                 obs_horizon=2,
                 pred_horizon=4,
             )
@@ -93,7 +91,6 @@ class TestManiSkillDataset:
         # Test success_only
         dataset_success = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
-            use_phsyx_env_states=False,
             obs_horizon=2,
             pred_horizon=4,
             success_only=True,
@@ -106,7 +103,6 @@ class TestManiSkillDataset:
         # Test load_count
         dataset_count = ManiSkillDataset(
             dummy_maniskill_data,
-            use_phsyx_env_states=False,
             obs_horizon=2,
             pred_horizon=4,
             load_count=1,
@@ -119,7 +115,6 @@ class TestManiSkillDataset:
         """Ensures lazy=True and lazy=False return the exact same tensors and structure."""
         kwargs = dict(
             dataset_file=dummy_maniskill_data,
-            use_phsyx_env_states=False,
             obs_horizon=2,
             pred_horizon=4,
         )
@@ -155,7 +150,6 @@ class TestManiSkillDataset:
 
         dataset = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
-            use_phsyx_env_states=False,
             obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
             success_only=True,  # Episode 0, length 10
@@ -180,7 +174,6 @@ class TestManiSkillDataset:
         """Tests the padding logic applied to HDF5 sequences directly."""
         dataset = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
-            use_phsyx_env_states=False,
             obs_horizon=2,
             pred_horizon=4,
             # Let's say actions have 2 dims: pad first with 0s, second with edge
@@ -236,7 +229,6 @@ class TestManiSkillDataset:
 
         dataset = ManiSkillDataset(
             dataset_file=real_file,
-            use_phsyx_env_states=True,
             obs_horizon=2,
             pred_horizon=16,
             success_only=True,

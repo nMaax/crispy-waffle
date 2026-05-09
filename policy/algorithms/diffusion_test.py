@@ -6,6 +6,7 @@ import torch
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
 from policy.utils import flatten_tensor_from_mapping
+from policy.utils.utils import sum_shapes
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
@@ -105,58 +106,58 @@ class TestDiffusionPolicyLogic:
             yield mock
 
     @pytest.fixture
-    def mock_datamodule(self):
-        dm = MagicMock()
-        dm.obs_horizon = 2
-        dm.pred_horizon = 16
-        dm.act_dim = 4
-        dm.obs_dim = 3
-        return dm
-
-    @pytest.fixture
-    def basic_kwargs(self, mock_datamodule):
-        # We pass empty dictionaries to satisfy Hydra config type hints,
+    def basic_kwargs(self):
+        # We pass empty dictionaries to satisfy Hydra config type hints for modules,
         # but our patch above handles the actual return value.
+        # We now pass explicit dimensions instead of a datamodule!
         return {
             "network": {},
             "ema": {},
             "noise_scheduler": {},
-            "datamodule": mock_datamodule,
             "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": 3,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
         }
 
-    def test_horizon_validations(self, basic_kwargs, mock_datamodule):
+    def test_horizon_validations(self, basic_kwargs):
         """Ensures the init method strictly catches invalid horizon configurations."""
 
-        # 1. act_horizon > pred_horizon
+        # act_horizon > pred_horizon
         with pytest.raises(ValueError, match="cannot be greater than prediction horizon"):
             DiffusionPolicy(**basic_kwargs, act_horizon=20)
 
-        # 2. act_horizon < obs_horizon
-        mock_datamodule.obs_horizon = 4
-        with pytest.raises(ValueError, match="cannot be less than conditioning horizon"):
-            DiffusionPolicy(**basic_kwargs, act_horizon=2)
+        # act_horizon < obs_horizon
+        with pytest.raises(ValueError, match="cannot be less than observation horizon"):
+            kwargs = basic_kwargs.copy()
+            kwargs["obs_horizon"] = 4
+            DiffusionPolicy(**kwargs, act_horizon=2)
 
-        # 3. obs_horizon + act_horizon - 1 > pred_horizon
-        mock_datamodule.obs_horizon = 4
-        mock_datamodule.pred_horizon = 8
-        # 4 + 6 - 1 = 9. 9 > 8, so this should fail.
+        # obs_horizon + act_horizon - 1 > pred_horizon
         with pytest.raises(ValueError, match="Prediction horizon .* is too short"):
-            DiffusionPolicy(**basic_kwargs, act_horizon=6)
+            kwargs = basic_kwargs.copy()
+            kwargs["obs_horizon"] = 4
+            kwargs["pred_horizon"] = 8
+            # 4 + 6 - 1 = 9. 9 > 8, so this should fail.
+            DiffusionPolicy(**kwargs, act_horizon=6)
 
-    def test_obs_dim_parsing(self, basic_kwargs, mock_datamodule):
+    def test_obs_dim_parsing(self, basic_kwargs):
         """Ensures obs_dim handles both flat integers and nested dictionaries."""
 
         # Test flat int
-        mock_datamodule.obs_dim = 5
-        policy_flat = DiffusionPolicy(**basic_kwargs)
+        kwargs = basic_kwargs.copy()
+        kwargs["obs_dim"] = 5
+        policy_flat = DiffusionPolicy(**kwargs)
+        # Note: Depending on your exact implementation, this attribute might be
+        # called .obs_dim or .obs_dim internally. Using obs_dim based on your __init__.
         assert policy_flat.obs_dim == 5
 
         # Test nested dict (should trigger sum_shapes)
-        mock_datamodule.obs_dim = {"camera1": {"shape": (3, 64, 64)}, "proprio": {"shape": (12,)}}
-        policy_dict = DiffusionPolicy(**basic_kwargs)
+        kwargs["obs_dim"] = {"camera1": {"shape": (3, 64, 64)}, "proprio": {"shape": (12,)}}
+        policy_dict = DiffusionPolicy(**kwargs)
         # 64 + 12 = 76
-        assert policy_dict.obs_dim == 76
+        assert sum_shapes(policy_dict.obs_dim) == 76
 
     def test_uninitialized_errors(self, basic_kwargs):
         """Ensures methods fail gracefully if configure_model is not called."""
@@ -186,12 +187,12 @@ class TestDiffusionPolicyLogic:
         obs_seq = torch.randn(B, 2, policy.obs_dim)
         act_seq = torch.ones(B, 16, policy.act_dim)  # Act sequence is 1s
 
-        # 1. Test "sample" (target should be act_seq)
+        # Test "sample" (target should be act_seq)
         policy.noise_scheduler.config["prediction_type"] = "sample"
         loss_sample = policy._compute_loss(obs_seq, act_seq)
         assert isinstance(loss_sample, torch.Tensor)
 
-        # 2. Test "v_prediction"
+        # Test "v_prediction"
         policy.noise_scheduler.config["prediction_type"] = "v_prediction"
         policy.noise_scheduler.get_velocity.return_value = (
             torch.ones(B, 16, policy.act_dim) * 2
@@ -199,7 +200,7 @@ class TestDiffusionPolicyLogic:
         loss_v = policy._compute_loss(obs_seq, act_seq)
         assert isinstance(loss_v, torch.Tensor)
 
-        # 3. Test Invalid prediction type
+        # Test Invalid prediction type
         policy.noise_scheduler.config["prediction_type"] = "invalid_type"
         with pytest.raises(ValueError, match="Unsupported prediction_type: invalid_type"):
             policy._compute_loss(obs_seq, act_seq)

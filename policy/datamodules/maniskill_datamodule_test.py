@@ -118,20 +118,12 @@ class TestManiSkillDataModuleLogic:
     def test_json_metadata_parsing(self, mock_warn, datamodule_factory):
         """Tests parsing logic for physx backends and observation modes."""
 
-        # Test 1: 'auto' backend falls back to physx_cpu and warns
+        # 'auto' backend falls back to physx_cpu and warns
         dm_auto = datamodule_factory(sim_backend="auto", obs_mode="state")
         assert dm_auto.physx_backend == "physx_cpu"
         mock_warn.assert_called_with(
             "Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'."
         )
-
-        # Test 2: 'none' obs_mode sets use_physx_env_states to True
-        dm_none = datamodule_factory(obs_mode="none")
-        assert dm_none.use_physx_env_states is True
-
-        # Test 3: Standard obs_mode sets use_physx_env_states to False
-        dm_state = datamodule_factory(obs_mode="state")
-        assert dm_state.use_physx_env_states is False
 
     @patch("policy.datamodules.maniskill_datamodule.rank_zero_warn")
     def test_infer_padding_masks_absolute_mode(self, mock_warn, datamodule_factory):

@@ -79,8 +79,9 @@ from _pytest.outcomes import Skipped, XFailed
 from _pytest.python import Function
 from _pytest.runner import CallInfo
 from hydra import compose, initialize_config_module
+from hydra.conf import HydraHelpConf
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from torch.utils.data import DataLoader
 
 from policy.configs.config import Config
@@ -535,6 +536,15 @@ def _setup_hydra_for_tests_and_compose(
             return_hydra_config=True,
         )
 
+        with open_dict(config):
+            # We must mock these Hydra runtime variables because they are referenced
+            # by the YAML configs (like trainer/default.yaml) and don't exist in Pytest.
+            config.hydra.job.num = 0
+            config.hydra.hydra_help = HydraHelpConf(hydra_help="", template="")
+            config.hydra.job.id = 0
+            config.hydra.runtime.output_dir = str(
+                tmp_path_factory.mktemp(basename="output", numbered=True)
+            )
         HydraConfig.instance().set_config(config)
         yield config
 
