@@ -23,13 +23,13 @@ class ManiSkillDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        cond_horizon: int,
+        obs_horizon: int,
         pred_horizon: int,
         act_dim: int | None = None,
-        cond_dim: int | None = None,
+        obs_dim: int | None = None,
         episodes: list[dict] | None = None,
-        cond_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
-        cond_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        obs_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        obs_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         action_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         action_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         load_count: int = -1,
@@ -51,14 +51,14 @@ class ManiSkillDataset(Dataset):
 
         self.lazy = lazy
 
-        self.cond_horizon = cond_horizon
+        self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.act_dim = act_dim
-        self.cond_dim = cond_dim
+        self.obs_dim = obs_dim
 
         # Convert padding masks to numpy boolean arrays
-        self.cond_left_pad_as_zero_mask = self._ensure_numpy_mask(cond_left_pad_as_zero_mask)
-        self.cond_right_pad_as_zero_mask = self._ensure_numpy_mask(cond_right_pad_as_zero_mask)
+        self.obs_left_pad_as_zero_mask = self._ensure_numpy_mask(obs_left_pad_as_zero_mask)
+        self.obs_right_pad_as_zero_mask = self._ensure_numpy_mask(obs_right_pad_as_zero_mask)
         self.action_left_pad_as_zero_mask = self._ensure_numpy_mask(action_left_pad_as_zero_mask)
         self.action_right_pad_as_zero_mask = self._ensure_numpy_mask(action_right_pad_as_zero_mask)
 
@@ -82,14 +82,14 @@ class ManiSkillDataset(Dataset):
         return len(self.slices)
 
     def __getitem__(self, idx: int):
-        """Extracts a temporal window of conditions and actions from an episode.
+        """Extracts a temporal window of observations and actions from an episode.
 
         Shapes:
             returns dict with:
-                "cond_seq": [cond_horizon, cond_dim]
+                "obs_seq": [obs_horizon, obs_dim]
                 "act_seq": [pred_horizon, act_dim]
         """
-        traj_idx, cond_start, cond_end, act_start, act_end, L = self.slices[idx]
+        traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]
         traj = self.trajectories[traj_idx]
 
         if self.lazy:
@@ -118,23 +118,22 @@ class ManiSkillDataset(Dataset):
             traj = h5_traj
 
         # Now traj is a h5 group for sure
-        # TODO: cond --> obs
-        cond_src = traj["obs"]
-        if not isinstance(cond_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
-            raise TypeError(f"Expected obs to be a dataset or group, got {type(cond_src)}")
+        obs_src = traj["obs"]
+        if not isinstance(obs_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
+            raise TypeError(f"Expected obs to be a dataset or group, got {type(obs_src)}")
 
         act_src = traj["actions"]
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
 
         # So we access it and retrieve what needed, with padding
-        cond_seq = self._slice_and_pad(
-            cond_src,
-            cond_start,
-            cond_end,
+        obs_seq = self._slice_and_pad(
+            obs_src,
+            obs_start,
+            obs_end,
             L,
-            left_pad_as_zero_mask=self.cond_left_pad_as_zero_mask,
-            right_pad_as_zero_mask=self.cond_right_pad_as_zero_mask,
+            left_pad_as_zero_mask=self.obs_left_pad_as_zero_mask,
+            right_pad_as_zero_mask=self.obs_right_pad_as_zero_mask,
         )
         act_seq = self._slice_and_pad(
             act_src,
@@ -145,11 +144,11 @@ class ManiSkillDataset(Dataset):
             right_pad_as_zero_mask=self.action_right_pad_as_zero_mask,
         )
 
-        cond_seq = to_tensor(cond_seq)
+        obs_seq = to_tensor(obs_seq)
         act_seq = to_tensor(act_seq)
 
         return {
-            "cond_seq": cond_seq,
+            "obs_seq": obs_seq,
             "act_seq": act_seq,
         }
 
@@ -259,7 +258,7 @@ class ManiSkillDataset(Dataset):
         """
 
         # NOTE: To ensure temporal smoothness and momentum, we align the action sequence
-        # to start at the same timestamp as the observation sequence (act_start = cond_start).
+        # to start at the same timestamp as the observation sequence (act_start = obs_start).
         # By forcing the model to re-predict actions that occurred during the observation
         # window (the "past"), the result is that the network learns a continuous trajectory where future
         # plans are physically grounded in recent history.
@@ -270,7 +269,7 @@ class ManiSkillDataset(Dataset):
         # - At Inference instead we discard the past actions (via slicing in get_action) and only
         #   return the actions intended for the present and future.
         # - We do NOT need to increase pred_horizon or act_horizon. The past
-        #   actions (cond_horizon - 1) simply occupy the first few slots of the existing
+        #   actions (obs_horizon - 1) simply occupy the first few slots of the existing
         #   pred_horizon, which is already large enough to contain both the
         #   "anchor" steps and the steps we actually execute.
         #   Limits related to the sizes of the horizons are done in the DiffusionPolicy class, where the act_horizon is available
@@ -287,13 +286,13 @@ class ManiSkillDataset(Dataset):
 
         slices = []
         for t in range(L):
-            cond_start = t - self.cond_horizon + 1
-            cond_end = t + 1
+            obs_start = t - self.obs_horizon + 1
+            obs_end = t + 1
 
-            act_start = cond_start
+            act_start = obs_start
             act_end = act_start + self.pred_horizon
 
-            slices.append((traj_idx, cond_start, cond_end, act_start, act_end, L))
+            slices.append((traj_idx, obs_start, obs_end, act_start, act_end, L))
 
         return slices
 
@@ -304,8 +303,8 @@ class ManiSkillDataset(Dataset):
                 self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
             )
 
-        if self.cond_dim is None:
-            self.cond_dim = peek_trajectory_dimension(
+        if self.obs_dim is None:
+            self.obs_dim = peek_trajectory_dimension(
                 self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
             )
 

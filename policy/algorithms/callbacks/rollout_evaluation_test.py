@@ -40,19 +40,19 @@ class FakeRolloutDataModule(L.LightningDataModule):
 
 
 class FakeRolloutPolicyModule(L.LightningModule):
-    def __init__(self, cond_horizon: int = 2, act_horizon: int = 1, act_dim: int = 3):
+    def __init__(self, obs_horizon: int = 2, act_horizon: int = 1, act_dim: int = 3):
         super().__init__()
-        self.cond_horizon = cond_horizon
+        self.obs_horizon = obs_horizon
         self.act_horizon = act_horizon
         self.act_dim = act_dim
         # tiny parameter so `.to(device)` works and module has a device
         self.p = torch.nn.Parameter(torch.zeros(()))
 
     # Return zeros action sequence on the same device
-    def get_action(self, cond_seq: torch.Tensor | Any) -> torch.Tensor:
-        assert isinstance(cond_seq, torch.Tensor)
-        b = cond_seq.shape[0]
-        return torch.zeros((b, self.act_horizon, self.act_dim), device=cond_seq.device)
+    def get_action(self, obs_seq: torch.Tensor | Any) -> torch.Tensor:
+        assert isinstance(obs_seq, torch.Tensor)
+        b = obs_seq.shape[0]
+        return torch.zeros((b, self.act_horizon, self.act_dim), device=obs_seq.device)
 
     # Lightning boilerplate
     def validation_step(self, batch, batch_idx):

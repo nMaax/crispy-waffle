@@ -180,14 +180,14 @@ class TestManiSkillDataLoaders:
     def test_train_val_dataloaders(self, datamodule_factory):
         """Verifies dataloaders return batches with correct shapes."""
         batch_size = 2
-        cond_horizon = 2
+        obs_horizon = 2
         pred_horizon = 4
 
         dm = datamodule_factory(
             batch_size=batch_size,
-            cond_horizon=cond_horizon,
+            obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
-            obs_mode="state",  # use_physx_env_states = False -> condition is 'obs' (dim 3)
+            obs_mode="state",
         )
         dm.setup()
 
@@ -200,12 +200,12 @@ class TestManiSkillDataLoaders:
         # Fetch one batch
         batch = next(iter(train_loader))
 
-        assert "cond_seq" in batch
+        assert "obs_seq" in batch
         assert "act_seq" in batch
 
         # Check shapes: (batch_size, horizon, dimension)
         # obs_dim = 3, act_dim = 4 (from factory mock)
-        assert batch["cond_seq"].shape == (batch_size, cond_horizon, 3)
+        assert batch["obs_seq"].shape == (batch_size, obs_horizon, 3)
         assert batch["act_seq"].shape == (batch_size, pred_horizon, 4)
 
     def test_test_dataloader_is_dummy(self, datamodule_factory):

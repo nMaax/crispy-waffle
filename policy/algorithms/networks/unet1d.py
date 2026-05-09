@@ -108,7 +108,7 @@ class ConditionalResidualBlock1D(nn.Module):
     Operates: Conv1dBlock --> FiLM conditioning --> Conv1dBlock with residual connection.
     """
 
-    def __init__(self, in_channels, out_channels, cond_dim, kernel_size=3, n_groups=8):
+    def __init__(self, in_channels, out_channels, obs_dim, kernel_size=3, n_groups=8):
         super().__init__()
 
         self.blocks = nn.ModuleList(
@@ -120,10 +120,10 @@ class ConditionalResidualBlock1D(nn.Module):
 
         # FiLM modulation https://arxiv.org/abs/1709.07871
         # predicts per-channel scale and bias
-        cond_channels = out_channels * 2
+        obs_channels = out_channels * 2
         self.out_channels = out_channels
-        self.cond_encoder = nn.Sequential(
-            nn.Mish(), nn.Linear(cond_dim, cond_channels), nn.Unflatten(-1, (-1, 1))
+        self.obs_encoder = nn.Sequential(
+            nn.Mish(), nn.Linear(obs_dim, obs_channels), nn.Unflatten(-1, (-1, 1))
         )
 
         # Make sure dimensions are compatible
@@ -137,14 +137,14 @@ class ConditionalResidualBlock1D(nn.Module):
         """
         shapes:
             x : [ batch_size, in_channels, horizon ]
-            cond : [ batch_size, extended_cond_dim (cond_dim + time_embed_dim)]
+            cond : [ batch_size, extended_obs_dim (obs_dim + time_embed_dim)]
             returns: [ batch_size, out_channels, horizon ]
         """
         # First Conv1d Block
         out = self.blocks[0](x)
 
         # FiLM conditioning
-        embed = self.cond_encoder(cond)
+        embed = self.obs_encoder(cond)
         embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
         scale = embed[:, 0, ...]
         bias = embed[:, 1, ...]
@@ -160,7 +160,7 @@ class ConditionalUnet1D(nn.Module):
     def __init__(
         self,
         input_dim,
-        external_cond_dim,
+        external_obs_dim,
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
         kernel_size=5,
@@ -182,7 +182,7 @@ class ConditionalUnet1D(nn.Module):
             nn.Mish(),
             nn.Linear(dsed * 4, dsed),
         )
-        cond_dim = dsed + external_cond_dim
+        obs_dim = dsed + external_obs_dim
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]
@@ -191,14 +191,14 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     mid_dim,
                     mid_dim,
-                    cond_dim=cond_dim,
+                    obs_dim=obs_dim,
                     kernel_size=kernel_size,
                     n_groups=n_groups,
                 ),
                 ConditionalResidualBlock1D(
                     mid_dim,
                     mid_dim,
-                    cond_dim=cond_dim,
+                    obs_dim=obs_dim,
                     kernel_size=kernel_size,
                     n_groups=n_groups,
                 ),
@@ -214,14 +214,14 @@ class ConditionalUnet1D(nn.Module):
                         ConditionalResidualBlock1D(
                             dim_in,
                             dim_out,
-                            cond_dim=cond_dim,
+                            obs_dim=obs_dim,
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
                         ConditionalResidualBlock1D(
                             dim_out,
                             dim_out,
-                            cond_dim=cond_dim,
+                            obs_dim=obs_dim,
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
@@ -239,14 +239,14 @@ class ConditionalUnet1D(nn.Module):
                         ConditionalResidualBlock1D(
                             dim_out * 2,
                             dim_in,
-                            cond_dim=cond_dim,
+                            obs_dim=obs_dim,
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
                         ConditionalResidualBlock1D(
                             dim_in,
                             dim_in,
-                            cond_dim=cond_dim,
+                            obs_dim=obs_dim,
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
@@ -269,14 +269,14 @@ class ConditionalUnet1D(nn.Module):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
-        external_cond=None,
+        obs=None,
     ):
         """Predicts the noise residual for a given noisy sample, timestep, and conditioning.
 
         Shapes:
             sample: [B, pred_horizon, input_dim] (noisy action sequence)
             timestep: [B,] or int
-            external_cond: [B, cond_horizon * cond_dim] (flattened global conditioning)
+            obs: [B, obs_horizon * obs_dim] (flattened global conditioning)
             returns: [B, horizon, input_dim] (predicted noise)
         """
         # (B,T,C) -> (B,C,T)
@@ -298,8 +298,8 @@ class ConditionalUnet1D(nn.Module):
         global_feature = self.diffusion_step_encoder(timesteps)
 
         # Concatenate time embedding with the (eventually provided) global conditioning
-        if external_cond is not None:
-            global_feature = torch.cat([global_feature, external_cond], dim=-1)
+        if obs is not None:
+            global_feature = torch.cat([global_feature, obs], dim=-1)
 
         # Prepare variables to pass and track Unet features for skip connections
         x = sample  # Working variable that we will pass through the UNet

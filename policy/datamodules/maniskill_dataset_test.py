@@ -74,7 +74,7 @@ class TestManiSkillDataset:
             ManiSkillDataset(
                 dataset_file=bad_extension,
                 use_phsyx_env_states=False,
-                cond_horizon=2,
+                obs_horizon=2,
                 pred_horizon=4,
             )
 
@@ -83,7 +83,7 @@ class TestManiSkillDataset:
             ManiSkillDataset(
                 dataset_file=missing_file,
                 use_phsyx_env_states=False,
-                cond_horizon=2,
+                obs_horizon=2,
                 pred_horizon=4,
             )
 
@@ -94,7 +94,7 @@ class TestManiSkillDataset:
         dataset_success = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
             use_phsyx_env_states=False,
-            cond_horizon=2,
+            obs_horizon=2,
             pred_horizon=4,
             success_only=True,
         )
@@ -107,7 +107,7 @@ class TestManiSkillDataset:
         dataset_count = ManiSkillDataset(
             dummy_maniskill_data,
             use_phsyx_env_states=False,
-            cond_horizon=2,
+            obs_horizon=2,
             pred_horizon=4,
             load_count=1,
             success_only=False,
@@ -120,7 +120,7 @@ class TestManiSkillDataset:
         kwargs = dict(
             dataset_file=dummy_maniskill_data,
             use_phsyx_env_states=False,
-            cond_horizon=2,
+            obs_horizon=2,
             pred_horizon=4,
         )
 
@@ -145,18 +145,18 @@ class TestManiSkillDataset:
                 else:
                     assert torch.allclose(a, b)
 
-            check_tensors_match(eager_item["cond_seq"], lazy_item["cond_seq"])
+            check_tensors_match(eager_item["obs_seq"], lazy_item["obs_seq"])
             check_tensors_match(eager_item["act_seq"], lazy_item["act_seq"])
 
     def test_temporal_windowing(self, dummy_maniskill_data: Path):
         """Tests if _compute_trajectory_slices generates the right temporal boundaries."""
-        cond_horizon = 2
+        obs_horizon = 2
         pred_horizon = 4
 
         dataset = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
             use_phsyx_env_states=False,
-            cond_horizon=cond_horizon,
+            obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
             success_only=True,  # Episode 0, length 10
         )
@@ -165,23 +165,23 @@ class TestManiSkillDataset:
         assert len(dataset.slices) == 10
 
         # Test the first slice (t=0)
-        traj_idx, cond_start, cond_end, act_start, act_end, L = dataset.slices[0]
-        assert cond_start == -1  # 0 - 2 + 1
-        assert cond_end == 1
-        assert act_start == cond_start  # Aligns with cond_start
+        traj_idx, obs_start, obs_end, act_start, act_end, L = dataset.slices[0]
+        assert obs_start == -1  # 0 - 2 + 1
+        assert obs_end == 1
+        assert act_start == obs_start  # Aligns with obs_start
         assert act_end == act_start + pred_horizon
 
         # Test the last slice (t=9)
-        traj_idx, cond_start, cond_end, act_start, act_end, L = dataset.slices[-1]
-        assert cond_end == 10  # 9 + 1
-        assert act_start == cond_start
+        traj_idx, obs_start, obs_end, act_start, act_end, L = dataset.slices[-1]
+        assert obs_end == 10  # 9 + 1
+        assert act_start == obs_start
 
     def test_slice_and_pad(self, dummy_maniskill_data: Path):
         """Tests the padding logic applied to HDF5 sequences directly."""
         dataset = ManiSkillDataset(
             dataset_file=dummy_maniskill_data,
             use_phsyx_env_states=False,
-            cond_horizon=2,
+            obs_horizon=2,
             pred_horizon=4,
             # Let's say actions have 2 dims: pad first with 0s, second with edge
             action_right_pad_as_zero_mask=[True, False],
@@ -237,7 +237,7 @@ class TestManiSkillDataset:
         dataset = ManiSkillDataset(
             dataset_file=real_file,
             use_phsyx_env_states=True,
-            cond_horizon=2,
+            obs_horizon=2,
             pred_horizon=16,
             success_only=True,
             lazy=True,
@@ -246,9 +246,9 @@ class TestManiSkillDataset:
         assert len(dataset) > 0
         sample = dataset[0]
 
-        assert "cond_seq" in sample
+        assert "obs_seq" in sample
         assert "act_seq" in sample
 
         # Check sequence shapes using our recursive helper
-        check_sequence_length(sample["cond_seq"], 2)
+        check_sequence_length(sample["obs_seq"], 2)
         check_sequence_length(sample["act_seq"], 16)

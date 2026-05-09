@@ -11,10 +11,10 @@ def test_unet1d_instantiates_and_runs():
     batch_size = 128
     horizon = 16  # Number of timesteps to predict/diffuse upon
     input_dim = 8  # Dimensionality of each element in the sequence being diffused
-    external_cond_dim = 67  # Usually cond_horizon * cond_dim
+    external_obs_dim = 67  # Usually obs_horizon * obs_dim
 
     # Inject the dimensions directly into instantiate
-    network = hydra_zen.instantiate(cfg, input_dim=input_dim, external_cond_dim=external_cond_dim)
+    network = hydra_zen.instantiate(cfg, input_dim=input_dim, external_obs_dim=external_obs_dim)
 
     # Sample to de-noise
     sample = torch.randn(batch_size, horizon, input_dim)
@@ -23,10 +23,10 @@ def test_unet1d_instantiates_and_runs():
     timestep = torch.randint(0, 100, (batch_size,))
 
     # This and the timestep embedding (which is generated inside the network) are what enters FiLM
-    flatten_cond = torch.randn(batch_size, external_cond_dim)
+    flatten_obs = torch.randn(batch_size, external_obs_dim)
 
     # Run a forward pass to ensure the architecture doesn't crash
-    output = network(sample, timestep, external_cond=flatten_cond)
+    output = network(sample, timestep, obs=flatten_obs)
 
     # For a 1D Unet in diffusion, output shape should match the sample shape
     assert output.shape == sample.shape

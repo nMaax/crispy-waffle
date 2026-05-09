@@ -63,18 +63,18 @@ class PolicyProtocol(Protocol):
     :class:`RolloutEvaluationCallback` without depending on a specific implementation.
     """
 
-    cond_horizon: int
-    """Number of past observations used to build the conditioning window."""
+    obs_horizon: int
+    """Number of past observations used to build the observations window."""
 
     device: torch.device
     """Device on which the policy parameters live."""
 
-    def get_action(self, cond_seq: torch.Tensor | Mapping[str, Any] | None) -> torch.Tensor:
-        """Return a sequence of actions given a (batched) conditioning window.
+    def get_action(self, obs_seq: torch.Tensor | Mapping[str, Any] | None) -> torch.Tensor:
+        """Return a sequence of actions given a (batched) observations window.
 
         Args:
-            cond_seq: Either a float tensor of shape ``(B, cond_horizon, cond_dim)`` or a
-                nested dict of such tensors, depending on the conditioning source.
+            obs_seq: Either a float tensor of shape ``(B, obs_horizon, obs_dim)`` or a
+                nested dict of such tensors.
 
         Returns:
             Action tensor of shape ``(B, act_horizon, act_dim)``.

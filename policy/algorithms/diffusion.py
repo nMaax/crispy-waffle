@@ -30,10 +30,10 @@ class DiffusionPolicy(L.LightningModule):
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
-        cond_horizon: int = 2,
+        obs_horizon: int = 2,
         pred_horizon: int = 16,
         act_horizon: int = 8,
-        cond_dim: int = 48,
+        obs_dim: int = 48,
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
@@ -57,7 +57,7 @@ class DiffusionPolicy(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
-        self.cond_horizon = cond_horizon
+        self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
 
@@ -67,28 +67,28 @@ class DiffusionPolicy(L.LightningModule):
                 "The model cannot execute more timesteps (act_horizon) than its total prediction horizon (pred_horizon)."
             )
 
-        if self.act_horizon < self.cond_horizon:
+        if self.act_horizon < self.obs_horizon:
             raise ValueError(
-                f"Action horizon ({self.act_horizon}) cannot be less than conditioning horizon ({self.cond_horizon}). "
+                f"Action horizon ({self.act_horizon}) cannot be less than observation horizon ({self.obs_horizon}). "
                 "The model needs to predict at least as many timesteps as it conditions on (including repredicting the past)."
             )
 
-        if self.cond_horizon + self.act_horizon - 1 > self.pred_horizon:
+        if self.obs_horizon + self.act_horizon - 1 > self.pred_horizon:
             raise ValueError(
                 f"Prediction horizon ({self.pred_horizon}) is too short! "
-                f"It must be at least {self.cond_horizon + self.act_horizon - 1} "
-                f"to contain the past actions ({self.cond_horizon - 1}) plus "
+                f"It must be at least {self.obs_horizon + self.act_horizon - 1} "
+                f"to contain the past actions ({self.obs_horizon - 1}) plus "
                 f"the actions to execute ({self.act_horizon})."
             )
 
         self.act_dim = act_dim
-        self.cond_dim = cond_dim
+        self.obs_dim = obs_dim
 
         # TODO: Normalize observation/env_states
         #   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)
         #   - Then the diffusion policy can load them and apply the normalization using the TensorZNormalizer from utils/normalizer.py
-        #   - The Diffusion should correctly select the file related to what we are looking for: cond_source, then select physix_env_states vs obs, and apply the normalization accordingly.
-        #   - Thus Diffusion should have access to the datamodule's parameters about cond_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
+        #   - The Diffusion should correctly select the file related to what we are looking for: obs_source, then select physix_env_states vs obs, and apply the normalization accordingly.
+        #   - Thus Diffusion should have access to the datamodule's parameters about obs_source, physx_env_states, obs_mode, etc. to be able to do this correctly.
         #   - Can diffusion access such data? YES, since datamodule is passed in the init
 
     def configure_model(self) -> None:
@@ -96,9 +96,9 @@ class DiffusionPolicy(L.LightningModule):
             return
 
         # We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
-        external_cond_dim = self.cond_horizon * self.cond_dim
+        external_obs_dim = self.obs_horizon * self.obs_dim
         self.network = hydra_zen.instantiate(
-            self.network_config, input_dim=self.act_dim, external_cond_dim=external_cond_dim
+            self.network_config, input_dim=self.act_dim, external_obs_dim=external_obs_dim
         )
 
         if self.ema is not None:
@@ -143,14 +143,14 @@ class DiffusionPolicy(L.LightningModule):
         logging.
 
         Shapes:
-            batch["cond_seq"]: [B, cond_horizon, cond_dim]
+            batch["obs_seq"]: [B, obs_horizon, obs_dim]
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
-        flatten_cond = flatten_tensor_dict(batch["cond_seq"])
+        flatten_obs = flatten_tensor_dict(batch["obs_seq"])
         action_seq = batch["act_seq"]
 
-        loss = self._compute_loss(flatten_cond, action_seq)
+        loss = self._compute_loss(flatten_obs, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -188,7 +188,7 @@ class DiffusionPolicy(L.LightningModule):
 
     def get_action(
         self,
-        cond_seq: torch.Tensor,
+        obs_seq: torch.Tensor,
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
@@ -196,7 +196,7 @@ class DiffusionPolicy(L.LightningModule):
         observation.
 
         Shapes:
-            cond_seq: [B, cond_horizon * cond_dim] (flattened conditioning)
+            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
         if self.network is None:
@@ -214,7 +214,7 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = cond_seq.shape[0]
+        B = obs_seq.shape[0]
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -235,7 +235,7 @@ class DiffusionPolicy(L.LightningModule):
                 model_pred = self.network(
                     sample=latent_model_input,
                     timestep=t,
-                    external_cond=cond_seq,
+                    obs=obs_seq,
                 )
 
                 output = self.noise_scheduler.step(
@@ -249,7 +249,7 @@ class DiffusionPolicy(L.LightningModule):
 
         self.ema.restore(self.network.parameters())
 
-        start = self.cond_horizon - 1
+        start = self.obs_horizon - 1
         end = start + self.act_horizon
 
         denoised_act_seq = noisy_act_seq[:, start:end]
@@ -259,11 +259,11 @@ class DiffusionPolicy(L.LightningModule):
 
         return denoised_act_seq
 
-    def _compute_loss(self, cond_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
-            cond_seq: [B, cond_horizon * cond_dim] (flattened condition sequence)
+            obs_seq: [B, obs_horizon * obs_dim] (flattened condition sequence)
             act_seq: [B, pred_horizon, act_dim] (target action chunk)
             returns: scalar loss tensor []
         """
@@ -282,7 +282,7 @@ class DiffusionPolicy(L.LightningModule):
                 "EMA Model not initialized. Call configure_model() before computing loss."
             )
 
-        B = cond_seq.shape[0]
+        B = obs_seq.shape[0]
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -296,7 +296,7 @@ class DiffusionPolicy(L.LightningModule):
         timesteps = cast(torch.IntTensor, timesteps)
 
         noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, external_cond=cond_seq)
+        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 

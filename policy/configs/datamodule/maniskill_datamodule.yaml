@@ -1,10 +1,10 @@
 _target_: policy.datamodules.maniskill_datamodule.ManiSkillDataModule
 dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
 
-cond_horizon: 2
+obs_horizon: 2
 pred_horizon: 16
 
-cond_dim: 48
+obs_dim: 48
 act_dim: 4
 
 batch_size: 256

@@ -28,9 +28,9 @@ class ManiSkillDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_file: str | Path,
-        cond_horizon: int = 2,
+        obs_horizon: int = 2,
         pred_horizon: int = 16,
-        cond_dim: int = 48,
+        obs_dim: int = 48,
         act_dim: int = 4,
         batch_size: int = 256,
         num_workers: int = 4,
@@ -63,10 +63,10 @@ class ManiSkillDataModule(L.LightningDataModule):
                 "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
             )
 
-        self.cond_horizon = cond_horizon
+        self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
 
-        self.cond_dim = cond_dim
+        self.obs_dim = obs_dim
         self.act_dim = act_dim
 
         self.batch_size = batch_size
@@ -114,12 +114,12 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.train_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
                 act_dim=self.act_dim,
-                cond_dim=self.cond_dim,
-                cond_horizon=self.cond_horizon,
+                obs_dim=self.obs_dim,
+                obs_horizon=self.obs_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
-                cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
                 action_left_pad_as_zero_mask=left_mask,
                 action_right_pad_as_zero_mask=right_mask,
                 lazy=self.lazy,
@@ -128,12 +128,12 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.val_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
                 act_dim=self.act_dim,
-                cond_dim=self.cond_dim,
-                cond_horizon=self.cond_horizon,
+                obs_dim=self.obs_dim,
+                obs_horizon=self.obs_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
-                cond_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                cond_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
                 action_left_pad_as_zero_mask=left_mask,
                 action_right_pad_as_zero_mask=right_mask,
                 lazy=self.lazy,
@@ -192,7 +192,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         """Infers the left and right action padding masks based on the control mode."""
         # When the underlying dataset will generate windows it will need to pad sequences at the start/end of the episode
         # Padding can be either zeros or edge values, it will be the mask to dictate which
-        # Generally, not padding mask is passed for conditions, as we will default to edge padding
+        # Generally, not padding mask is passed for observations, as we will default to edge padding
         # For actions instead, we allow users to specify which dimensions to pad as zeros vs edges,
         # as we would like the robot to infer some specific behavior,given its action space nature.
         # e.g. in delta_* control modes we want the robot to stand still after the task is complete,

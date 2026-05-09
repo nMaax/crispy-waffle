@@ -174,7 +174,7 @@ class RolloutEvaluationCallback(L.Callback):
         rate.
 
         Shapes (internal):
-            obs: [num_envs, cond_horizon, obs_dim]
+            obs: [num_envs, obs_horizon, obs_dim]
             action_seq (from policy): [num_envs, act_horizon, act_dim]
             action (stepped in env): [num_envs, act_dim]
         """
@@ -232,7 +232,7 @@ class RolloutEvaluationCallback(L.Callback):
                 source_desc=f"Diffusion Policy rollout ({phase})",
             )
 
-        env = FrameStack(env, num_stack=pl_module.cond_horizon)
+        env = FrameStack(env, num_stack=pl_module.obs_horizon)
         env = ManiSkillVectorEnv(
             env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
@@ -269,17 +269,12 @@ class RolloutEvaluationCallback(L.Callback):
             env.render()
 
         while episodes_completed < num_episodes:
-            # BUG: When using raw physx tensors we get a mismatch of shapes since
-            # we did not stack subsequent frames physx_states on the conditioning history
-            # the most clean fix here is to make a custom environment wrapper that handles the history by itself
-            # using the same interface as the maniskill FrameStack wrapper, but stacking the physx states instead of the observations
-
             adapted_obs = self.adapter.apply(obs)
 
-            flatten_cond = flatten_tensor_dict(adapted_obs, device=pl_module.device)
+            flatten_obs = flatten_tensor_dict(adapted_obs, device=pl_module.device)
 
             with torch.no_grad():
-                action_seq = pl_module.get_action(flatten_cond)
+                action_seq = pl_module.get_action(flatten_obs)
 
             # Execute the action chunk
             for i in range(pl_module.act_horizon):
