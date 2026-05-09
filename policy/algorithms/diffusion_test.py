@@ -178,6 +178,9 @@ class TestDiffusionPolicyLogic:
         policy = DiffusionPolicy(**basic_kwargs)
         policy.configure_model()  # Populates self.network and self.ema with our mock patches
 
+        if policy.noise_scheduler is None:
+            raise ValueError("Noise scheduler should be initialized by configure_model")
+
         # Mock the initialized components behavior
         policy.network = MagicMock(return_value=torch.ones(1, 16, 4))  # Dummy prediction
         policy.noise_scheduler.add_noise.return_value = torch.zeros(1, 16, 4)
@@ -210,6 +213,9 @@ class TestDiffusionPolicyLogic:
         bounds."""
         policy = DiffusionPolicy(**basic_kwargs, act_horizon=8)
         policy.configure_model()  # Populates self.network and self.ema with our mock patches
+
+        if policy.noise_scheduler is None:
+            raise ValueError("Noise scheduler should be initialized by configure_model")
 
         # Set up mocks
         policy.noise_scheduler.config = {"num_train_timesteps": 10}

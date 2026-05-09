@@ -37,6 +37,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         val_split: float = 0.1,
         action_left_pad_as_zero_mask: list[bool] | None = None,
         action_right_pad_as_zero_mask: list[bool] | None = None,
+        load_count: int = -1,
+        success_only: bool = False,
         lazy: bool = False,
         seed: int | None = None,
     ):
@@ -76,6 +78,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.action_left_pad_as_zero_mask = action_left_pad_as_zero_mask
         self.action_right_pad_as_zero_mask = action_right_pad_as_zero_mask
 
+        self.load_count = load_count
+        self.success_only = success_only
         self.lazy = lazy
         self.seed = seed
 
@@ -113,29 +117,33 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.train_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
-                act_dim=self.act_dim,
-                obs_dim=self.obs_dim,
                 obs_horizon=self.obs_horizon,
                 pred_horizon=self.pred_horizon,
-                episodes=train_episodes,
+                obs_dim=self.obs_dim,
+                act_dim=self.act_dim,
                 obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
                 obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
                 action_left_pad_as_zero_mask=left_mask,
                 action_right_pad_as_zero_mask=right_mask,
+                episodes=train_episodes,
+                load_count=self.load_count,
+                success_only=self.success_only,
                 lazy=self.lazy,
             )
 
             self.val_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
-                act_dim=self.act_dim,
-                obs_dim=self.obs_dim,
                 obs_horizon=self.obs_horizon,
                 pred_horizon=self.pred_horizon,
-                episodes=val_episodes,
+                obs_dim=self.obs_dim,
+                act_dim=self.act_dim,
                 obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
                 obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
                 action_left_pad_as_zero_mask=left_mask,
                 action_right_pad_as_zero_mask=right_mask,
+                episodes=val_episodes,
+                load_count=self.load_count,
+                success_only=self.success_only,
                 lazy=self.lazy,
             )
 

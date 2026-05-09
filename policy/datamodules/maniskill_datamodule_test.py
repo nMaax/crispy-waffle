@@ -26,7 +26,7 @@ def datamodule_factory(tmp_path: Path):
         num_episodes: int = 10,
         episode_length: int = 5,
         obs_mode: str = "state",
-        control_mode: str = "pd_joint_delta_pos",
+        control_mode: str = "pd_ee_delta_pos",
         sim_backend: str = "physx_cpu",
         val_split: float = 0.2,
         seed: int = 42,

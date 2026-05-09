@@ -25,13 +25,13 @@ class ManiSkillDataset(Dataset):
         dataset_file: str | Path,
         obs_horizon: int,
         pred_horizon: int,
-        act_dim: int | None = None,
         obs_dim: int | None = None,
-        episodes: list[dict] | None = None,
+        act_dim: int | None = None,
         obs_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         obs_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         action_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         action_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
+        episodes: list[dict] | None = None,
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
@@ -53,8 +53,19 @@ class ManiSkillDataset(Dataset):
 
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
-        self.act_dim = act_dim
+
+        # Peek dimensions if not provided
+        if obs_dim is None:
+            obs_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
+            )
         self.obs_dim = obs_dim
+
+        if act_dim is None:
+            act_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
+            )
+        self.act_dim = act_dim
 
         # Convert padding masks to numpy boolean arrays
         self.obs_left_pad_as_zero_mask = self._ensure_numpy_mask(obs_left_pad_as_zero_mask)
@@ -295,18 +306,6 @@ class ManiSkillDataset(Dataset):
             slices.append((traj_idx, obs_start, obs_end, act_start, act_end, L))
 
         return slices
-
-    def _peek_dimensions(self) -> None:
-        """Peeks into the HDF5 file to infer missing dimensions."""
-        if self.act_dim is None:
-            self.act_dim = peek_trajectory_dimension(
-                self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
-            )
-
-        if self.obs_dim is None:
-            self.obs_dim = peek_trajectory_dimension(
-                self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
-            )
 
     def _slice_and_pad(
         self,
