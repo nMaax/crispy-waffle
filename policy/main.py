@@ -19,7 +19,6 @@ import lightning
 import rich
 import rich.logging
 import wandb
-from hydra_plugins.auto_schema import auto_schema_plugin
 from omegaconf import DictConfig
 from rich.panel import Panel
 
@@ -33,16 +32,6 @@ from policy.utils.utils import print_config
 PROJECT_NAME = policy.__name__
 REPO_ROOTDIR = Path(__file__).parent.parent
 logger = logging.getLogger(__name__)
-
-# todo: remove, or configure in some other way (e.g. a config file).
-auto_schema_plugin.config = auto_schema_plugin.AutoSchemaPluginConfig(
-    schemas_dir=REPO_ROOTDIR / ".schemas",
-    regen_schemas=False,
-    stop_on_error=False,
-    quiet=False,
-    verbose=False,
-    add_headers=False,  # don't fallback to adding headers if we can't use vscode settings file.
-)
 
 # TODO: since I sometimes train on a RTX 4080 I should use `torch.set_float32_matmul_precision=high` instead of default 'highest'
 # tho this is not supported on TITAN X and other architectures, I think Lightning provides a handy way to handle this anyway.

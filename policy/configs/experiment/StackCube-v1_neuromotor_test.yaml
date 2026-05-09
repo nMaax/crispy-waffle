@@ -15,4 +15,4 @@ trainer:
       env_id: "StackCube-v1"
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
-      physx_backend: null
+      physx_backend: "physx_cuda"
