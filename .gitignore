@@ -172,3 +172,4 @@ lightning_logs
 tests/.regression_files/**.png
 tests/.regression_files/**/*.gif
 data
+policy/.schemas

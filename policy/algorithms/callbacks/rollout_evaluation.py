@@ -37,8 +37,7 @@ class RolloutEvaluationCallback(L.Callback):
     def __init__(
         self,
         adapter: HydraConfigFor[AdapterProtocol] | None = None,
-        num_val_episodes: int = 20,
-        num_test_episodes: int = 100,
+        num_episodes: int = 20,
         max_episode_steps: int | None = None,
         num_envs: int | None = None,
         ignore_terminations: bool = True,
@@ -51,7 +50,6 @@ class RolloutEvaluationCallback(L.Callback):
         obs_mode: str | None = None,
         control_mode: str | None = None,
         physx_backend: str | None = None,
-        use_physx_env_states: bool | None = None,
     ):
         super().__init__()
 
@@ -61,8 +59,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.adapter_config = adapter
         self.adapter: AdapterProtocol | None = None
 
-        self.num_val_episodes = num_val_episodes
-        self.num_test_episodes = num_test_episodes
+        self.num_episodes = num_episodes
 
         self.num_envs = num_envs
         self.ignore_terminations = ignore_terminations
@@ -84,7 +81,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.obs_mode = obs_mode
         self.control_mode = control_mode
         self.physx_backend = physx_backend
-        self.use_physx_env_states = use_physx_env_states
 
         rank_zero_info(
             f"Seeds for rollout simulation fetched from main seed: {seed}\n"
@@ -104,7 +100,6 @@ class RolloutEvaluationCallback(L.Callback):
         # TODO: allow to not use datamodule
         datamodule = getattr(trainer, "datamodule", None)
 
-        # Fallback logic: Use provided config, otherwise fetch from Datamodule
         def _resolve_param(param_value: Any, param_name: str) -> Any:
             if param_value is not None:
                 return param_value
@@ -119,9 +114,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
-        self.use_physx_env_states = _resolve_param(
-            self.use_physx_env_states, "use_physx_env_states"
-        )
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -138,7 +130,7 @@ class RolloutEvaluationCallback(L.Callback):
             if "cpu" in self.physx_backend.lower():
                 self.num_envs = 1
             else:
-                self.num_envs = min(self.num_val_episodes, self.num_test_episodes)
+                self.num_envs = self.num_episodes
 
             rank_zero_info(
                 f"In Rollout variable `num_envs` was not provided, automatically set to {self.num_envs} based on the physx_backend {self.physx_backend}."
@@ -162,18 +154,18 @@ class RolloutEvaluationCallback(L.Callback):
         rank_zero_info(
             f"Rollout Config setup complete:\n"
             f"\tenv_id: {self.env_id},\n"
-            f"\tobs_mode: {self.obs_mode} ({self.use_physx_env_states=}),\n"
+            f"\tobs_mode: {self.obs_mode},\n"
             f"\tcontrol_mode: {self.control_mode},\n"
             f"\tbackend: {self.physx_backend}\n"
             f"\tnum_envs: {self.num_envs}\n"
-            f"\tnum_episodes (val/test): {self.num_val_episodes} / {self.num_test_episodes}"
+            f"\tnum_episodes: {self.num_episodes}"
         )
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(trainer, pl_module, self.num_val_episodes, "val")
+        self._run_rollouts(trainer, pl_module, self.num_episodes, "val")
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
-        self._run_rollouts(trainer, pl_module, self.num_test_episodes, "test")
+        self._run_rollouts(trainer, pl_module, self.num_episodes, "test")
 
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
@@ -281,15 +273,10 @@ class RolloutEvaluationCallback(L.Callback):
             # we did not stack subsequent frames physx_states on the conditioning history
             # the most clean fix here is to make a custom environment wrapper that handles the history by itself
             # using the same interface as the maniskill FrameStack wrapper, but stacking the physx states instead of the observations
-            policy_conditioning = self._get_policy_conditioning(
-                env=env, obs=obs, device=pl_module.device
-            )
 
-            permuted_policy_conditioning = self.adapter.apply(policy_conditioning)
+            adapted_obs = self.adapter.apply(obs)
 
-            flatten_cond = flatten_tensor_dict(
-                permuted_policy_conditioning, device=pl_module.device
-            )
+            flatten_cond = flatten_tensor_dict(adapted_obs, device=pl_module.device)
 
             with torch.no_grad():
                 action_seq = pl_module.get_action(flatten_cond)
@@ -431,26 +418,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"  [{phase.capitalize()} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
-
-    def _get_policy_conditioning(
-        self,
-        env: FrameStack | ManiSkillVectorEnv,
-        obs: torch.Tensor | dict[str, Any],
-        device: torch.device | None = None,
-    ) -> torch.Tensor | dict[str, Any]:
-        """Extracts the conditioning state from either raw observations or physics engine states.
-
-        Shapes:
-            obs: [num_envs, cond_horizon, obs_dim]
-            returns: [num_envs, cond_horizon, target_dim]
-        """
-        if self.use_physx_env_states:
-            policy_conditioning = env.unwrapped.get_state()  # type: ignore
-            policy_conditioning = to_tensor(policy_conditioning, device=device)
-        else:
-            policy_conditioning = obs
-
-        return policy_conditioning
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""

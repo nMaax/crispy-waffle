@@ -1,7 +1,7 @@
 """The training and evaluation functions.
 
 NOTE: This has to be in a different file than `main` because we want to allow registering different
-variants of the `train_and_evaluate` function for different algorithms with
+variants of the `train_and_validate` function for different algorithms with
 `functools.singledispatch`. If we have everything in `main.py`, the registration doesn't happen
 correctly.
 """
@@ -9,7 +9,6 @@ correctly.
 import dataclasses
 import functools
 import os
-import warnings
 from logging import getLogger
 from typing import Any
 
@@ -24,17 +23,17 @@ logger = getLogger(__name__)
 
 
 @functools.singledispatch
-def train_and_evaluate(
+def train_and_validate(
     algorithm,
     /,
     *,
     datamodule: lightning.LightningDataModule | None = None,
     config: Config,
 ):
-    """Generic function that trains and evaluates a learning algorithm.
+    """Generic function that trains and validates a learning algorithm.
 
     This by default assumes that the algorithm is a LightningModule, but can be extended to
-    implement specific training / evaluation procedures for different algorithms.
+    implement specific training / validation procedures for different algorithms.
 
     The default implementation here does roughly the same thing as
     https://github.com/ashleve/lightning-hydra-template/blob/main/src/train.py
@@ -44,14 +43,14 @@ def train_and_evaluate(
         - trainer
         - datamodule (optional)
     2. Calls `trainer.fit` to train the algorithm
-    3. Calls `trainer.evaluate` or `trainer.test` to evaluate the model
+    3. Calls `trainer.validate` to validate the model
     4. Returns the metrics.
 
     ## Extending to other algorithms or training procedures
 
 
     For example, if your algorithm has to be trained in two distinct phases, or if you want to use
-    a different kind of Trainer that does something other than just call `.fit` and `.evaluate`,
+    a different kind of Trainer that does something other than just call `.fit` and `.validate`,
     you could do something like this:
 
     ```python
@@ -66,11 +65,9 @@ def train_and_evaluate(
     ```
     """
 
-    # Create the trainer
     trainer = instantiate_trainer(config.trainer)
 
     for lightning_logger in trainer.loggers:
-        # This has to be done here because the Logger is now instantiated.
         lightning_logger.log_hyperparams(dataclasses.asdict(config))
         lightning_logger.log_hyperparams(
             {k: v for k, v in os.environ.items() if k.startswith("SLURM")}
@@ -79,7 +76,7 @@ def train_and_evaluate(
     if not (
         isinstance(algorithm, lightning.LightningModule) and isinstance(trainer, lightning.Trainer)
     ):
-        _this_fn_name = train_and_evaluate.__name__  # type: ignore
+        _this_fn_name = train_and_validate.__name__  # type: ignore
         raise NotImplementedError(
             f"The `{_this_fn_name}` function assumes that the algorithm is a "
             f"lightning.LightningModule and that the trainer is a lightning.Trainer, but got "
@@ -87,10 +84,9 @@ def train_and_evaluate(
             f"You can register a new handler for that algorithm type using "
             f"`@{_this_fn_name}.register`.\n"
             f"Registered handlers: "
-            + "\n\t".join([f"- {k}: {v.__name__}" for k, v in train_and_evaluate.registry.items()])
+            + "\n\t".join([f"- {k}: {v.__name__}" for k, v in train_and_validate.registry.items()])
         )
 
-    # Train the algorithm.
     algorithm = train_lightning(
         algorithm,
         trainer=trainer,
@@ -98,8 +94,7 @@ def train_and_evaluate(
         datamodule=datamodule,
     )
 
-    # Evaluate the algorithm.
-    metric_name, error, _metrics = evaluate_lightning(
+    metric_name, error, _metrics = validate_lightning(
         algorithm,
         trainer=trainer,
         datamodule=datamodule,
@@ -116,33 +111,32 @@ def train_lightning(
     datamodule: lightning.LightningDataModule | None = None,
     config: Config,
 ):
-    # Train the model using the dataloaders of the datamodule:
-    # The Algorithm gets to "wrap" the datamodule if it wants to. This could be useful for
-    # example in RL, where we need to set the actor to use in the environment, as well as
-    # potentially adding Wrappers on top of the environment, or having a replay buffer, etc.
+    """Trains the algorithm using the trainer and datamodule."""
+
     if datamodule is None:
         if hasattr(algorithm, "datamodule"):
             datamodule = getattr(algorithm, "datamodule")
         elif isinstance(config.datamodule, lightning.LightningDataModule):
             datamodule = config.datamodule
         elif config.datamodule is not None:
+            # TODO: what about using hydra_zen?
             datamodule = hydra.utils.instantiate(config.datamodule)
+
     trainer.fit(algorithm, datamodule=datamodule, ckpt_path=config.ckpt_path)
     return algorithm
 
 
-def evaluate_lightning(
+def validate_lightning(
     algorithm: lightning.LightningModule,
     /,
     *,
     trainer: lightning.Trainer,
     datamodule: lightning.LightningDataModule | None = None,
 ) -> tuple[str, float | None, dict]:
-    """Evaluates the algorithm and returns the metrics.
+    """Validates the algorithm and returns the metrics.
 
     By default, if validation is to be performed, returns the validation error. Returns the
-    training error when `trainer.overfit_batches != 0` (e.g. when debugging or testing). Otherwise,
-    if `trainer.limit_val_batches == 0`, returns the test error.
+    training error when `trainer.overfit_batches != 0` (e.g. when debugging).
     """
 
     datamodule = datamodule or getattr(algorithm, "datamodule", None)
@@ -151,7 +145,6 @@ def evaluate_lightning(
     if (trainer.limit_val_batches == trainer.limit_test_batches == 0) or (
         trainer.overfit_batches == 1  # type: ignore
     ):
-        # We want to report the training error.
         results_type = "train"
         results = [
             {
@@ -160,13 +153,9 @@ def evaluate_lightning(
                 **trainer.progress_bar_metrics,
             }
         ]
-    elif trainer.limit_val_batches != 0:
+    else:
         results_type = "val"
         results = trainer.validate(model=algorithm, datamodule=datamodule)
-    else:
-        warnings.warn(RuntimeWarning("About to use the test set for evaluation!"))
-        results_type = "test"
-        results = trainer.test(model=algorithm, datamodule=datamodule)
 
     if results is None:
         rich.print("RUN FAILED!")

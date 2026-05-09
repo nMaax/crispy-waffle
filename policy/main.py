@@ -21,10 +21,11 @@ import rich.logging
 import wandb
 from hydra_plugins.auto_schema import auto_schema_plugin
 from omegaconf import DictConfig
+from rich.panel import Panel
 
 import policy
 from policy.configs.config import Config
-from policy.experiment import train_and_evaluate
+from policy.experiment import train_and_validate
 from policy.utils.hydra_utils import resolve_dictconfig
 from policy.utils.typing_utils import HydraConfigFor
 from policy.utils.utils import print_config
@@ -60,6 +61,23 @@ def main(dict_config: DictConfig) -> dict:
 
     # Resolve all the interpolations in the configs.
     config: Config = resolve_dictconfig(dict_config)
+
+    limit_train = config.trainer.get("limit_train_batches", None)
+    limit_val = config.trainer.get("limit_val_batches", None)
+
+    if limit_train == 0 and limit_val == 0:
+        warning_msg = (
+            "[bold red]TESTING VIA MAIN IS DEPRECATED[/bold red]\n\n"
+            "It looks like you are trying to run an evaluation-only pipeline by setting "
+            "[yellow]limit_train_batches=0[/yellow] and [yellow]limit_val_batches=0[/yellow].\n\n"
+            "Using [bold cyan]main.py[/bold cyan] for pure evaluation is deprecated because it needlessly loads "
+            "the training datamodule and skips the test hooks.\n\n"
+            "Please use the dedicated evaluation script instead:\n"
+            "[bold green]uv run python policy/eval.py experiment=YOUR_EXP ckpt_path=YOUR_CKPT[/bold green]\n\n"
+            "[dim]The script will now proceed with validation only, no test rollouts will occur.[/dim]"
+        )
+        rich.print(Panel(warning_msg, title="Architecture Notice", border_style="red"))
+
     setup_logging(
         log_level=config.log_level,
         global_log_level="DEBUG" if config.debug else "INFO" if config.verbose else "WARNING",
@@ -79,10 +97,10 @@ def main(dict_config: DictConfig) -> dict:
         datamodule = hydra.utils.instantiate(config.datamodule)
 
     # Create the algo.
-    algorithm = instantiate_algorithm(config.algorithm, datamodule=datamodule)
+    algorithm = instantiate_algorithm(config.algorithm)
 
     # Do the training and evaluation, returns the metric name and the overall 'error' to minimize.
-    metric_name, error = train_and_evaluate(algorithm, config=config, datamodule=datamodule)
+    metric_name, error = train_and_validate(algorithm, config=config, datamodule=datamodule)
 
     if wandb.run:
         wandb.finish()
@@ -117,31 +135,17 @@ def setup_logging(log_level: str, global_log_level: str = "WARNING") -> None:
 
 def instantiate_algorithm(
     algorithm_config: HydraConfigFor[lightning.LightningModule],
-    datamodule: lightning.LightningDataModule | None = None,
 ) -> lightning.LightningModule:
-    """Function used to instantiate the algorithm.
-
-    It is suggested that your algorithm (LightningModule) take in the `datamodule` and `network`
-    as arguments, to make it easier to swap out different networks and datamodules during
-    experiments.
-
-    The instantiated datamodule will be passed to the algorithm's constructor.
-    """
+    """Function used to instantiate the algorithm."""
     # Create the algorithm
-    algo_config = algorithm_config
 
-    if datamodule:
-        algo_or_algo_partial = hydra.utils.instantiate(algo_config, datamodule=datamodule)
-    else:
-        algo_or_algo_partial = hydra.utils.instantiate(algo_config)
+    # TODO: can I use hydra_zen?
+    algo_or_algo_partial = hydra.utils.instantiate(algorithm_config)
 
     if isinstance(algo_or_algo_partial, functools.partial):
-        if datamodule:
-            return algo_or_algo_partial(datamodule=datamodule)
         return algo_or_algo_partial()
-
-    algorithm = algo_or_algo_partial
-    return algorithm
+    else:
+        return algo_or_algo_partial
 
 
 if __name__ == "__main__":

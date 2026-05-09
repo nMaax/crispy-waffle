@@ -10,8 +10,7 @@ from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
-from policy.utils import flatten_tensor_dict, sum_shapes
+from policy.utils import flatten_tensor_dict
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 
@@ -29,15 +28,18 @@ class DiffusionPolicy(L.LightningModule):
         network: HydraConfigFor[nn.Module],
         ema: HydraConfigFor[EMAModel],
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
-        datamodule: ManiSkillDataModule,
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        cond_horizon: int = 2,
+        pred_horizon: int = 16,
         act_horizon: int = 8,
+        cond_dim: int = 48,
+        act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
         super().__init__()
 
-        self.save_hyperparameters(ignore=["datamodule"])
+        self.save_hyperparameters()
 
         self.network_config = network
         self.network: torch.nn.Module | None = None
@@ -55,10 +57,8 @@ class DiffusionPolicy(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
-        self.datamodule = datamodule
-
-        self.cond_horizon = self.datamodule.cond_horizon
-        self.pred_horizon = self.datamodule.pred_horizon
+        self.cond_horizon = cond_horizon
+        self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
 
         if self.act_horizon > self.pred_horizon:
@@ -81,12 +81,8 @@ class DiffusionPolicy(L.LightningModule):
                 f"the actions to execute ({self.act_horizon})."
             )
 
-        self.act_dim = self.datamodule.act_dim
-        cond_dim = self.datamodule.cond_dim
-        if isinstance(cond_dim, dict):
-            self.cond_dim = sum_shapes(cond_dim)
-        else:
-            self.cond_dim = cond_dim
+        self.act_dim = act_dim
+        self.cond_dim = cond_dim
 
         # TODO: Normalize observation/env_states
         #   - Should be pre-computed for the dataset, in the maniskill_datamodule, maybe saving them as <h5_file_path>.stats.json (one time only, to avoid repeated computation every time we train a model)

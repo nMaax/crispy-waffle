@@ -23,12 +23,10 @@ class ManiSkillDataset(Dataset):
     def __init__(
         self,
         dataset_file: str | Path,
-        use_phsyx_env_states: bool,
         cond_horizon: int,
         pred_horizon: int,
         act_dim: int | None = None,
-        env_state_dim: dict[str, Any] | None = None,
-        obs_dim: dict[str, Any] | None = None,
+        cond_dim: int | None = None,
         episodes: list[dict] | None = None,
         cond_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         cond_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
@@ -51,14 +49,12 @@ class ManiSkillDataset(Dataset):
                 "ManiSkill datasets must be HDF5 files (.h5 or .hdf5)."
             )
 
-        self.use_phsyx_env_states = use_phsyx_env_states
         self.lazy = lazy
 
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
         self.act_dim = act_dim
-        self.env_state_dim = env_state_dim
-        self.obs_dim = obs_dim
+        self.cond_dim = cond_dim
 
         # Convert padding masks to numpy boolean arrays
         self.cond_left_pad_as_zero_mask = self._ensure_numpy_mask(cond_left_pad_as_zero_mask)
@@ -74,12 +70,11 @@ class ManiSkillDataset(Dataset):
 
         self._load_metadata(episodes)
         self._build_trajectories_and_slices(load_count, success_only)
-        self._peek_dimensions()
 
         rank_zero_info(
             f"Dataset initialized: {len(self.slices)} temporal windows "
             f"from {len(self.trajectories)} episodes. "
-            f"{self.lazy=}, {self.use_phsyx_env_states=} "
+            f"{self.lazy=}"
         )
         print_dict_tree(self.trajectories[0], use_rank_zero_info=True)
 
@@ -122,13 +117,12 @@ class ManiSkillDataset(Dataset):
             # So we overwrite trah with the actual H5 object for the episode, on which _slice_and_pad will extract what needed
             traj = h5_traj
 
-        cond_src = traj["env_states"] if self.use_phsyx_env_states else traj["obs"]
-        if not isinstance(cond_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
-            raise TypeError(
-                f"Expected env_states or obs to be a dataset or group, got {type(cond_src)}"
-            )
-
         # Now traj is a h5 group for sure
+        # TODO: cond --> obs
+        cond_src = traj["obs"]
+        if not isinstance(cond_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
+            raise TypeError(f"Expected obs to be a dataset or group, got {type(cond_src)}")
+
         act_src = traj["actions"]
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
             raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
@@ -243,7 +237,6 @@ class ManiSkillDataset(Dataset):
                         {
                             "episode_id": episode_id,
                             "obs": trajectory["obs"],
-                            "env_states": trajectory["env_states"],
                             "actions": trajectory["actions"],
                         }
                     )
@@ -309,15 +302,10 @@ class ManiSkillDataset(Dataset):
         if self.act_dim is None:
             self.act_dim = peek_trajectory_dimension(
                 self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
-            )["shape"][-1]
-
-        if self.env_state_dim is None:
-            self.env_state_dim = peek_trajectory_dimension(
-                self.dataset_file, f"traj_{self.first_valid_episode_id}", "env_states"
             )
 
-        if self.obs_dim is None:
-            self.obs_dim = peek_trajectory_dimension(
+        if self.cond_dim is None:
+            self.cond_dim = peek_trajectory_dimension(
                 self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
             )
 

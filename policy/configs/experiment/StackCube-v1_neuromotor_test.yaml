@@ -6,12 +6,9 @@ name: StackCube-v1_neuromotor_test_run
 ckpt_path: ???
 
 trainer:
-  limit_train_batches: 0
-  limit_val_batches: 0
   callbacks:
     rollout_evaluation:
-      num_val_episodes: 0
-      num_test_episodes: 9
+      num_episodes: 9
       num_envs: 9
       video_dir: "${hydra:runtime.output_dir}/renderings/"
 
@@ -19,4 +16,3 @@ trainer:
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
       physx_backend: null
-      use_physx_env_states: False

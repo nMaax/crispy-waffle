@@ -18,9 +18,6 @@ log_every_n_steps: 50 # Log progress (e.g. wandb) every 50 batches
 
 num_sanity_val_steps: 2 # Set to 0 to avoid sanity check, tho this should not be done...
 
-limit_val_batches: 0 # Tells experiment.py to skip validation
-limit_test_batches: 0 # Tells experiment.py to skip testing
-
 val_check_interval: 5000 # Run the validation (loss) + rollout callback (success_rate) every 5000 steps
 check_val_every_n_epoch: null # Tell Lightning to ignore epoch boundaries for validation frequency
 

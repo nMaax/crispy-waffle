@@ -28,7 +28,7 @@ def extract_h5_shapes(data: h5py.Group | h5py.Dataset) -> dict["str", tuple] | N
             result[k] = extract_h5_shapes(h5entry)
         return result
     else:
-        return {"shape": tuple(data.shape)}
+        return data.shape[-1]
 
 
 def peek_trajectory_dimension(

@@ -6,15 +6,12 @@ name: StackCube-v1_swapped-cubes_run
 ckpt_path: ???
 
 trainer:
-  limit_train_batches: 0
-  limit_val_batches: 0
   callbacks:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.StackCubeObservationPermuter
         swap_env_indices: [0] # e.g., if num_envs=2, env 0 is swapped, env 1 is standard
-      num_val_episodes: 0
-      num_test_episodes: 2
+      num_episodes: 2
       num_envs: 2
       video_dir: "${hydra:runtime.output_dir}/renderings/"
 
@@ -22,4 +19,3 @@ trainer:
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
       physx_backend: null
-      use_physx_env_states: False

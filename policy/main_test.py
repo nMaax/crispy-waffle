@@ -90,7 +90,7 @@ def test_torch_can_use_the_GPU():
 
 @pytest.fixture
 def mock_train_and_evaluate(monkeypatch: pytest.MonkeyPatch):
-    fn = policy.experiment.train_and_evaluate
+    fn = policy.experiment.train_and_validate
     mock_train_fn = Mock(spec=fn, return_value=("fake", 0.0))
     monkeypatch.setattr(policy.experiment, "train_and_evaluate", mock_train_fn)
     monkeypatch.setattr(policy.main, "train_and_evaluate", mock_train_fn)

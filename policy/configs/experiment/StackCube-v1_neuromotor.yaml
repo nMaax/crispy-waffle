@@ -16,9 +16,6 @@ datamodule:
   batch_size: 256
 
 trainer:
-  limit_val_batches: null # Re-enable validation
-  limit_test_batches: null # Re-enable testing
-
   callbacks:
     rollout_evaluation:
       max_episode_steps: 200 # WARN: HIGHLY IMPORTANT!!!

@@ -1,7 +1,6 @@
 import json
 import random
 from pathlib import Path
-from typing import Any
 
 import lightning as L
 import numpy as np
@@ -10,7 +9,6 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datamodules.maniskill_dataset import ManiSkillDataset
-from policy.utils import peek_trajectory_dimension
 
 
 class DummyDataset(Dataset):
@@ -32,6 +30,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         dataset_file: str | Path,
         cond_horizon: int = 2,
         pred_horizon: int = 16,
+        cond_dim: int = 48,
+        act_dim: int = 4,
         batch_size: int = 256,
         num_workers: int = 4,
         val_split: float = 0.1,
@@ -65,6 +65,10 @@ class ManiSkillDataModule(L.LightningDataModule):
 
         self.cond_horizon = cond_horizon
         self.pred_horizon = pred_horizon
+
+        self.cond_dim = cond_dim
+        self.act_dim = act_dim
+
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.val_split = val_split
@@ -80,10 +84,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             self.obs_mode,
             self.control_mode,
             self.physx_backend,
-            self.use_physx_env_states,
         ) = self._load_metadata_from_json()
-
-        self.act_dim, self.env_state_dim, self.obs_dim = self._peek_dimensions()
 
         rank_zero_info(f"Seed for episodes datasplit fetched from main seed: {seed}")
 
@@ -112,10 +113,8 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.train_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
-                use_phsyx_env_states=self.use_physx_env_states,
                 act_dim=self.act_dim,
-                env_state_dim=self.env_state_dim,
-                obs_dim=self.obs_dim,
+                cond_dim=self.cond_dim,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=train_episodes,
@@ -128,10 +127,8 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             self.val_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
-                use_phsyx_env_states=self.use_physx_env_states,
                 act_dim=self.act_dim,
-                env_state_dim=self.env_state_dim,
-                obs_dim=self.obs_dim,
+                cond_dim=self.cond_dim,
                 cond_horizon=self.cond_horizon,
                 pred_horizon=self.pred_horizon,
                 episodes=val_episodes,
@@ -171,17 +168,6 @@ class ManiSkillDataModule(L.LightningDataModule):
     def test_dataloader(self):
         return DataLoader(DummyDataset(), batch_size=1)
 
-    @property
-    def cond_dim(self) -> int | dict[str, Any]:
-        """The dimensionality of the conditioning signal exposed to the policy.
-
-        Selected by use_phsyx_env_states.
-        """
-        if self.use_physx_env_states:
-            return self.env_state_dim
-        else:
-            return self.obs_dim
-
     def _load_metadata_from_json(self):
         """Parse the dataset metadata JSON to extract obs_mode, control_mode, and physx_backend."""
 
@@ -200,32 +186,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             rank_zero_warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'.")
             physx_backend = "physx_cpu"
 
-        use_phsyx_env_states = obs_mode == "none"
-
-        return env_id, obs_mode, control_mode, physx_backend, use_phsyx_env_states
-
-    def _peek_dimensions(self):
-        """Reads the JSON and HDF5 headers to extract shapes without loading the full data."""
-        with open(self.json_path) as f:
-            json_data = json.load(f)
-
-        episodes = json_data.get("episodes")
-        if not episodes or "episode_id" not in episodes[0]:
-            raise ValueError("No valid episode_id found in JSON.")
-
-        first_episode_id = episodes[0]["episode_id"]
-
-        act_dim = peek_trajectory_dimension(
-            self.dataset_file, f"traj_{first_episode_id}", "actions"
-        )["shape"][-1]
-
-        env_state_dim = peek_trajectory_dimension(
-            self.dataset_file, f"traj_{first_episode_id}", "env_states"
-        )
-
-        obs_dim = peek_trajectory_dimension(self.dataset_file, f"traj_{first_episode_id}", "obs")
-
-        return act_dim, env_state_dim, obs_dim
+        return env_id, obs_mode, control_mode, physx_backend
 
     def _infer_padding_masks(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Infers the left and right action padding masks based on the control mode."""

@@ -1,9 +1,0 @@
-defaults:
-  - default
-
-limit_train_batches: 0
-limit_val_batches: 0
-
-callbacks:
-  rollout_evaluation:
-    num_val_episodes: 0

@@ -2,8 +2,7 @@ rollout_evaluation:
   _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
   _recursive_: false
   adapter: null
-  num_val_episodes: 25
-  num_test_episodes: 100
+  num_episodes: 25
   max_episode_steps: 200
   num_envs: null # =1: CPU backend, >1: GPU backend, null: auto, i.e., min(num_val_episodes, num_test_episodes)
   ignore_terminations: true
@@ -16,4 +15,3 @@ rollout_evaluation:
   obs_mode: null
   control_mode: null
   physx_backend: null
-  use_physx_env_states: null

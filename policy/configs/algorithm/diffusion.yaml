@@ -8,7 +8,13 @@ defaults:
 _target_: policy.algorithms.diffusion.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
 
+cond_horizon: ${datamodule.cond_horizon}
+pred_horizon: ${datamodule.pred_horizon}
+
 act_horizon: 8
+
+cond_dim: ${datamodule.cond_dim}
+act_dim: ${datamodule.act_dim}
 
 lr_scheduler:
   num_training_steps: ${trainer.max_steps}

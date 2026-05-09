@@ -1,9 +1,9 @@
 defaults:
-  - test
+  - default
 
 callbacks:
   rollout_evaluation:
     render_mode: "human"
+    num_episodes: 1
     num_envs: 1
-    num_test_episodes: 1
     video_dir: null
