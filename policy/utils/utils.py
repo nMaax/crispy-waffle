@@ -14,7 +14,6 @@ from omegaconf import DictConfig, OmegaConf
 logger = get_logger(__name__)
 
 
-# @rank_zero_only
 def print_config(
     config: DictConfig,
     print_order: Sequence[str] = (
@@ -65,9 +64,6 @@ def print_config(
 
     rich.print(tree)
 
-    # with open("config_tree.log", "w") as file:
-    #     rich.print(tree, file=file)
-
 
 def print_dict_tree(
     data: Mapping[str, Any], indent: str = "", use_rank_zero_info: bool = False
@@ -116,7 +112,7 @@ def to_tensor(
 
 
 def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
-    """Recursively finds the batch size from a nested dictionary of tensors."""
+    """Recursively finds the batch size from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):
         return data.shape[0]
     for value in data.values():
@@ -125,7 +121,7 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
 
 
 def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
-    """Recursively finds the device from a nested dictionary of tensors."""
+    """Recursively finds the device from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):
         return data.device
     for value in data.values():
@@ -136,7 +132,7 @@ def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
 def flatten_tensor_from_mapping(
     data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
 ) -> torch.Tensor:
-    """Recursively flattens a dictionary of tensors and concatenates them."""
+    """Recursively flattens a mapping of tensors and concatenates them."""
     if isinstance(data, torch.Tensor):
         if device is not None:
             data = data.to(device)
@@ -153,12 +149,12 @@ def flatten_tensor_from_mapping(
 
 
 def sum_shapes(d: dict | tuple | int) -> int:
-    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key, or returns
-    the value if it's an a tuple or a int."""
+    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key."""
     if isinstance(d, dict):
         if "shape" in d:
             return d["shape"][-1]
-        return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict | int | tuple))
+        else:
+            return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict | int | tuple))
     elif isinstance(d, tuple):
         return d[-1]
     else:
