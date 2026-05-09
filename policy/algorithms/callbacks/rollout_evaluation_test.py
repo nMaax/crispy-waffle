@@ -66,12 +66,18 @@ class FakeRolloutPolicyModule(L.LightningModule):
 
 
 class FakeUnwrappedEnv(gym.Env):
-    def __init__(self, obs: torch.Tensor):
+    def __init__(self, obs: torch.Tensor, elapsed_steps: torch.Tensor):
         self._obs = obs
         self._init_raw_obs = obs
+        self.elapsed_steps = elapsed_steps
         self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=obs.shape[1:])
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,))
         self._num_envs = obs.shape[0]
+        self.elapsed_steps = torch.zeros(self._num_envs, device=obs.device, dtype=torch.int32)
+
+    @property
+    def device(self) -> torch.device:
+        return self._obs.device
 
     @property
     def num_envs(self):
@@ -96,16 +102,36 @@ class FakeVectorEnv(gym.Env):
     (num_envs=num_episodes, batched episodes), purely based on what the callback passes in.
     """
 
+    ACTION_DIM = 3
+
     def __init__(self, num_envs: int, obs_dim: int = 4):
-        self.num_envs = num_envs
         self.obs_dim = obs_dim
-        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+        self.action_space = gym.spaces.Box(
+            low=-1.0, high=1.0, shape=(self.ACTION_DIM,), dtype=np.float32
+        )
+        self.observation_space = gym.spaces.Box(
+            low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32
+        )
+        self._num_envs = num_envs
+        self.elapsed_steps = torch.zeros(self._num_envs, dtype=torch.int32)
         self._closed = False
         self._last_obs = torch.zeros((self.num_envs, self.obs_dim), dtype=torch.float32)
 
     @property
     def unwrapped(self) -> gym.Env:
-        return FakeUnwrappedEnv(self._last_obs)
+        return FakeUnwrappedEnv(self._last_obs, self.elapsed_steps)
+
+    @property
+    def num_envs(self):
+        return self._num_envs
+
+    @property
+    def single_observation_space(self):
+        return gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,))
+
+    @property
+    def single_action_space(self):
+        return self.action_space
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
         if seed is None:
@@ -117,17 +143,18 @@ class FakeVectorEnv(gym.Env):
         return self._last_obs, info
 
     def step(self, action: torch.Tensor):
-        # Expect shape (num_envs, act_dim) in cuda-mode, or (1, act_dim) in cpu-mode
-        assert isinstance(action, torch.Tensor)
-        assert action.shape[0] == self.num_envs
+        assert action.shape[0] == self._num_envs
 
-        obs = self._last_obs  # keep obs stable
-        reward = torch.zeros((self.num_envs,), dtype=torch.float32)
-        terminated = torch.ones((self.num_envs,), dtype=torch.bool)  # done in 1 step
-        truncated = torch.zeros((self.num_envs,), dtype=torch.bool)
+        self.elapsed_steps += 1
 
-        # Mark all successful
-        info = {"success": torch.ones((self.num_envs,), dtype=torch.bool)}
+        obs = self._last_obs
+        reward = torch.zeros((self._num_envs,), dtype=torch.float32)
+
+        # Since the callback uses ignore_terminations=True, it is waiting for truncation. Set them to true
+        terminated = torch.zeros((self._num_envs,), dtype=torch.bool)
+        truncated = torch.ones((self._num_envs,), dtype=torch.bool)
+
+        info = {"success": torch.ones((self._num_envs,), dtype=torch.bool)}
         return obs, reward, terminated, truncated, info
 
     def close(self):

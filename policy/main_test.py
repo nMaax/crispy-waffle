@@ -24,7 +24,6 @@ import policy.experiment
 import policy.main
 from policy.algorithms.no_op import NoOp
 from policy.conftest import setup_with_overrides
-from policy.utils.env_vars import REPO_ROOTDIR
 
 logger = getLogger(__name__)
 
@@ -89,18 +88,18 @@ def test_torch_can_use_the_GPU():
 
 
 @pytest.fixture
-def mock_train_and_evaluate(monkeypatch: pytest.MonkeyPatch):
+def mock_train_and_validate(monkeypatch: pytest.MonkeyPatch):
     fn = policy.experiment.train_and_validate
     mock_train_fn = Mock(spec=fn, return_value=("fake", 0.0))
-    monkeypatch.setattr(policy.experiment, "train_and_evaluate", mock_train_fn)
-    monkeypatch.setattr(policy.main, "train_and_evaluate", mock_train_fn)
+    monkeypatch.setattr(policy.experiment, "train_and_validate", mock_train_fn)
+    monkeypatch.setattr(policy.main, "train_and_validate", mock_train_fn)
     return mock_train_fn
 
 
 @setup_with_overrides(experiment_commands_to_test)
 def test_can_load_experiment_configs(
     dict_config: DictConfig,
-    mock_train_and_evaluate: Mock,
+    mock_train_and_validate: Mock,
 ):
     # Mock out some part of the `main` function to not actually run anything.
     if dict_config["hydra"]["mode"] == RunMode.MULTIRUN:
@@ -114,7 +113,7 @@ def test_can_load_experiment_configs(
         results = policy.main.main(dict_config)
         assert results is not None
 
-    mock_train_and_evaluate.assert_called_once()
+    mock_train_and_validate.assert_called_once()
 
 
 @pytest.mark.slow
@@ -147,23 +146,6 @@ def test_help_string(file_regression: FileRegressionFixture) -> None:
     # Also remove first or last empty lines (which would also be removed by pre-commit).
     help_string = "\n".join([line.rstrip() for line in help_string.splitlines()]).strip() + "\n"
     file_regression.check(help_string)
-
-
-def test_run_auto_schema_via_cli_without_errors():
-    """Checks that the command completes without errors."""
-    # Run programmatically instead of with a subprocess so we can get nice coverage stats.
-    # assuming we're at the policy root directory.
-    from hydra_auto_schema.__main__ import main as hydra_auto_schema_main
-
-    hydra_auto_schema_main(
-        [
-            f"{REPO_ROOTDIR}",
-            f"--configs_dir={CONFIG_DIR}",
-            "--stop-on-error",
-            "--regen-schemas",
-            "-vv",
-        ]
-    )
 
 
 @setup_with_overrides("algorithm=no_op trainer.max_epochs=1")

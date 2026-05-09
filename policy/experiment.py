@@ -54,8 +54,8 @@ def train_and_validate(
     you could do something like this:
 
     ```python
-    @train_and_evaluate.register(MyAlgorithm)
-    def train_and_evaluate_my_algo(algorithm: MyAlgorithm, /, *, trainer, datamodule)
+    @train_and_validate.register(MyAlgorithm)
+    def train_and_validate_my_algo(algorithm: MyAlgorithm, /, *, trainer, datamodule)
         # making this up, this isn't doable with any of the datamodules at the moment.
         datamodule.set_task(1)
         trainer.fit(algorithm, datamodule)
