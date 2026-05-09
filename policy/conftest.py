@@ -59,7 +59,6 @@ algorithm & datamodule -- is used by --> some_other_test
 from __future__ import annotations
 
 import copy
-import functools
 import os
 import shlex
 import sys
@@ -73,23 +72,15 @@ from typing import Any, Literal, TypeVar
 
 import hydra.errors
 import lightning
-import lightning.pytorch
 import lightning.pytorch as pl
-import lightning.pytorch.utilities
 import pytest
-import tensor_regression.stats
 import torch
 from _pytest.outcomes import Skipped, XFailed
 from _pytest.python import Function
 from _pytest.runner import CallInfo
 from hydra import compose, initialize_config_module
-from hydra.conf import HydraHelpConf
 from hydra.core.hydra_config import HydraConfig
-from hydra_plugins.auto_schema import auto_schema_plugin
-from hydra_plugins.auto_schema.auto_schema_plugin import add_schemas_to_all_hydra_configs
-from omegaconf import DictConfig, open_dict
-from tensor_regression.stats import get_simple_attributes
-from tensor_regression.to_array import to_ndarray
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from policy.configs.config import Config
@@ -120,11 +111,6 @@ logger = get_logger(__name__)
 
 DEFAULT_TIMEOUT = 1.0
 DEFAULT_SEED = 42
-
-# Note: Here we attempt to make this happen only once.
-auto_schema_plugin.add_schemas_to_all_hydra_configs = functools.cache(
-    add_schemas_to_all_hydra_configs
-)
 
 
 fails_on_macOS_in_CI = pytest.mark.xfail(
@@ -307,14 +293,12 @@ def datamodule(dict_config: DictConfig) -> lightning.LightningDataModule | None:
 @pytest.fixture(scope="function")
 def algorithm(
     config: Config,
-    datamodule: lightning.LightningDataModule | None,
     trainer: lightning.Trainer,
-    seed: int,
     device: torch.device,
 ):
     """Fixture that creates the "algorithm" (usually a
     [LightningModule][lightning.pytorch.core.module.LightningModule])."""
-    algorithm = instantiate_algorithm(config.algorithm, datamodule=datamodule)
+    algorithm = instantiate_algorithm(config.algorithm)
     if isinstance(trainer, lightning.Trainer) and isinstance(algorithm, lightning.LightningModule):
         with trainer.init_module(), device:
             # A bit hacky, but we have to do this because the lightningmodule isn't associated
@@ -364,7 +348,6 @@ def seed(request: pytest.FixtureRequest, make_torch_deterministic: None):
         yield random_seed
 
 
-# todo: Remove this.
 @pytest.fixture(scope="session")
 def accelerator(request: pytest.FixtureRequest):
     """Returns the accelerator to use during unit tests.
@@ -372,7 +355,6 @@ def accelerator(request: pytest.FixtureRequest):
     By default, if cuda is available, returns "cuda". If the tests are run with -vvv, then also
     runs CPU.
     """
-    # todo: Shouldn't we get this from the experiment config instead?
 
     default_accelerator = "gpu" if torch.cuda.is_available() else "cpu"
     accelerator: str = getattr(request, "param", default_accelerator)
@@ -536,23 +518,6 @@ def setup_with_overrides(
     )
 
 
-# def setup_with_command_line_args(
-#     full_command_line_arguments: str
-#     | ParameterSet
-#     | list[str]
-#     | list[ParameterSet]
-#     | list[str | ParameterSet],
-# ):
-#     """Configures a test to run with the hydra config from given command-line arguments.
-
-#     This should be applied on tests that use components created from Hydra configs, like the
-#     `experiment_config` (the object that is passed to the `main` function).
-#     """
-#     return pytest.mark.parametrize(
-#         command_line_arguments.__name__, [full_command_line_arguments], indirect=True
-#     )
-
-
 @contextmanager
 def _setup_hydra_for_tests_and_compose(
     all_overrides: list[str] | None,
@@ -573,16 +538,16 @@ def _setup_hydra_for_tests_and_compose(
         # BUG: Weird errors with Hydra variable interpolation.. Setting these manually seems
         # to fix it for now..
 
-        with open_dict(config):
-            # BUG: Getting some weird Hydra omegaconf error in unit tests:
-            # "MissingMandatoryValue while resolving interpolation: Missing mandatory value:
-            # hydra.job.num"
-            config.hydra.job.num = 0
-            config.hydra.hydra_help = HydraHelpConf(hydra_help="", template="")
-            config.hydra.job.id = 0
-            config.hydra.runtime.output_dir = str(
-                tmp_path_factory.mktemp(basename="output", numbered=True)
-            )
+        # with open_dict(config):
+        #     # BUG: Getting some weird Hydra omegaconf error in unit tests:
+        #     # "MissingMandatoryValue while resolving interpolation: Missing mandatory value:
+        #     # hydra.job.num"
+        #     config.hydra.job.num = 0
+        #     config.hydra.hydra_help = HydraHelpConf(hydra_help="", template="")
+        #     config.hydra.job.id = 0
+        #     config.hydra.runtime.output_dir = str(
+        #         tmp_path_factory.mktemp(basename="output", numbered=True)
+        #     )
         HydraConfig.instance().set_config(config)
         yield config
 
@@ -727,50 +692,3 @@ def pytest_configure(config: pytest.Config):
     config.addinivalue_line(
         "markers", "very_fast: mark test as very fast to run (including test setup)."
     )
-
-
-# todo: remove these, add this fix to the tensor_regression package instead.
-@pytest.fixture(autouse=True)
-def _dont_use_tensor_hashes_in_regression_files(monkeypatch: pytest.MonkeyPatch):
-    """Temporarily remove the hash of tensors from the regression files."""
-
-    monkeypatch.setattr(
-        tensor_regression.fixture,
-        tensor_regression.fixture.get_simple_attributes.__name__,  # type: ignore
-        _patched_simple_attributes,
-    )
-
-
-def _patched_simple_attributes(v, precision: int | None):
-    stats = tensor_regression.stats.get_simple_attributes(v, precision=precision)
-    stats.pop("hash", None)
-    return stats
-
-
-@get_simple_attributes.register(tuple)
-def _get_tuple_attributes(value: tuple, precision: int | None):
-    # This is called to get some simple stats to store in regression files during tests, in
-    # particular for tuples (since there isn't already a handler for it in the tensor_regression
-    # package.)
-    # Note: This information about this output is not very descriptive.
-    # not this is called only for the `out.past_key_values` entry in the `CausalLMOutputWithPast`
-    # that is returned from the forward pass output.
-    num_items_to_include = 5  # only show the stats of some of the items.
-    return {
-        "length": len(value),
-        **{
-            f"{i}": get_simple_attributes(item, precision=precision)
-            for i, item in enumerate(value[:num_items_to_include])
-        },
-    }
-
-
-@to_ndarray.register(list)
-@to_ndarray.register(tuple)
-def _tuple_to_ndarray(v: tuple | list):
-    """Convert a tuple of values to a numpy array to be stored in a regression file."""
-    # This could get a bit tricky because the items might not have the same shape and so on.
-    # However it seems like the ndarrays_regression fixture (which is what tensor_regression uses
-    # under the hood) is not complaining about us returning a list here, so we'll leave it at that
-    # for now.
-    return {i: to_ndarray(v_i) for i, v_i in enumerate(v)}  # type: ignore

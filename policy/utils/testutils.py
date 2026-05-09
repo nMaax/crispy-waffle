@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import importlib
 import inspect
 import os
 import typing
@@ -16,7 +17,6 @@ import torch
 from hydra.core.config_store import ConfigStore
 
 from policy.utils.env_vars import NETWORK_DATASETS_DIR
-from policy.utils.hydra_utils import get_outer_class
 
 logger = get_logger(__name__)
 
@@ -26,6 +26,18 @@ IN_SELF_HOSTED_GITHUB_CI = IN_GITHUB_CI and (
 )
 IN_GITHUB_CLOUD_CI = IN_GITHUB_CI and not IN_SELF_HOSTED_GITHUB_CI
 PARAM_WHEN_USED_MARK_NAME = "parametrize_when_used"
+
+
+def get_full_name(object_type: type) -> str:
+    return object_type.__module__ + "." + object_type.__qualname__
+
+
+def get_outer_class(inner_class: type) -> type:
+    inner_full_name = get_full_name(inner_class)
+    parent_full_name, _, _ = inner_full_name.rpartition(".")
+    outer_class_module, _, outer_class_name = parent_full_name.rpartition(".")
+    mod = importlib.import_module(outer_class_module)
+    return getattr(mod, outer_class_name)
 
 
 def needs_network_dataset_dir(dataset_name: str | None = None):

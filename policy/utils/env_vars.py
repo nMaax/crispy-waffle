@@ -29,6 +29,14 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", REPO_ROOTDIR / "data"))
 """Local directory where datasets should be extracted on this machine."""
 
 
+NUM_WORKERS = (
+    len(os.sched_getaffinity(0))
+    if hasattr(os, "sched_getaffinity")
+    else torch.multiprocessing.cpu_count()
+)
+"""Default number of workers to be used by dataloaders, based on the number of available CPUs."""
+
+
 def get_constant(*names: str):
     """Resolver for Hydra to get the value of a constant in this file."""
     assert names
@@ -50,11 +58,3 @@ def get_constant(*names: str):
     if len(names) == 1:
         raise RuntimeError(f"Could not find non-None value for name {names[0]}")
     raise RuntimeError(f"Could not find non-None value for names {names}")
-
-
-NUM_WORKERS = (
-    len(os.sched_getaffinity(0))
-    if hasattr(os, "sched_getaffinity")
-    else torch.multiprocessing.cpu_count()
-)
-"""Default number of workers to be used by dataloaders, based on the number of available CPUs."""
