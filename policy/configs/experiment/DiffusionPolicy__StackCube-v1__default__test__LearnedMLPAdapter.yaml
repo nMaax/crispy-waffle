@@ -1,8 +1,6 @@
 # @package _global_
 defaults:
-  - override /algorithm: diffusion
-  - override /algorithm/adapter: learned_mlp
-  - override /trainer: default
+  - DiffusionPolicy__StackCube-v1__default__test
 
 name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???
@@ -12,4 +10,4 @@ trainer:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.learned_mlp_adapter.LearnedMLPAdapter
-        checkpoint_path: ???
+        ckpt_path: ???

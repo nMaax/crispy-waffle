@@ -31,6 +31,14 @@ class MLPAdapter(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.network is None:
+            raise ValueError(
+                "Network is not configured. Call configure_model() before using the model."
+            )
+
+        return self.network(x)
+
     def configure_model(self) -> None:
         if self.network is not None:
             return

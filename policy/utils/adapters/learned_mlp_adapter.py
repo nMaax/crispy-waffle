@@ -1,21 +1,27 @@
 import torch
 
 from policy.algorithms.mlp_adapter import MLPAdapter
+from policy.utils.adapters.stack_cube_permuter import CubesPermuter, IndexSelector
 
 
-class LearnedMLPAdapter:
+class LearnedMLPAdapter(CubesPermuter):
     def __init__(
-        self, checkpoint_path: str, device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        self,
+        ckpt_path: str,
+        selector: IndexSelector | list[int] | torch.Tensor | None = None,
     ):
-        self.model = MLPAdapter.load_from_checkpoint(checkpoint_path)
+        super().__init__(selector=selector)
+        self.model = MLPAdapter.load_from_checkpoint(ckpt_path)
 
-        self.model.to(device)
         self.model.eval()
         self.model.freeze()
-        self.device = device
 
-    def __call__(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = obs.to(self.device)
+    def _apply_to_tensor(self, obs: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
+        swapped = obs.clone()
+        swapped[indices] = self.model(swapped[indices])
+        return swapped
 
-        with torch.no_grad():
-            return self.model(obs)
+    def _apply_to_dict(
+        self, obs: dict[str, torch.Tensor], indices: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        raise NotImplementedError("LearnedMLPAdapter does not support dict observations yet.")
