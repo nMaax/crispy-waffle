@@ -17,7 +17,7 @@ def dummy_maniskill_data(tmp_path: Path) -> Path:
     json_path = tmp_path / "dummy_dataset.json"
     h5_path = tmp_path / "dummy_dataset.h5"
 
-    # 1. Create JSON Metadata
+    # Create JSON Metadata
     metadata = {
         "env_info": {
             "env_id": "MockEnv-v0",
@@ -35,7 +35,7 @@ def dummy_maniskill_data(tmp_path: Path) -> Path:
     with open(json_path, "w") as f:
         json.dump(metadata, f)
 
-    # 2. Create HDF5 Data
+    # Create HDF5 Data
     with h5py.File(h5_path, "w") as f:
         # Episode 0: Success, Length 10
         g0 = f.create_group("traj_0")

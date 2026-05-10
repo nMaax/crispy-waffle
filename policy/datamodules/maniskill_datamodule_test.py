@@ -139,8 +139,8 @@ class TestManiSkillDataModuleLogic:
         mock_warn.assert_called()
         assert "is absolute. The mask will be ignored" in mock_warn.call_args[0][0]
 
-    def test_infer_padding_masks_delta_mode(self, datamodule_factory):
-        """Delta modes should default to zero padding except for the last dim (gripper)."""
+    def test_infer_padding_masks_delta_modes(self, datamodule_factory):
+        """Delta/vel modes should default to zero padding except for the last dim (gripper)."""
         dm_delta = datamodule_factory(control_mode="pd_joint_delta_pos")
         left_mask, right_mask = dm_delta._infer_padding_masks()
 
@@ -152,7 +152,7 @@ class TestManiSkillDataModuleLogic:
         assert np.array_equal(right_mask, expected_mask)
 
     def test_infer_padding_masks_explicit_override(self, datamodule_factory):
-        """Explicit overrides should be respected if in delta/vel mode."""
+        """Explicit overrides should be respected even if in delta/vel mode."""
         custom_mask = [False, False, True, True]
         dm_override = datamodule_factory(
             control_mode="pd_joint_delta_pos",

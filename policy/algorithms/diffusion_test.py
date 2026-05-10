@@ -150,8 +150,6 @@ class TestDiffusionPolicyLogic:
         kwargs = basic_kwargs.copy()
         kwargs["obs_dim"] = 5
         policy_flat = DiffusionPolicy(**kwargs)
-        # Note: Depending on your exact implementation, this attribute might be
-        # called .obs_dim or .obs_dim internally. Using obs_dim based on your __init__.
         assert policy_flat.obs_dim == 5
 
         # Test nested dict (should trigger sum_shapes)
@@ -163,7 +161,7 @@ class TestDiffusionPolicyLogic:
     def test_uninitialized_errors(self, basic_kwargs):
         """Ensures methods fail gracefully if configure_model is not called."""
         policy = DiffusionPolicy(**basic_kwargs)
-        # We DO NOT call policy.configure_model() here, so network remains None
+        # We do NOT call policy.configure_model() here, so network remains None
 
         with pytest.raises(ValueError, match="Network not initialized"):
             policy.get_action(torch.randn(1, 2, 3))

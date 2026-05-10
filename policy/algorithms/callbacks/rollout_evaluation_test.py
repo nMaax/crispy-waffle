@@ -1,6 +1,7 @@
 import types
 from dataclasses import dataclass
 from typing import Any, TypeVar
+from unittest.mock import MagicMock, patch
 
 import gymnasium as gym
 import lightning as L
@@ -13,11 +14,6 @@ from policy.algorithms.callbacks.rollout_evaluation import RolloutEvaluationCall
 
 ObsType = TypeVar("ObsType")
 ActType = TypeVar("ActType")
-
-# TODO:
-# Should test setup works
-# Should test run_rollouts with num_envs=(-2, 0, 1, 5), with
-# Should test video_dir works
 
 
 @dataclass
@@ -88,10 +84,6 @@ class FakeUnwrappedEnv(gym.Env):
     @property
     def single_observation_space(self):
         return gym.spaces.Box(low=-np.inf, high=np.inf, shape=self._obs.shape[1:])
-
-    # Used only if use_phsyx_env_states=True
-    def get_state(self):
-        return self._obs
 
     def update_obs_space(self, *args, **kwargs):
         pass
@@ -234,3 +226,136 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
     logged = {name: float(value) for (name, value, _kw) in capture_log}
     assert logged["val/success_once_rate"] == 1.0
     assert logged["test/success_once_rate"] == 1.0
+
+
+def test_setup_parameter_resolution_and_validation(monkeypatch):
+    _patch_gym(monkeypatch)
+    datamodule = FakeRolloutDataModule(
+        env_id="FakeManiSkill-v0",
+        obs_mode="state",
+        control_mode="pd_joint_pos",
+        physx_backend="physx_cpu",
+    )
+
+    # Test successful fallback to Datamodule properties
+    cb = RolloutEvaluationCallback(num_episodes=5, seed=123)
+    mock_trainer = MagicMock(datamodule=datamodule)
+    cb.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
+
+    assert cb.env_id == "FakeManiSkill-v0"
+    assert cb.num_envs == 1  # CPU backend defaults to 1
+
+    # Test explicit overrides take precedence over datamodule
+    cb_override = RolloutEvaluationCallback(
+        num_episodes=5, seed=123, env_id="ExplicitEnv-v0", physx_backend="physx_cuda"
+    )
+    # Patch cuda availability to bypass the hardware check for this assertion
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch.dict(gym.envs.registry, {"ExplicitEnv-v0": object()}),
+    ):
+        cb_override.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
+    assert cb_override.env_id == "ExplicitEnv-v0"  # Overridden
+    assert cb_override.num_envs == 5  # CUDA backend defaults to num_episodes
+
+    # Test missing parameters raise ValueError
+    cb_missing = RolloutEvaluationCallback(num_episodes=5, seed=123)
+    with pytest.raises(ValueError, match="must be explicitly provided"):
+        # No datamodule provided to fallback to
+        cb_missing.setup(trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit")
+
+    # Test unregistered env raises RuntimeError
+    cb_unreg = RolloutEvaluationCallback(
+        env_id="Unknown-v0",
+        obs_mode="state",
+        control_mode="pd",
+        physx_backend="physx_cpu",
+        num_episodes=5,
+        seed=123,
+    )
+    with pytest.raises(RuntimeError, match="not registered in Gymnasium"):
+        cb_unreg.setup(trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit")
+
+    # Test CUDA backend requirement raises error when CUDA is unavailable
+    cb_cuda_fail = RolloutEvaluationCallback(
+        env_id="FakeManiSkill-v0",
+        obs_mode="state",
+        control_mode="pd",
+        physx_backend="physx_cuda",
+        num_episodes=5,
+        seed=123,
+    )
+    with patch("torch.cuda.is_available", return_value=False):
+        with pytest.raises(RuntimeError, match="CUDA is not available"):
+            cb_cuda_fail.setup(
+                trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit"
+            )
+
+
+@pytest.mark.parametrize("invalid_num_episodes", [0, -2])
+def test_run_rollouts_early_return_on_invalid_episodes(monkeypatch, invalid_num_episodes):
+    """Ensures that passing 0 or negative episodes simply exits without instantiating
+    environments."""
+    _patch_gym(monkeypatch)
+
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule()
+    cb = RolloutEvaluationCallback(num_episodes=invalid_num_episodes, seed=123)
+
+    mock_trainer = MagicMock(datamodule=datamodule, is_global_zero=True)
+    cb.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
+
+    # Mock gym.make to ensure it is NEVER called
+    with patch("gymnasium.make") as mock_make:
+        cb._run_rollouts(
+            mock_trainer,
+            model,
+            invalid_num_episodes,
+            "val",
+        )
+        mock_make.assert_not_called()
+
+
+@patch("policy.algorithms.callbacks.rollout_evaluation.RecordEpisode")
+@patch(
+    "policy.algorithms.callbacks.rollout_evaluation.gym_utils.find_max_episode_steps_value",
+    return_value=100,
+)
+def test_video_dir_applies_record_episode_wrapper(
+    mock_find_steps, mock_record_episode, monkeypatch, capture_log
+):
+    """Ensures that providing a video_dir triggers the RecordEpisode wrapper with correct paths."""
+    _patch_gym(monkeypatch)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule()
+
+    video_dir = "/tmp/fake_video_dir"
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=123, video_dir=video_dir)
+
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
+    )
+
+    # By default, setup() sets render_mode to 'rgb_array' if video_dir is passed
+    assert rollout_cb.render_mode == "rgb_array"
+
+    # Ensure mock_record_episode returns our fake env so the rest of the loop succeeds
+    mock_record_episode.return_value = FakeVectorEnv(num_envs=1)
+
+    # Run validation which triggers _run_rollouts
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    # Assert RecordEpisode wrapper was applied correctly
+    assert mock_record_episode.called
+    call_kwargs = mock_record_episode.call_args[1]
+
+    assert call_kwargs["output_dir"] == f"{video_dir}/val"
+    assert call_kwargs["save_video"] is True
+    assert call_kwargs["max_steps_per_video"] == 100  # Matches our mocked return_value
