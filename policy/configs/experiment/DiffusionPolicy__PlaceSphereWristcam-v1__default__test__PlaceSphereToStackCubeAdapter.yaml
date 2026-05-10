@@ -2,7 +2,7 @@
 defaults:
   - DiffusionPolicy__StackCube-v1__default__test
 
-name: DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter
+name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???
 
 trainer:

@@ -2,7 +2,7 @@
 defaults:
   - DiffusionPolicy__StackCube-v1__default__train
 
-name: DiffusionPolicy__StackCube-v1__default__test
+name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???
 
 trainer:
