@@ -35,7 +35,7 @@ def datamodule_factory(tmp_path: Path):
         json_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.json"
         h5_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.h5"
 
-        # 1. Create JSON Metadata
+        # Create JSON Metadata
         episodes = []
         for i in range(num_episodes):
             episodes.append({"episode_id": i, "elapsed_steps": episode_length, "success": True})
@@ -54,7 +54,7 @@ def datamodule_factory(tmp_path: Path):
         with open(json_path, "w") as f:
             json.dump(metadata, f)
 
-        # 2. Create HDF5 Data
+        # Create HDF5 Data
         act_dim, obs_dim, env_state_dim = 4, 3, 5
         with h5py.File(h5_path, "w") as f:
             for i in range(num_episodes):

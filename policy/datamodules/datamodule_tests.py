@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 
 from policy.algorithms.lightning_module_tests import convert_list_and_tuples_to_dicts
 from policy.conftest import algorithm_config
-from policy.utils.test_utils import IN_GITHUB_CLOUD_CI
+from policy.utils.test_utils import IN_GITHUB_CLOUD_CI, get_gpu_arch_name
 
 DataModuleType = TypeVar("DataModuleType", bound=LightningDataModule)
 
@@ -94,4 +94,6 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
         tensor_regression: TensorRegressionFixture,
     ):
         batch = convert_list_and_tuples_to_dicts(batch)
-        tensor_regression.check(batch, include_gpu_name_in_stats=False)
+        tensor_regression.check(
+            batch, additional_label=get_gpu_arch_name(), include_gpu_name_in_stats=False
+        )
