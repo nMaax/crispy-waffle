@@ -1,11 +1,11 @@
 from .place_sphere_panda_wristcam import PlaceSphereWristcamEnv
-from .place_sphere_restricted_spawn import PlaceSphereRestrictedSpawnEnv
-from .place_sphere_with_cubes import PlaceSphereWithCubesEnv
-from .stack_cube_with_sphere import StackCubeWithSphereEnv
+from .place_sphere_panda_wristcam_restricted_spawn import PlaceSphereWristcamRestrictedSpawnEnv
+from .place_sphere_panda_wristcam_with_cubes import PlaceSphereWristcamWithCubesEnv
+from .stack_cube_with_sphere_and_bin import StackCubeWithSphereAndBinEnv
 
 __all__ = [
     "PlaceSphereWristcamEnv",
-    "PlaceSphereRestrictedSpawnEnv",
-    "PlaceSphereWithCubesEnv",
-    "StackCubeWithSphereEnv",
+    "PlaceSphereWristcamRestrictedSpawnEnv",
+    "PlaceSphereWristcamWithCubesEnv",
+    "StackCubeWithSphereAndBinEnv",
 ]

@@ -3,7 +3,7 @@ from typing import Any
 import torch
 
 
-class StackCubeObservationPermuter:
+class CubesPermuter:
     """Tricks a policy trained on StackCube-v1 into stacking Cube B on Cube A by swapping their
     identities in the observation space."""
 

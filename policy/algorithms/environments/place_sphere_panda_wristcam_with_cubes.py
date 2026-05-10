@@ -9,8 +9,8 @@ from mani_skill.utils.structs import Pose
 from policy.algorithms.environments import PlaceSphereWristcamEnv
 
 
-@register_env("PlaceSphereWithCubes-v1", max_episode_steps=50)
-class PlaceSphereWithCubesEnv(PlaceSphereWristcamEnv):
+@register_env("PlaceSphereWristcamWithCubes-v1", max_episode_steps=50)
+class PlaceSphereWristcamWithCubesEnv(PlaceSphereWristcamEnv):
     """Sanity check environment: uses PlaceSphere-v1 but physically spawns the StackCube-v1 Cube A and Cube B."""
 
     CUBE_HALF_SIZE = 0.02

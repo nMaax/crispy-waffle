@@ -2,7 +2,7 @@
 defaults:
   - DiffusionPolicy__StackCube-v1__default__test
 
-name: DiffusionPolicy__PlaceSphereWithCubes-v1__default__sanity_check
+name: DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check
 ckpt_path: ???
 
 trainer:
@@ -10,7 +10,7 @@ trainer:
     rollout_evaluation:
       num_episodes: 10
 
-      env_id: "PlaceSphereWithCubes-v1"
+      env_id: "PlaceSphereWristcamWithCubes-v1"
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
       physx_backend: "physx_cuda"

@@ -10,8 +10,8 @@ from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
 
 
-@register_env("StackCubeWithSphere-v1", max_episode_steps=50)
-class StackCubeWithSphereEnv(StackCubeEnv):
+@register_env("StackCubeWithSphereAndBin-v1", max_episode_steps=50)
+class StackCubeWithSphereAndBinEnv(StackCubeEnv):
     """Sanity check environment: uses StackCube-v1 but physically spawns the PlaceSphere-v1 Sphere and Bin."""
 
     SPHERE_RADIUS = 0.02
@@ -32,7 +32,6 @@ class StackCubeWithSphereEnv(StackCubeEnv):
 
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
 
-    # NOTE: PlaceSphere DOES support "panda_wristcam", so no issues here!
     def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)

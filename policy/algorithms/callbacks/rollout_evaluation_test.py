@@ -14,8 +14,10 @@ from policy.algorithms.callbacks.rollout_evaluation import RolloutEvaluationCall
 ObsType = TypeVar("ObsType")
 ActType = TypeVar("ActType")
 
+# TODO:
 # Should test setup works
 # Should test run_rollouts with num_envs=(-2, 0, 1, 5), with
+# Should test video_dir works
 
 
 @dataclass
