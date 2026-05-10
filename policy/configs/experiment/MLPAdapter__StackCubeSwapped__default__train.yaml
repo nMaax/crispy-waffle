@@ -4,12 +4,19 @@ defaults:
   - override /datamodule: adapter_datamodule
   - override /trainer: default
 
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  network:
+    input_dim: 48
+    output_dim: 48
+
 trainer:
   max_steps: 5000
 
-  model_checkpoint:
-    monitor: "val/loss"
-    mode: "min"
-
   callbacks:
+    model_checkpoint:
+      monitor: "val/loss"
+      mode: "min"
+
     rollout_evaluation: null

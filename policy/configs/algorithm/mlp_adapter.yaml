@@ -1,9 +1,12 @@
-_target_: policy.algorithms.mlp_adapter_trainer.MLPAdapterTrainer
+_target_: policy.algorithms.mlp_adapter.MLPAdapter
 
 defaults:
   - network: mlp
   - optimizer: AdamW
   - lr_scheduler: StepLR
+
+lr_scheduler:
+  step_size: 500 # batch-wise, not epochs
 
 optimizer:
   lr: 1e-3
