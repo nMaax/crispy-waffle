@@ -1,0 +1,10 @@
+_target_: policy.algorithms.mlp_adapter_trainer.MLPAdapterTrainer
+
+defaults:
+  - network: mlp
+  - optimizer: AdamW
+  - lr_scheduler: StepLR
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 1e-4
