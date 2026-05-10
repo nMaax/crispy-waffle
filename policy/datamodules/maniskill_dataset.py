@@ -54,19 +54,6 @@ class ManiSkillDataset(Dataset):
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
 
-        # Peek dimensions if not provided
-        if obs_dim is None:
-            obs_dim = peek_trajectory_dimension(
-                self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
-            )
-        self.obs_dim = obs_dim
-
-        if act_dim is None:
-            act_dim = peek_trajectory_dimension(
-                self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
-            )
-        self.act_dim = act_dim
-
         # Convert padding masks to numpy boolean arrays
         self.obs_left_pad_as_zero_mask = self._ensure_numpy_mask(obs_left_pad_as_zero_mask)
         self.obs_right_pad_as_zero_mask = self._ensure_numpy_mask(obs_right_pad_as_zero_mask)
@@ -81,6 +68,19 @@ class ManiSkillDataset(Dataset):
 
         self._load_metadata(episodes)
         self._build_trajectories_and_slices(load_count, success_only)
+
+        # Peek dimensions if not provided
+        if obs_dim is None:
+            obs_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "obs"
+            )
+        self.obs_dim = obs_dim
+
+        if act_dim is None:
+            act_dim = peek_trajectory_dimension(
+                self.dataset_file, f"traj_{self.first_valid_episode_id}", "actions"
+            )
+        self.act_dim = act_dim
 
         rank_zero_info(
             f"Dataset initialized: {len(self.slices)} temporal windows "
