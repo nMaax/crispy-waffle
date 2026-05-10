@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - override /algorithm: diffusion
+  - override /algorithm/adapter: learned_mlp
+  - override /trainer: default
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      adapter:
+        _target_: policy.utils.adapters.learned_mlp_adapter.LearnedMLPAdapter
+        checkpoint_path: ???
