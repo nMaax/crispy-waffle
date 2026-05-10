@@ -5,8 +5,8 @@ import torch
 
 from policy.algorithms.diffusion import DiffusionPolicy
 from policy.algorithms.lightning_module_tests import LightningModuleTests
-from policy.utils import flatten_tensor_from_mapping
-from policy.utils.utils import sum_shapes
+from policy.utils import flatten_tensor_from_mapping, sum_shapes
+from policy.utils.test_utils import get_gpu_arch_name
 
 
 @pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
@@ -83,6 +83,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         tensor_regression.check(
             {"action": out},
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},
+            additional_label=get_gpu_arch_name(),
             include_gpu_name_in_stats=False,
         )
 
