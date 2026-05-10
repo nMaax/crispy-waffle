@@ -95,7 +95,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
 
-    def setup(self, stage=None):
+    def setup(self, stage: str | None = None):
         if self.train_set is None:
             with open(self.json_path) as f:
                 all_episodes = json.load(f)["episodes"]
@@ -114,6 +114,8 @@ class ManiSkillDataModule(L.LightningDataModule):
             )
 
             left_mask, right_mask = self._infer_padding_masks()
+
+            # TODO: should initialize only what needed given stage string
 
             self.train_set = ManiSkillDataset(
                 dataset_file=self.dataset_file,
@@ -147,6 +149,8 @@ class ManiSkillDataModule(L.LightningDataModule):
                 lazy=self.lazy,
             )
 
+            self.test_set = DummyDataset()
+
     def train_dataloader(self):
         if self.train_set is None:
             raise TypeError(
@@ -174,7 +178,7 @@ class ManiSkillDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self):
-        return DataLoader(DummyDataset(), batch_size=1)
+        return DataLoader(self.test_set, batch_size=1)
 
     def _load_metadata_from_json(self):
         """Parse the dataset metadata JSON to extract obs_mode, control_mode, and physx_backend."""
