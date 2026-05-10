@@ -12,7 +12,8 @@ algorithm:
     output_dim: 48
 
 trainer:
-  max_steps: 5000
+  max_steps: 25000
+  val_check_interval: 500
 
   callbacks:
     model_checkpoint:
@@ -20,3 +21,6 @@ trainer:
       mode: "min"
 
     rollout_evaluation: null
+
+    early_stopping:
+      patience: 3 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"

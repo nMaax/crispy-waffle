@@ -19,7 +19,7 @@ model_checkpoint:
 early_stopping:
   monitor: "val/loss"
   mode: "min"
-  patience: 10 # "Stop training if the monitored metric (val/success_rate) doesn't improve after 10 consecutive validation checks"
+  patience: 10 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"
   min_delta: 1e-5 # minimum change in the monitored quantity to qualify as an improvement
 
 model_summary:

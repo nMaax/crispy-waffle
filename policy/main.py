@@ -18,11 +18,11 @@ import hydra
 import lightning
 import rich
 import rich.logging
-import wandb
 from omegaconf import DictConfig
 from rich.panel import Panel
 
 import policy
+import wandb
 from policy.configs.config import Config
 from policy.experiment import train_and_validate
 from policy.utils.hydra_utils import resolve_dictconfig

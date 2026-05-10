@@ -1,4 +1,5 @@
 _target_: policy.algorithms.mlp_adapter.MLPAdapter
+_recursive_: false
 
 defaults:
   - network: mlp

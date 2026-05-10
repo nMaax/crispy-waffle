@@ -28,7 +28,7 @@ class AdapterDataset(Dataset):
     ) -> tuple[dict[str, Any] | torch.Tensor, dict[str, Any] | torch.Tensor]:
         batch = self.base_dataset[idx]
 
-        x = batch["obs"]
+        x = batch["obs_seq"]
 
         with torch.no_grad():
             y = self.adapter.apply(x)
