@@ -115,8 +115,10 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     """Recursively finds the batch size from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):
         return data.shape[0]
-    for value in data.values():
-        return get_batch_size(value)
+    else:
+        for value in data.values():
+            return get_batch_size(value)
+
     raise ValueError("data must contain at least one tensor")
 
 

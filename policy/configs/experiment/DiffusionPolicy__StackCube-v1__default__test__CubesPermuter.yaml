@@ -10,4 +10,4 @@ trainer:
     rollout_evaluation:
       adapter:
         _target_: policy.utils.adapters.CubesPermuter
-        swap_env_indices: [0] # e.g., if num_envs=2, env 0 is swapped, env 1 is standard
+        swap_env_indices: "odd"
