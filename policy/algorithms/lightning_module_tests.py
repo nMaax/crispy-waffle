@@ -25,6 +25,7 @@ from policy.conftest import DEFAULT_SEED
 from policy.experiment import instantiate_trainer
 from policy.main import instantiate_algorithm, setup_logging
 from policy.utils.hydra_utils import resolve_dictconfig
+from policy.utils.test_utils import get_gpu_arch_name
 
 logger = get_logger(__name__)
 
@@ -132,11 +133,15 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         accelerator: str,
     ):
         """Check that the network initialization is reproducible given the same random seed."""
+        hw_label = (
+            get_gpu_arch_name()
+            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
+            else accelerator
+        )
         tensor_regression.check(
             training_step_content.initial_state_dict,
-            # todo: is this necessary? Shouldn't the weights be the same on CPU and GPU?
-            # Save the regression files on a different subfolder for each device (cpu / cuda)
-            additional_label=accelerator if accelerator not in ["auto", "gpu", "cuda"] else None,
+            # Save the regression files on a different subfolder for each architecture (e.g. Pascal, Lovelace, CPU, ...)
+            additional_label=hw_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -151,14 +156,13 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         Note: There could be more than one call to `forward` inside a training step. Here we only
         check the args/kwargs/outputs of the first `forward` call for now.
         """
-        # Here we convert everything to dicts before saving to a file.
-        # todo: make tensor-regression more flexible so it can handle tuples and lists in the dict.
+        # Here we convert everything to dicts before saving to a file
         forward_pass_input = convert_list_and_tuples_to_dicts(training_step_content.forward_args)
         for forward_call_index, forward_kwargs in enumerate(training_step_content.forward_kwargs):
             for k, v in forward_kwargs.items():
                 new_k = f"{forward_call_index}_{k}"
                 if new_k in forward_pass_input:
-                    # might not be necessary, but just in case.
+                    # might not be necessary, but just in case
                     new_k = f"{forward_call_index}_kwarg_{k}"
                 assert new_k not in forward_pass_input
                 forward_pass_input[new_k] = v
@@ -166,12 +170,13 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         forward_pass_output = convert_list_and_tuples_to_dicts(
             training_step_content.forward_outputs[0]
         )
+
+        device = next(algorithm.parameters()).device
+        hw_label = get_gpu_arch_name() if device.type == "cuda" else device.type
         tensor_regression.check(
             {"input": forward_pass_input, "out": forward_pass_output},
-            default_tolerance={"rtol": 1e-5, "atol": 1e-6},  # some tolerance for changes.
-            # Save the regression files on a different subfolder for each device (cpu / cuda)
-            # todo: check if these values actually differ when run on cpu vs gpu.
-            additional_label=next(algorithm.parameters()).device.type,
+            default_tolerance={"rtol": 1e-5, "atol": 1e-6},  # Some tolerance
+            additional_label=hw_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -185,11 +190,17 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         seed."""
         assert isinstance(training_step_content.grads, dict)
         assert isinstance(training_step_content.training_step_output, dict)
-        # Here we convert everything to dicts before saving to a file.
-        # todo: make tensor-regression more flexible so it can handle tuples and lists in the dict.
+
+        # Here we convert everything to dicts before saving to a file
         batch = convert_list_and_tuples_to_dicts(training_step_content.batch)
         training_step_outputs = convert_list_and_tuples_to_dicts(
             training_step_content.training_step_output
+        )
+
+        hw_label = (
+            get_gpu_arch_name()
+            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
+            else accelerator
         )
         tensor_regression.check(
             {
@@ -197,10 +208,8 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
                 "grads": training_step_content.grads,
                 "outputs": training_step_outputs,
             },
-            default_tolerance={"rtol": 1e-5, "atol": 1e-6},  # some tolerance
-            # todo: check if this actually differs between cpu / gpu.
-            # Save the regression files on a different subfolder for each device (cpu / cuda)
-            additional_label=accelerator if accelerator not in ["auto", "gpu"] else None,
+            default_tolerance={"rtol": 1e-5, "atol": 1e-6},
+            additional_label=hw_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -213,11 +222,15 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
     ):
         """Check that the weights after one step of training are the same given the same seed."""
         assert training_step_content.initial_state_dict
+
+        hw_label = (
+            get_gpu_arch_name()
+            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
+            else accelerator
+        )
         tensor_regression.check(
             algorithm.state_dict(),
-            # todo: is this necessary? Shouldn't the weights be the same on CPU and GPU?
-            # Save the regression files on a different subfolder for each device (cpu / cuda)
-            additional_label=accelerator if accelerator not in ["auto", "gpu", "cuda"] else None,
+            additional_label=hw_label,
             include_gpu_name_in_stats=False,
         )
 

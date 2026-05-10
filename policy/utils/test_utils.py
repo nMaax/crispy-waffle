@@ -380,3 +380,25 @@ def total_vram_gb() -> float:
         )
         / 1024**3
     )
+
+
+def get_gpu_arch_name() -> str:
+    """Maps CUDA compute capability to architecture names."""
+    if not torch.cuda.is_available():
+        return "cpu"
+
+    major, minor = torch.cuda.get_device_capability()
+    arch_map = {
+        10: "Blackwell",
+        9: "Hopper",
+        8: {9: "Lovelace", "default": "Ampere"},
+        7: {5: "Turing", "default": "Volta"},
+        6: "Pascal",
+        5: "Maxwell",
+        3: "Kepler",
+    }
+
+    arch = arch_map.get(major, "Unknown_Arch")
+    if isinstance(arch, dict):
+        return arch.get(minor, arch.get("default", "Unknown_Arch"))
+    return arch
