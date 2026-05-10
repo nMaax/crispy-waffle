@@ -3,3 +3,13 @@ defaults:
   - override /algorithm: mlp_adapter
   - override /datamodule: adapter_datamodule
   - override /trainer: default
+
+trainer:
+  max_steps: 5000
+
+  model_checkpoint:
+    monitor: "val/loss"
+    mode: "min"
+
+  callbacks:
+    rollout_evaluation: null
