@@ -1,0 +1,22 @@
+act_seq:
+  device: cpu
+  dtype: torch.float32
+  max: 1.0
+  mean: -0.02736029401421547
+  min: -1.0
+  shape:
+  - 256
+  - 16
+  - 4
+  sum: -448.27105712890625
+obs_seq:
+  device: cpu
+  dtype: torch.float32
+  max: 7.91030216217041
+  mean: 0.07311033457517624
+  min: -3.795996904373169
+  shape:
+  - 256
+  - 2
+  - 48
+  sum: 1796.759521484375
