@@ -16,9 +16,14 @@ class LearnedMLPAdapter(CubesPermuter):
         self.model.eval()
         self.model.freeze()
 
+        # TODO: should be moved to CUDA, but in a more graceful way
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model.to(device)
+
     def _apply_to_tensor(self, obs: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
         swapped = obs.clone()
-        swapped[indices] = self.model(swapped[indices])
+        with torch.no_grad():
+            swapped[indices] = self.model(swapped[indices])
         return swapped
 
     def _apply_to_dict(

@@ -6,6 +6,8 @@ class MLP(nn.Module):
     def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 256):
         super().__init__()
 
+        # TODO: put a mask to not touch entries that should not be touched (e.g. table, gripper etc.)
+        # TODO: should decide internal dimensions via parameter like unet1d via hydra configs
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
