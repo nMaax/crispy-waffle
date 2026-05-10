@@ -10,8 +10,9 @@ algorithm/network: unet1d
 algorithm/noise_scheduler: ddpm
 algorithm/optimizer: Adam, AdamW, SGD, custom_AdamW
 datamodule: maniskill_datamodule
-experiment: PlaceSphere-v1_tricked, PlaceSphereWithCubes-v1_sanitycheck, StackCube-v1_neuromotor, StackCube-v1_neuromotor_test, StackCube-v1_swapped-cubes, StackCubeWithSphere-v1_sanitycheck
-trainer: cpu, debug, default, live, overfit_one_batch
+experiment: DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter, DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check, DiffusionPolicy__StackCube-v1__default__test, DiffusionPolicy__StackCube-v1__default__test__CubesPermuter, DiffusionPolicy__StackCube-v1__default__train, DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check
+render: live, video
+trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, early_stopping, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation, tqdm_progress_bar
 trainer/logger: tensorboard, wandb
 
@@ -99,6 +100,7 @@ name: default
 debug: false
 verbose: false
 ckpt_path: null
+render: null
 
 
 Powered by Hydra (https://hydra.cc)
