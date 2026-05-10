@@ -37,7 +37,12 @@ This is used to check that all the experiment configs are covered by tests.
 """
 
 experiment_commands_to_test: list[str | ParameterSet] = [
-    "experiment=StackCube-v1_neuromotor trainer.max_epochs=1"
+    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCube-v1__default__test__CubesPermuter trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
