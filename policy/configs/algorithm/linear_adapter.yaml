@@ -6,8 +6,5 @@ defaults:
   - optimizer: Adam
   - lr_scheduler: null
 
-# TODO: Do hydra support slices natively? Without using strings?
-loss_mask_slices: ["25:48"] # Indices of entries that will be included in the loss
-
 optimizer:
   lr: 1e-3
