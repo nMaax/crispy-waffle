@@ -1,4 +1,4 @@
-default:
+defaults:
   - adapter_datamodule
 
 base_datamodule:
