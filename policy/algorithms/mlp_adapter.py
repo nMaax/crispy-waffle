@@ -73,6 +73,8 @@ class MLPAdapter(L.LightningModule):
             raise ValueError("Network is not configured. Call configure_model() before training.")
 
         x, y = batch
+        # TODO: Should normalize first, and store mean and std, otherwise actions and gripper state will be considered equally
+        # TODO: even better, just mask entries
         y_hat = self.network(x)
         return F.mse_loss(y_hat, y)
 
