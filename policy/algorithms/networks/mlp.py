@@ -1,20 +1,30 @@
+from collections.abc import Sequence
+
 import torch
 import torch.nn as nn
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 256):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dims: Sequence[int] = (256, 256),
+        bias: bool = True,
+    ):
         super().__init__()
 
-        # TODO: put a mask to not touch entries that should not be touched (e.g. table, gripper etc.)
-        # TODO: should decide internal dimensions via parameter like unet1d via hydra configs
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
-        )
+        layers = []
+        current_dim = input_dim
+
+        for h_dim in hidden_dims:
+            layers.append(nn.Linear(current_dim, h_dim, bias=bias))
+            layers.append(nn.ReLU())
+            current_dim = h_dim
+
+        layers.append(nn.Linear(current_dim, output_dim))
+
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)

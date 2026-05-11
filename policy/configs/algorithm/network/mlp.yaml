@@ -1,4 +1,5 @@
 _target_: policy.algorithms.networks.mlp.MLP
 input_dim: ???
 output_dim: ???
-hidden_dim: 128
+hidden_dims: []
+bias: false
