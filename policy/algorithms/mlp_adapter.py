@@ -49,26 +49,32 @@ class MLPAdapter(L.LightningModule):
         y_pred = self.y_normalizer.unnormalize(y_norm_pred)
         return y_pred
 
-    def setup(self, stage: str):
+    def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
-            # WARN: is there a better way to do this without loading everything in memory?
+            dm = self.trainer.datamodule
+            base_dm = dm.base_datamodule
 
-            if not hasattr(self.trainer, "datamodule"):
-                raise ValueError(
-                    f"Trainer does not have a datamodule. Are you sure you are training? Here the stage is {stage}"
-                )
-
-            train_set = self.trainer.datamodule.train_set
+            train_set = base_dm.train_set
 
             all_x = []
             all_y = []
-            for i in range(len(train_set)):
-                x, y = train_set[i]
-                all_x.append(x)
-                all_y.append(y)
 
-            self.x_normalizer.fit(torch.stack(all_x))
-            self.y_normalizer.fit(torch.stack(all_y))
+            for traj in train_set.trajectories:
+                if train_set.lazy:
+                    ep_id = traj["episode_id"]
+                    h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                    x_ep = torch.from_numpy(h5_traj["obs"][:])
+                else:
+                    x_ep = torch.from_numpy(traj["obs"])
+
+                with torch.no_grad():
+                    y_ep = dm.adapter.apply(x_ep)
+
+                all_x.append(x_ep)
+                all_y.append(y_ep)
+
+            self.x_normalizer.fit(torch.cat(all_x, dim=0))
+            self.y_normalizer.fit(torch.cat(all_y, dim=0))
 
     def configure_model(self) -> None:
         if self.network is not None:
