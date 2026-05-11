@@ -25,11 +25,7 @@ class LearnedMLPAdapter(CubesPermuter):
         with torch.no_grad():
             model_predicted_swaps = self.model(obs)
 
-        swapped[indices, ..., 25:32] = model_predicted_swaps[indices, ..., 25:32]
-        swapped[indices, ..., 32:39] = model_predicted_swaps[indices, ..., 32:39]
-        swapped[indices, ..., 39:42] = model_predicted_swaps[indices, ..., 39:42]
-        swapped[indices, ..., 42:45] = model_predicted_swaps[indices, ..., 42:45]
-        swapped[indices, ..., 45:48] = model_predicted_swaps[indices, ..., 45:48]
+        swapped[indices] = model_predicted_swaps[indices]
 
         return swapped
 

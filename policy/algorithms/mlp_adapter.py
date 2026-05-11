@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
+from policy.utils.normalizer import TensorNormalizer
 from policy.utils.typing_utils import HydraConfigFor
 
 
@@ -17,6 +18,7 @@ class MLPAdapter(L.LightningModule):
         network: HydraConfigFor[nn.Module],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        loss_mask_indices: list[int] | None = None,  # Added Loss Masking
     ):
         super().__init__()
 
@@ -31,13 +33,37 @@ class MLPAdapter(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.network is None:
-            raise ValueError(
-                "Network is not configured. Call configure_model() before using the model."
-            )
+        self.x_normalizer = TensorNormalizer()
+        self.y_normalizer = TensorNormalizer()
 
-        return self.network(x)
+        self.loss_mask_indices = loss_mask_indices
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Inference pass: Normalize -> Predict -> Unnormalize"""
+
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before inference.")
+
+        x_norm = self.x_normalizer.normalize(x)
+        y_norm_pred = self.network(x_norm)
+        y_pred = self.y_normalizer.unnormalize(y_norm_pred)
+        return y_pred
+
+    def setup(self, stage: str):
+        if stage == "fit" and not self.x_normalizer.is_fit:
+            # WARN: is there a better way to do this without loading everything in memory?
+
+            train_dataset = self.trainer.datamodule.train_dataset
+
+            all_x = []
+            all_y = []
+            for i in range(len(train_dataset)):
+                x, y = train_dataset[i]
+                all_x.append(x)
+                all_y.append(y)
+
+            self.x_normalizer.fit(torch.stack(all_x))
+            self.y_normalizer.fit(torch.stack(all_y))
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -70,13 +96,20 @@ class MLPAdapter(L.LightningModule):
 
     def _compute_loss(self, batch) -> torch.Tensor:
         if self.network is None:
-            raise ValueError("Network is not configured. Call configure_model() before training.")
+            raise ValueError("Network is not configured.")
 
         x, y = batch
-        # TODO: Should normalize first, and store mean and std, otherwise actions and gripper state will be considered equally
-        # TODO: even better, just mask entries
-        y_hat = self.network(x)
-        return F.mse_loss(y_hat, y)
+
+        x_norm = self.x_normalizer.normalize(x)
+        y_norm = self.y_normalizer.normalize(y)
+
+        y_norm_hat = self.network(x_norm)
+
+        if self.loss_mask_indices is not None:
+            y_norm_hat = y_norm_hat[..., self.loss_mask_indices]
+            y_norm = y_norm[..., self.loss_mask_indices]
+
+        return F.mse_loss(y_norm_hat, y_norm)
 
     def training_step(self, batch, batch_idx):
         loss = self._compute_loss(batch)

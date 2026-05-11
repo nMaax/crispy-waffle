@@ -84,6 +84,8 @@ class DiffusionPolicy(L.LightningModule):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
+    # TODO: What about setup()? Maybe it could be used for the normalizer fitting
+
     def configure_model(self) -> None:
         if self.network is not None:
             return
