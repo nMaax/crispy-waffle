@@ -11,3 +11,8 @@ trainer:
       adapter:
         _target_: policy.utils.adapters.CubesPermuter
         swap_env_indices: "odd"
+
+      env_id: "StackCubeSwapped-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
