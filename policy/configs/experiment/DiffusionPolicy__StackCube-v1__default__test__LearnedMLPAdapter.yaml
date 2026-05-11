@@ -11,7 +11,3 @@ trainer:
       adapter:
         _target_: policy.utils.adapters.learned_mlp_adapter.LearnedMLPAdapter
         ckpt_path: ???
-
-        # TODO: Do hydra support slices natively? Without using strings?
-        passthrough_mapping:
-          - ["0:25", "0:25"]

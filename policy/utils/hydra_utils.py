@@ -27,6 +27,8 @@ def resolve_dictconfig(dict_config: DictConfig) -> Config:
 
 def parse_slice(slice_def: str | int) -> slice | int:
     """Converts a string like '25:48', '48:', or ':25' into a Python slice object."""
+
+    # TODO: Do hydra support slices natively? Without using strings?
     if isinstance(slice_def, int):
         return slice_def
 
