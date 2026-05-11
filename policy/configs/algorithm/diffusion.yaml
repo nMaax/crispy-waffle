@@ -15,5 +15,9 @@ act_horizon: 8
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
+optimizer:
+  lr: 1e-4
+  weight_decay: 1e-5
+
 lr_scheduler:
   num_training_steps: ${trainer.max_steps}
