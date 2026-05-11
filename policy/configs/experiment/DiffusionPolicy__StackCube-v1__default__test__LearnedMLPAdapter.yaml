@@ -11,3 +11,5 @@ trainer:
       adapter:
         _target_: policy.utils.adapters.learned_mlp_adapter.LearnedMLPAdapter
         ckpt_path: ???
+        passthrough_mapping:
+          - ["0:25", "0:25"]

@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
+from policy.utils.hydra_utils import parse_slice
 from policy.utils.normalizer import TensorNormalizer
 from policy.utils.typing_utils import HydraConfigFor
 
@@ -18,7 +19,7 @@ class MLPAdapter(L.LightningModule):
         network: HydraConfigFor[nn.Module],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
-        loss_mask_indices: list[int] | None = None,  # Added Loss Masking
+        loss_mask_slices: list[str | int] | None = None,
     ):
         super().__init__()
 
@@ -36,7 +37,7 @@ class MLPAdapter(L.LightningModule):
         self.x_normalizer = TensorNormalizer(network.input_dim)
         self.y_normalizer = TensorNormalizer(network.output_dim)
 
-        self.loss_mask_indices = loss_mask_indices
+        self.loss_mask_slices = loss_mask_slices
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Inference pass: Normalize -> Predict -> Unnormalize"""
@@ -51,7 +52,23 @@ class MLPAdapter(L.LightningModule):
 
     def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
-            dm = self.trainer.datamodule
+            # TODO: Move this to a helper function
+            mask = torch.zeros(self.network_config.output_dim, dtype=torch.bool)
+
+            if self.loss_mask_slices is not None:
+                for s in self.loss_mask_slices:
+                    mask[parse_slice(s)] = True
+            else:
+                mask[:] = True
+
+            self.register_buffer("loss_mask", mask)
+
+            # TODO: Move this to a helper function
+            dm = getattr(self.trainer, "datamodule", None)
+            if dm is None:
+                raise ValueError(
+                    "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
+                )
             base_dm = dm.base_datamodule
 
             train_set = base_dm.train_set
@@ -116,9 +133,9 @@ class MLPAdapter(L.LightningModule):
 
         y_norm_hat = self.network(x_norm)
 
-        if self.loss_mask_indices is not None:
-            y_norm_hat = y_norm_hat[..., self.loss_mask_indices]
-            y_norm = y_norm[..., self.loss_mask_indices]
+        if self.loss_mask is not None:
+            y_norm_hat = y_norm_hat[..., self.loss_mask]
+            y_norm = y_norm[..., self.loss_mask]
 
         return F.mse_loss(y_norm_hat, y_norm)
 
