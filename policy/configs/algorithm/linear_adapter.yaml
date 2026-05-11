@@ -2,9 +2,9 @@ _target_: policy.algorithms.mlp_adapter.MLPAdapter
 _recursive_: false
 
 defaults:
-  - network: mlp
-  - optimizer: AdamW
-  - lr_scheduler: StepLR
+  - network: linear
+  - optimizer: Adam
+  - lr_scheduler: null
 
 optimizer:
   lr: 1e-3

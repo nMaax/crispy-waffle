@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
-  - override /algorithm: mlp_adapter
-  - override /datamodule: adapter_datamodule
+  - override /algorithm: linear_adapter
+  - override /datamodule: adapter_datamodule_stack_cube_swapped
   - override /trainer: default
 
 name: ${hydra:runtime.choices.experiment}
