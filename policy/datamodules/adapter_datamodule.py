@@ -42,13 +42,13 @@ class AdapterDataModule(pl.LightningDataModule):
                 raise ValueError(
                     f"Expected base_datamodule.train_set to be a ManiSkillDataset, but got {type(train_set)}"
                 )
-            self.train_dataset = AdapterDataset(base_dataset=train_set, adapter=self.adapter)
+            self.train_set = AdapterDataset(base_dataset=train_set, adapter=self.adapter)
 
             if not isinstance(val_set := self.base_datamodule.val_set, ManiSkillDataset):
                 raise ValueError(
                     f"Expected base_datamodule.val_set to be a ManiSkillDataset, but got {type(val_set)}"
                 )
-            self.val_dataset = AdapterDataset(base_dataset=val_set, adapter=self.adapter)
+            self.val_set = AdapterDataset(base_dataset=val_set, adapter=self.adapter)
 
         if stage == "test" or stage is None:
             if not isinstance(test_set := self.base_datamodule.test_set, ManiSkillDataset):
@@ -59,7 +59,7 @@ class AdapterDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            dataset=self.train_dataset,
+            dataset=self.train_set,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
@@ -68,7 +68,7 @@ class AdapterDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            dataset=self.val_dataset,
+            dataset=self.val_set,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
