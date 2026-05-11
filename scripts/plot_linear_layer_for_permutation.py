@@ -36,7 +36,7 @@ def main():
 
     plt.figure(figsize=(10, 8))
 
-    im = plt.imshow(weight_matrix, cmap="gray", aspect="auto", vmin=-1.1, vmax=1.1)
+    im = plt.imshow(weight_matrix, cmap="seismic", aspect="auto", vmin=-1.1, vmax=1.1)
 
     plt.colorbar(im, label="Weight Value")
 
