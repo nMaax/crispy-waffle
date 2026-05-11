@@ -33,8 +33,8 @@ class MLPAdapter(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
-        self.x_normalizer = TensorNormalizer()
-        self.y_normalizer = TensorNormalizer()
+        self.x_normalizer = TensorNormalizer(network.input_dim)
+        self.y_normalizer = TensorNormalizer(network.output_dim)
 
         self.loss_mask_indices = loss_mask_indices
 
@@ -53,12 +53,17 @@ class MLPAdapter(L.LightningModule):
         if stage == "fit" and not self.x_normalizer.is_fit:
             # WARN: is there a better way to do this without loading everything in memory?
 
-            train_dataset = self.trainer.datamodule.train_dataset
+            if not hasattr(self.trainer, "datamodule"):
+                raise ValueError(
+                    f"Trainer does not have a datamodule. Are you sure you are training? Here the stage is {stage}"
+                )
+
+            train_set = self.trainer.datamodule.train_set
 
             all_x = []
             all_y = []
-            for i in range(len(train_dataset)):
-                x, y = train_dataset[i]
+            for i in range(len(train_set)):
+                x, y = train_set[i]
                 all_x.append(x)
                 all_y.append(y)
 
