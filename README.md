@@ -66,6 +66,29 @@ uv run python policy/eval.py \
     render=live # | video
 ```
 
+### Motion Planning (`mplib`) Segmentation Fault
+
+When running ManiSkill motion planning scripts (e.g., `PlaceSphere-v1`, `PickCube-v1`), the process silently crashes immediately. The progress bar stays at `0%`, and the OS throws a multiprocessing warning: `resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown`. This is caused by a fatal C++ segmentation fault occurring during the initialization of the `mplib` planner, driven by two specific dependency updates:
+
+1. `mplib` relies heavily on C++ bindings. If it is forced to interact with NumPy 2.0+, it triggers an instant segfault when passing arrays between Python and C++.
+2. Newer versions of `mplib` (>= 0.2.0) introduce breaking API changes, explicitly requiring a custom `mplib.pymp.Pose` object instead of standard NumPy arrays for base poses. ManiSkill natively passes NumPy arrays, causing an `incompatible function arguments` crash.
+
+To fix this, you must pin both `numpy` and `mplib` to their stable, legacy versions within your `uv` workspace.
+
+1. Force `uv` to downgrade and lock the dependencies in your workspace (use the `--dev` flag if your `pyproject.toml` requires it):
+
+```bash
+uv add "numpy<2.0.0" "mplib==0.1.1" --dev
+```
+
+*(Alternatively, if just working inside a standard virtual environment without a project table: `uv pip install "numpy<2.0.0" "mplib==0.1.1"`)*
+
+2. Run your data collection script normally. `uv run` will now respect the downgraded lockfile and execute the C++ planner safely:
+
+```bash
+   uv run python mani_skill/examples/motionplanning/panda/run.py -e "PlaceSphere-v1" -n 100 --only-count-success
+```
+
 ### Pre-commit setup
 
 ```bash
