@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1__default__test
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      adapter:
+        _target_: policy.utils.adapters.learned_mlp_adapter.LearnedMLPAdapter
+        ckpt_path: ???
+
+      env_id: "PlaceSphereWristcam-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
