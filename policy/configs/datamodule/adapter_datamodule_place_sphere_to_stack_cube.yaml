@@ -1,0 +1,8 @@
+defaults:
+  - adapter_datamodule
+
+base_datamodule:
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+
+adapter:
+  _target_: policy.utils.adapters.stack_cube_permuter.CubesPermuter

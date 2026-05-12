@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - override /algorithm: mlp_adapter
+  - override /datamodule: adapter_datamodule_place_sphere_to_stack_cube
+  - override /trainer: default
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  network:
+    input_dim: 48
+    output_dim: 48
+
+trainer:
+  max_steps: 25000
+  val_check_interval: 500
+
+  callbacks:
+    model_checkpoint:
+      monitor: "val/loss"
+      mode: "min"
+
+    rollout_evaluation: null
+
+    early_stopping:
+      patience: 3 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"
