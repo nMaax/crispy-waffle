@@ -66,9 +66,6 @@ uv run python policy/eval.py \
     render=live # | video
 ```
 
-### Motion Planning (`mplib`) Segmentation Fault
-
-
 ### Pre-commit setup
 
 ```bash
