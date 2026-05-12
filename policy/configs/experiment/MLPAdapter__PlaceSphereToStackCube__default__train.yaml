@@ -8,8 +8,11 @@ name: ${hydra:runtime.choices.experiment}
 
 algorithm:
   network:
-    input_dim: 48
+    input_dim: 39
     output_dim: 48
+
+  lr_scheduler:
+    step_size: 1000
 
 trainer:
   max_steps: 25000
