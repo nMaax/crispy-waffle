@@ -39,59 +39,10 @@ class MLPAdapter(L.LightningModule):
 
         self.loss_mask_slices = loss_mask_slices
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Inference pass: Normalize -> Predict -> Unnormalize"""
-
-        if self.network is None:
-            raise ValueError("Network is not configured. Call configure_model() before inference.")
-
-        x_norm = self.x_normalizer.normalize(x)
-        y_norm_pred = self.network(x_norm)
-        y_pred = self.y_normalizer.unnormalize(y_norm_pred)
-        return y_pred
-
     def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
-            # TODO: Move this to a helper function
-            mask = torch.zeros(self.network_config.output_dim, dtype=torch.bool)
-
-            if self.loss_mask_slices is not None:
-                for s in self.loss_mask_slices:
-                    mask[parse_slice(s)] = True
-            else:
-                mask[:] = True
-
-            self.register_buffer("loss_mask", mask)
-
-            # TODO: Move this to a helper function
-            dm = getattr(self.trainer, "datamodule", None)
-            if dm is None:
-                raise ValueError(
-                    "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
-                )
-            base_dm = dm.base_datamodule
-
-            train_set = base_dm.train_set
-
-            all_x = []
-            all_y = []
-
-            for traj in train_set.trajectories:
-                if train_set.lazy:
-                    ep_id = traj["episode_id"]
-                    h5_traj = train_set.h5_file[f"traj_{ep_id}"]
-                    x_ep = torch.from_numpy(h5_traj["obs"][:])
-                else:
-                    x_ep = torch.from_numpy(traj["obs"])
-
-                with torch.no_grad():
-                    y_ep = dm.adapter.apply(x_ep)
-
-                all_x.append(x_ep)
-                all_y.append(y_ep)
-
-            self.x_normalizer.fit(torch.cat(all_x, dim=0))
-            self.y_normalizer.fit(torch.cat(all_y, dim=0))
+            self._parse_loss_mask()
+            self._configure_normalizers()
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -122,6 +73,30 @@ class MLPAdapter(L.LightningModule):
         else:
             return optimizer
 
+    def training_step(self, batch, batch_idx):
+        loss = self._compute_loss(batch)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss = self._compute_loss(batch)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        loss = self._compute_loss(batch)
+        self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        return loss
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before inference.")
+
+        x_norm = self.x_normalizer.normalize(x)
+        y_norm_pred = self.network(x_norm)
+        y_pred = self.y_normalizer.unnormalize(y_norm_pred)
+        return y_pred
+
     def _compute_loss(self, batch) -> torch.Tensor:
         if self.network is None:
             raise ValueError("Network is not configured.")
@@ -139,17 +114,43 @@ class MLPAdapter(L.LightningModule):
 
         return F.mse_loss(y_norm_hat, y_norm)
 
-    def training_step(self, batch, batch_idx):
-        loss = self._compute_loss(batch)
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+    def _parse_loss_mask(self) -> None:
+        mask = torch.zeros(self.network_config.output_dim, dtype=torch.bool)
 
-    def validation_step(self, batch, batch_idx):
-        loss = self._compute_loss(batch)
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        return loss
+        if self.loss_mask_slices is not None:
+            for s in self.loss_mask_slices:
+                mask[parse_slice(s)] = True
+        else:
+            mask[:] = True
 
-    def test_step(self, batch, batch_idx):
-        loss = self._compute_loss(batch)
-        self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
-        return loss
+        self.register_buffer("loss_mask", mask)
+
+    def _configure_normalizers(self) -> None:
+        dm = getattr(self.trainer, "datamodule", None)
+        if dm is None:
+            raise ValueError(
+                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
+            )
+        base_dm = dm.base_datamodule
+
+        train_set = base_dm.train_set
+
+        all_x = []
+        all_y = []
+
+        for traj in train_set.trajectories:
+            if train_set.lazy:
+                ep_id = traj["episode_id"]
+                h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                x_ep = torch.from_numpy(h5_traj["obs"][:])
+            else:
+                x_ep = torch.from_numpy(traj["obs"])
+
+            with torch.no_grad():
+                y_ep = dm.adapter.apply(x_ep)
+
+            all_x.append(x_ep)
+            all_y.append(y_ep)
+
+        self.x_normalizer.fit(torch.cat(all_x, dim=0))
+        self.y_normalizer.fit(torch.cat(all_y, dim=0))

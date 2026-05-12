@@ -38,20 +38,23 @@ class AdapterDataModule(pl.LightningDataModule):
         self.base_datamodule.setup(stage)
 
         if stage == "fit" or stage is None:
-            if not isinstance(train_set := self.base_datamodule.train_set, ManiSkillDataset):
+            train_set = self.base_datamodule.train_set
+            if not isinstance(train_set, ManiSkillDataset):
                 raise ValueError(
                     f"Expected base_datamodule.train_set to be a ManiSkillDataset, but got {type(train_set)}"
                 )
             self.train_set = AdapterDataset(base_dataset=train_set, adapter=self.adapter)
 
-            if not isinstance(val_set := self.base_datamodule.val_set, ManiSkillDataset):
+            val_set = self.base_datamodule.val_set
+            if not isinstance(val_set, ManiSkillDataset):
                 raise ValueError(
                     f"Expected base_datamodule.val_set to be a ManiSkillDataset, but got {type(val_set)}"
                 )
             self.val_set = AdapterDataset(base_dataset=val_set, adapter=self.adapter)
 
         if stage == "test" or stage is None:
-            if not isinstance(test_set := self.base_datamodule.test_set, ManiSkillDataset):
+            test_set = self.base_datamodule.test_set
+            if not isinstance(test_set, ManiSkillDataset):
                 raise ValueError(
                     f"Expected base_datamodule.test_set to be a ManiSkillDataset, but got {type(test_set)}"
                 )
