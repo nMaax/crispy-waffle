@@ -86,7 +86,9 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
-For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own high-quality trajectories using the built-in motion planning. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
+For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
+
+### Setup Maniskill source code
 
 First, clone the ManiSkill repository and set up a development environment using `uv`. This allows you to run example scripts and motion planning solvers that are not always packaged in the standard pip release.
 
@@ -99,7 +101,7 @@ cd ManiSkill
 uv add --dev -e .
 ```
 
-#### 2. Troubleshooting: Motion Planning Segmentation Faults
+#### Troubleshooting Motion Planning Segmentation Faults
 
 When running ManiSkill motion planning scripts (e.g., `PlaceSphere-v1`, `PickCube-v1`), the process silently crashes immediately. The progress bar stays at `0%`, and the OS throws a multiprocessing warning: `resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown`. This is caused by a fatal C++ segmentation fault occurring during the initialization of the `mplib` planner, driven by two specific dependency updates:
 
@@ -116,7 +118,7 @@ uv add "numpy<2.0.0" "mplib==0.1.1" --dev
 
 *(Alternatively, if just working inside a standard virtual environment without a project table: `uv pip install "numpy<2.0.0" "mplib==0.1.1"`)*
 
-#### 3. Generating and Replaying Demonstrations
+#### Generating and Replaying Demonstrations
 
 Once dependencies are pinned, you can generate trajectories. The solver will decompose the task into pick-and-place waypoints and save the result as `.h5` files.
 
@@ -126,7 +128,6 @@ uv run python -m mani_skill.examples.motionplanning.panda.run -e "PlaceSphere-v1
 
 # (Optional) Visualize the motion planning solve live/mp4 file
 uv run python -m mani_skill.examples.motionplanning.panda.run -e "PlaceSphere-v1" --vis # --video instead of --vis to render as mp4 files
-
 ```
 
 Keep this patched ManiSkill clone strictly for data generation. Once your trajectories are generated in the `demos/` folder, simply copy the `.h5` and `.json` files to your main project. Your main project can then use the latest versions of NumPy and ManiSkill without `mplib` installed, as the motion planning logic is only required during the initial offline data collection phase.
