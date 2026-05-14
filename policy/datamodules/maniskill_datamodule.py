@@ -96,60 +96,51 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.val_set: Dataset | None = None
 
     def setup(self, stage: str | None = None):
-        if self.train_set is None:
-            with open(self.json_path) as f:
-                all_episodes = json.load(f)["episodes"]
 
-            rng = random.Random(self.seed)
-            rng.shuffle(all_episodes)
-
-            val_size = int(len(all_episodes) * self.val_split)
-            train_size = len(all_episodes) - val_size
-
-            train_episodes = all_episodes[:train_size]
-            val_episodes = all_episodes[train_size:]
-
-            rank_zero_info(
-                f"Splitting dataset: {train_size} training episodes, {val_size} validation episodes."
-            )
-
+        if stage in ("fit", "validate") or stage is None:
+            train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
-            # TODO: should initialize only what needed given stage string
+            if stage == "fit" or stage is None:
+                if self.train_set is None:
+                    rank_zero_info(f"{len(train_episodes)} training episodes.")
+                    self.train_set = ManiSkillDataset(
+                        dataset_file=self.dataset_file,
+                        obs_horizon=self.obs_horizon,
+                        pred_horizon=self.pred_horizon,
+                        obs_dim=self.obs_dim,
+                        act_dim=self.act_dim,
+                        obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                        obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                        action_left_pad_as_zero_mask=left_mask,
+                        action_right_pad_as_zero_mask=right_mask,
+                        episodes=train_episodes,
+                        load_count=self.load_count,
+                        success_only=self.success_only,
+                        lazy=self.lazy,
+                    )
 
-            self.train_set = ManiSkillDataset(
-                dataset_file=self.dataset_file,
-                obs_horizon=self.obs_horizon,
-                pred_horizon=self.pred_horizon,
-                obs_dim=self.obs_dim,
-                act_dim=self.act_dim,
-                obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                action_left_pad_as_zero_mask=left_mask,
-                action_right_pad_as_zero_mask=right_mask,
-                episodes=train_episodes,
-                load_count=self.load_count,
-                success_only=self.success_only,
-                lazy=self.lazy,
-            )
+            if self.val_set is None:
+                rank_zero_info(f"{len(val_episodes)} validation episodes.")
+                self.val_set = ManiSkillDataset(
+                    dataset_file=self.dataset_file,
+                    obs_horizon=self.obs_horizon,
+                    pred_horizon=self.pred_horizon,
+                    obs_dim=self.obs_dim,
+                    act_dim=self.act_dim,
+                    obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                    obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                    action_left_pad_as_zero_mask=left_mask,
+                    action_right_pad_as_zero_mask=right_mask,
+                    episodes=val_episodes,
+                    load_count=self.load_count,
+                    success_only=self.success_only,
+                    lazy=self.lazy,
+                )
 
-            self.val_set = ManiSkillDataset(
-                dataset_file=self.dataset_file,
-                obs_horizon=self.obs_horizon,
-                pred_horizon=self.pred_horizon,
-                obs_dim=self.obs_dim,
-                act_dim=self.act_dim,
-                obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                action_left_pad_as_zero_mask=left_mask,
-                action_right_pad_as_zero_mask=right_mask,
-                episodes=val_episodes,
-                load_count=self.load_count,
-                success_only=self.success_only,
-                lazy=self.lazy,
-            )
-
-            self.test_set = DummyDataset()
+        if stage == "test" or stage is None:
+            if not hasattr(self, "test_set") or self.test_set is None:
+                self.test_set = DummyDataset()
 
     def train_dataloader(self):
         if self.train_set is None:
@@ -199,6 +190,21 @@ class ManiSkillDataModule(L.LightningDataModule):
             physx_backend = "physx_cpu"
 
         return env_id, obs_mode, control_mode, physx_backend
+
+    def _split_episodes(self) -> tuple[list[dict], list[dict]]:
+        with open(self.json_path) as f:
+            all_episodes = json.load(f)["episodes"]
+
+        rng = random.Random(self.seed)
+        rng.shuffle(all_episodes)
+
+        val_size = int(len(all_episodes) * self.val_split)
+        train_size = len(all_episodes) - val_size
+
+        train_episodes = all_episodes[:train_size]
+        val_episodes = all_episodes[train_size:]
+
+        return train_episodes, val_episodes
 
     def _infer_padding_masks(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Infers the left and right action padding masks based on the control mode."""
