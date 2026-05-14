@@ -44,7 +44,9 @@ class LearnedMLPAdapter:
 
         if self.passthrough_mapping:
             for in_slice, out_slice in self.passthrough_mapping:
-                swapped[..., out_slice] = obs[..., in_slice]
+                swapped[..., out_slice] = model_predicted_swaps[..., in_slice]
+        else:
+            swapped = model_predicted_swaps
 
         return swapped
 
