@@ -11,10 +11,10 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.utils import flatten_tensor_from_mapping
-from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
+from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
-class DiffusionPolicy(L.LightningModule):
+class DiffusionPolicy(L.LightningModule, PolicyProtocol):
     """Diffusion Policy as in Cheng et. al (IJRR)
 
     Reference:
