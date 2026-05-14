@@ -4,9 +4,10 @@ import torch
 
 from policy.algorithms.mlp_adapter import MLPAdapter
 from policy.utils.hydra_utils import parse_slice
+from policy.utils.typing_utils import AdapterProtocol
 
 
-class LearnedMLPAdapter:
+class LearnedMLPAdapter(AdapterProtocol):
     def __init__(
         self,
         ckpt_path: str,

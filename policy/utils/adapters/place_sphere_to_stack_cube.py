@@ -2,8 +2,10 @@ from typing import Any
 
 import torch
 
+from policy.utils.typing_utils import AdapterProtocol
 
-class PlaceSphereToStackCubeAdapter:
+
+class PlaceSphereToStackCubeAdapter(AdapterProtocol):
     """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 
     BIN_Z_OFFSET = 0.018  # Cube B height (2cm) - bin border height (2mm)

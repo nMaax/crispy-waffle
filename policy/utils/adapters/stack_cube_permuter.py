@@ -4,11 +4,12 @@ from typing import Any
 import torch
 
 from policy.utils import get_batch_size
+from policy.utils.typing_utils import AdapterProtocol
 
 IndexSelector = Callable[[torch.Tensor | dict[str, Any]], torch.Tensor]
 
 
-class CubesPermuter:
+class CubesPermuter(AdapterProtocol):
     """Tricks a policy trained on StackCube-v1 into stacking Cube B on Cube A by swapping their
     identities in the observation space."""
 
