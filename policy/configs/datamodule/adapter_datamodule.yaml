@@ -5,7 +5,6 @@ pin_memory: true
 
 base_datamodule:
   _target_: policy.datamodules.maniskill_datamodule.ManiSkillDataModule
-  # TODO: unfortunately PlaceSphere do NOT have demos, so I should craft them
   dataset_file: ???
   seed: ${seed}
 

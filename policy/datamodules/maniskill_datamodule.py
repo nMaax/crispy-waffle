@@ -95,6 +95,8 @@ class ManiSkillDataModule(L.LightningDataModule):
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
 
+    # TODO: Lightning interface also provides the `prepare_data()` method which I could use to download and replay necessary trajectories
+
     def setup(self, stage: str | None = None):
 
         if stage in ("fit", "validate") or stage is None:

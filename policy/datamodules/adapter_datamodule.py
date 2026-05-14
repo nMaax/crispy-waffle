@@ -31,7 +31,6 @@ class AdapterDataModule(pl.LightningDataModule):
         self.pin_memory = pin_memory
 
     def prepare_data(self):
-        # TODO: should I use this also in the Maniskill Datamodule to download and replay maniskill demos?
         self.base_datamodule.prepare_data()
 
     def setup(self, stage: str | None = None):
