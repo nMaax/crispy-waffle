@@ -2,7 +2,7 @@ defaults:
   - adapter_datamodule
 
 base_datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceSphereWristcam-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5
 
 adapter:
   _target_: policy.utils.adapters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter

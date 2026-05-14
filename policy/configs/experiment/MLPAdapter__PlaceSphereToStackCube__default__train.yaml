@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /algorithm: mlp_adapter
+  - override /algorithm: linear_adapter
   - override /datamodule: adapter_datamodule_place_sphere_to_stack_cube
   - override /trainer: default
 
@@ -10,9 +10,6 @@ algorithm:
   network:
     input_dim: 39
     output_dim: 48
-
-  lr_scheduler:
-    step_size: 1000
 
 trainer:
   max_steps: 25000
