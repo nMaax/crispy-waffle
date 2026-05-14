@@ -17,10 +17,6 @@ class LearnedMLPAdapter:
         self.model.eval()
         self.model.freeze()
 
-        # TODO: should be moved to CUDA, but in a more graceful way
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(device)
-
         self.passthrough_mapping = []
         if passthrough_mapping is not None:
             for in_s, out_s in passthrough_mapping:
