@@ -142,6 +142,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
+        # TODO: can this be removed and logic moved to compute_loss? Remind to KISS and DRY
         flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
         action_seq = batch["act_seq"]
 
