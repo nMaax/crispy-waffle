@@ -1,9 +1,7 @@
 import torch
 
-from policy.utils.typing_utils import AdapterProtocol
 
-
-class CanonicalPnPAdapter(AdapterProtocol):
+class PnPCanonicalizer:
     """Standardizes different pick-and-place tasks into a unified vector format.
 
     [A, B, TCP, TCP-to-A, TCP-to-B, A-to-B]
@@ -18,9 +16,9 @@ class CanonicalPnPAdapter(AdapterProtocol):
             "PlaceSphereWristcam-v1": self._parse_place_sphere_wristcam,
         }
 
+    # Should decouple from AdapterProtocol and rather make a TransformProtocol
     def apply(self, obs: dict | torch.Tensor) -> torch.Tensor:
         if isinstance(obs, dict):
-            # TODO: make this look more like other adapters signatures
             raise NotImplementedError(
                 "Dict observations not supported yet. Only tensor observations."
             )

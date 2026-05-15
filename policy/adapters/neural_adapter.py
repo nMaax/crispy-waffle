@@ -2,18 +2,18 @@ from collections.abc import Sequence
 
 import torch
 
-from policy.algorithms.mlp_adapter import MLPAdapter
+from policy.algorithms.state_translator import StateTranslator
 from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import AdapterProtocol
 
 
-class LearnedMLPAdapter(AdapterProtocol):
+class NeuralAdapter(AdapterProtocol):
     def __init__(
         self,
         ckpt_path: str,
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
-        self.model = MLPAdapter.load_from_checkpoint(ckpt_path, strict=False)
+        self.model = StateTranslator.load_from_checkpoint(ckpt_path, strict=False)
 
         self.model.eval()
         self.model.freeze()

@@ -49,7 +49,7 @@ class MultiTaskStateTranslator(StateTranslator):
                     x_ep = torch.from_numpy(traj["obs"])
 
                 with torch.no_grad():
-                    canonical_x = task_dataset.canonical_adapter.apply(x_ep)
+                    canonical_x = task_dataset.pnp_canonicalizer.apply(x_ep)
                     target_y = task_dataset.base_translator_dataset.adapter.apply(x_ep)
 
                 all_x.append(canonical_x)

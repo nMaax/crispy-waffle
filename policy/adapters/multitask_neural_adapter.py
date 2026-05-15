@@ -2,12 +2,12 @@ from collections.abc import Sequence
 
 import torch
 
-from policy.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
-from policy.adapters.learned_mlp_adapter import LearnedMLPAdapter
+from policy.adapters.neural_adapter import NeuralAdapter
 from policy.algorithms.state_translator import StateTranslator
+from policy.transforms.pnp_canonicalizer import PnPCanonicalizer
 
 
-class PnPLearnedMLPAdapter(LearnedMLPAdapter):
+class MultitaskNeuralAdapter(NeuralAdapter):
     def __init__(
         self,
         env_id: str,
@@ -21,11 +21,11 @@ class PnPLearnedMLPAdapter(LearnedMLPAdapter):
         self.passthrough_mapping = passthrough_mapping
 
         self.env_id = env_id
-        self.pnp_adapter = CanonicalPnPAdapter(self.env_id)
+        self.pnp_canonicalizer = PnPCanonicalizer(self.env_id)
         self.task_mapping = task_mapping
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = self.pnp_adapter.apply(obs)
+        obs = self.pnp_canonicalizer.apply(obs)
         task_idx_val = self.task_mapping[self.env_id]
 
         # If obs is unbatched [39], task_idx must be a scalar []

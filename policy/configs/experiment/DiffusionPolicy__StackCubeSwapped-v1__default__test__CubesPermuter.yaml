@@ -9,7 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
-        _target_: policy.utils.adapters.CubesPermuter
+        _target_: policy.adapters.CubesPermuter
         swap_env_indices: "odd"
 
       env_id: "StackCubeSwapped-v1"
