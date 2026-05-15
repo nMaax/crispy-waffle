@@ -42,7 +42,7 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = self.pnp_canonicalizer.apply(obs)
+        obs = self.pnp_canonicalizer(obs)
 
         # If obs is unbatched [39], task_idx must be a scalar []
         # If obs is batched [B, 39], task_idx must be [B]
@@ -54,19 +54,19 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
             )
 
         with torch.no_grad():
-            model_predicted_swaps = self.model(obs, task_idx)
+            prediction = self.model(obs, task_idx)
 
-        swapped = torch.zeros(
-            (*obs.shape[:-1], model_predicted_swaps.shape[-1]), dtype=obs.dtype, device=obs.device
+        result = torch.zeros(
+            (*obs.shape[:-1], prediction.shape[-1]), dtype=obs.dtype, device=obs.device
         )
 
         if self.passthrough_mapping:
             for in_slice, out_slice in self.passthrough_mapping:
-                swapped[..., out_slice] = model_predicted_swaps[..., in_slice]
+                result[..., out_slice] = prediction[..., in_slice]
         else:
-            swapped = model_predicted_swaps
+            result = prediction
 
-        return swapped
+        return result
 
     def _apply_to_dict(self, obs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError("LearnedMLPAdapter does not support dict observations yet.")

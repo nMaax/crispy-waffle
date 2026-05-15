@@ -14,6 +14,11 @@ from policy.utils.typing_utils import HydraConfigFor
 
 
 class StateTranslator(L.LightningModule):
+    """Trains a neural network to map states from one domain to another.
+
+    The loss can be masked to only consider a subset of the output dimensions.
+    """
+
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],

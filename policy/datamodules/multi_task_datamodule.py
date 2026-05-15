@@ -8,6 +8,9 @@ from policy.datasets import TaskConditionedDataset
 
 
 class MultiTaskDataModule(L.LightningDataModule):
+    """Provides task-conditioned (source, target) state batches from multiple environments to train
+    multi-task state translators."""
+
     def __init__(
         self,
         task_configs: dict[str, dict[str, Any]],

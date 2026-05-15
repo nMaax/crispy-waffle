@@ -15,7 +15,9 @@ from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor
 
 
 class DiffusionPolicy(L.LightningModule, PolicyProtocol):
-    """Diffusion Policy as in Cheng et. al (IJRR)
+    """Trains a conditional diffusion model to predict action sequences from observation histories.
+
+    Diffusion Policy as in Cheng et. al (IJRR)
 
     Reference:
         - Arxiv: https://arxiv.org/abs/2303.04137v4
@@ -181,6 +183,11 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.configure_model()
         if self.ema is not None and "ema_state_dict" in checkpoint:
             self.ema.load_state_dict(checkpoint["ema_state_dict"])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "DiffusionPolicy does not support direct forward pass. Use get_action() instead."
+        )
 
     def get_action(
         self,

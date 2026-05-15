@@ -2,7 +2,10 @@ from torch.utils.data import Dataset
 
 
 class DummyDataset(Dataset):
-    """A minimal dataset to trigger Lightning loops for simulation-only phases."""
+    """A minimal dataset that returns nothing.
+
+    Used to trigger Lightning loops for simulation-only phases.
+    """
 
     def __len__(self):
         return 1

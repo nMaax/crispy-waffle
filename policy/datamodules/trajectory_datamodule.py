@@ -12,8 +12,8 @@ from policy.datasets import DummyDataset, TrajectoryDataset
 
 
 class TrajectoryDataModule(L.LightningDataModule):
-    """DataModule for loading ManiSkill trajectories from HDF5 files, with train/val splitting and
-    lazy loading support."""
+    """Handles the batching and distributed loading of raw trajectory ManiSkill demonstrations from
+    HDF5 files."""
 
     def __init__(
         self,

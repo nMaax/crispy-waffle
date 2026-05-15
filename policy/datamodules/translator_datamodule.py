@@ -10,6 +10,8 @@ from .trajectory_datamodule import TrajectoryDataModule
 
 
 class TranslatorDataModule(L.LightningDataModule):
+    """Provides paired (source, target) state batches to train state translators."""
+
     def __init__(
         self,
         base_datamodule: TrajectoryDataModule,
@@ -18,11 +20,6 @@ class TranslatorDataModule(L.LightningDataModule):
         num_workers: int = 4,
         pin_memory: bool = True,
     ):
-        """
-        Args:
-            base_datamodule: An instantiated ManiSkillDataModule.
-            adapter: An instantiated deterministic adapter class.
-        """
         super().__init__()
         self.base_datamodule = base_datamodule
         self.adapter = adapter

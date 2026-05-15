@@ -14,13 +14,17 @@ from policy.utils.typing_utils import HydraConfigFor
 
 
 class MultiTaskStateTranslator(L.LightningModule):
+    """Trains a neural network to map states from one domain to another, across multiple tasks.
+
+    The neural network is instructed on how to generate output states by a task index.
+    """
+
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         task_mapping: dict[str, int],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
-        loss_mask_slices: list[str | int] | None = None,
     ):
         super().__init__()
 
@@ -38,7 +42,6 @@ class MultiTaskStateTranslator(L.LightningModule):
         self.x_normalizer = TensorNormalizer(network.input_dim)
         self.y_normalizer = TensorNormalizer(network.output_dim)
 
-        self.loss_mask_slices = loss_mask_slices
         self.task_mapping = task_mapping
 
     def setup(self, stage: str) -> None:
@@ -110,10 +113,6 @@ class MultiTaskStateTranslator(L.LightningModule):
 
         y_norm_hat = self.network(x_norm, task_idx)
 
-        if getattr(self, "loss_mask", None) is not None:
-            y_norm_hat = y_norm_hat[..., self.loss_mask]
-            y_norm = y_norm[..., self.loss_mask]
-
         return F.mse_loss(y_norm_hat, y_norm)
 
     def _parse_loss_mask(self) -> None:
@@ -146,7 +145,7 @@ class MultiTaskStateTranslator(L.LightningModule):
                     x_ep = torch.from_numpy(traj["obs"])
 
                 with torch.no_grad():
-                    canonical_x = task_dataset.pnp_canonicalizer.apply(x_ep)
+                    canonical_x = task_dataset.pnp_canonicalizer(x_ep)
                     target_y = task_dataset.base_translator_dataset.adapter.apply(x_ep)
 
                 all_x.append(canonical_x)

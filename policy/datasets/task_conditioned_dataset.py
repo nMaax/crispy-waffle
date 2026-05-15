@@ -9,8 +9,8 @@ from .translator_dataset import TranslatorDataset
 
 
 class TaskConditionedDataset(Dataset):
-    """Wraps an existing TranslatorDataset to enforce a canonical input shape for pick-and-place
-    tasks and attach an integer task ID."""
+    """Wraps a translator dataset to apply canonical formatting and inject an integer task ID for
+    multi-task networks."""
 
     def __init__(self, base_translator_dataset: TranslatorDataset, env_id: str, task_idx: int):
         self.base_translator_dataset = base_translator_dataset
@@ -26,6 +26,6 @@ class TaskConditionedDataset(Dataset):
         x, y = self.base_translator_dataset[idx]
 
         with torch.no_grad():
-            canonical_x = self.pnp_canonicalizer.apply(x)
+            canonical_x = self.pnp_canonicalizer(x)
 
         return canonical_x, y, self.task_idx

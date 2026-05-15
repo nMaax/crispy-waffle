@@ -10,6 +10,9 @@ from .trajectory_dataset import TrajectoryDataset
 
 
 class TranslatorDataset(Dataset):
+    """Generates training pairs by converting raw environment observations into a target domain
+    using a specified adapter."""
+
     def __init__(
         self, base_dataset: TrajectoryDataset, adapter: Callable[[torch.Tensor], torch.Tensor]
     ):
