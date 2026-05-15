@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from policy.algorithms.diffusion import DiffusionPolicy
+from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.utils import flatten_tensor_from_mapping, sum_shapes
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
