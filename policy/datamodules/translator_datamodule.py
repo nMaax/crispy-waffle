@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-import lightning.pytorch as pl
+import lightning.pytorch as L
 import torch
 from torch.utils.data import DataLoader
 
@@ -9,7 +9,7 @@ from policy.datasets import ManiSkillDataset, TranslatorDataset
 from .maniskill_datamodule import ManiSkillDataModule
 
 
-class TranslatorDataModule(pl.LightningDataModule):
+class TranslatorDataModule(L.LightningDataModule):
     def __init__(
         self,
         base_datamodule: ManiSkillDataModule,

@@ -72,7 +72,7 @@ from typing import Any, Literal, TypeVar
 
 import hydra.errors
 import lightning
-import lightning.pytorch as pl
+import lightning.pytorch as L
 import pytest
 import torch
 from _pytest.outcomes import Skipped, XFailed
@@ -312,7 +312,7 @@ def algorithm(
 @pytest.fixture(scope="function")
 def trainer(
     config: Config,
-) -> pl.Trainer:
+) -> L.Trainer:
     setup_logging(log_level=config.log_level)
     # put here to copy what's done in main.py
     lightning.seed_everything(config.seed, workers=True)
