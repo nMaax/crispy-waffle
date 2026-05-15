@@ -18,9 +18,9 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from rich.progress import Progress
 from tqdm import tqdm
 
-import policy.algorithms.environments  # noqa: F401
+import policy.environments  # noqa: F401
+from policy.adapters import NoOpAdapter
 from policy.utils import flatten_tensor_from_mapping, to_tensor
-from policy.utils.adapters import NoOpAdapter
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this

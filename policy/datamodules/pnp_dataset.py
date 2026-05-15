@@ -3,8 +3,8 @@ from typing import Any
 import torch
 from torch.utils.data import Dataset
 
+from policy.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
 from policy.datamodules.translator_dataset import TranslatorDataset
-from policy.utils.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
 
 
 class PnPDataset(Dataset):

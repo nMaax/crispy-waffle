@@ -2,9 +2,9 @@ from collections.abc import Sequence
 
 import torch
 
+from policy.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
+from policy.adapters.learned_mlp_adapter import LearnedMLPAdapter
 from policy.algorithms.state_translator import StateTranslator
-from policy.utils.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
-from policy.utils.adapters.learned_mlp_adapter import LearnedMLPAdapter
 
 
 class PnPLearnedMLPAdapter(LearnedMLPAdapter):

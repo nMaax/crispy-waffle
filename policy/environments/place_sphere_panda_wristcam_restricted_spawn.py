@@ -4,7 +4,7 @@ import torch
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.structs.pose import Pose
 
-from policy.algorithms.environments import PlaceSphereWristcamEnv
+from policy.environments import PlaceSphereWristcamEnv
 
 
 @register_env("PlaceSphereWristcamRestrictedSpawnEnv-v1", max_episode_steps=50)
