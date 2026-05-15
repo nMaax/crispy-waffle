@@ -3,7 +3,7 @@ batch_size: 256
 num_workers: 4
 
 base_datamodule:
-  _target_: policy.datamodules.maniskill_datamodule.ManiSkillDataModule
+  _target_: policy.datamodules.trajectory_datamodule.TrajectoryDataModule
   dataset_file: ???
   seed: ${seed}
 

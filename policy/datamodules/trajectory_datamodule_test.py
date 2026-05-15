@@ -8,12 +8,12 @@ import pytest
 from torch.utils.data import DataLoader
 
 from policy.datamodules.datamodule_tests import DataModuleTests
-from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
-from policy.datasets import DummyDataset, ManiSkillDataset
+from policy.datamodules.trajectory_datamodule import TrajectoryDataModule
+from policy.datasets import DummyDataset, TrajectoryDataset
 
 
-@pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
-class TestManiSkillDataModule(DataModuleTests[ManiSkillDataModule]):
+@pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)
+class TestManiSkillDataModule(DataModuleTests[TrajectoryDataModule]):
     """Test suite for the ManiSkillDataModule."""
 
 
@@ -31,7 +31,7 @@ def datamodule_factory(tmp_path: Path):
         val_split: float = 0.2,
         seed: int = 42,
         **kwargs,
-    ) -> ManiSkillDataModule:
+    ) -> TrajectoryDataModule:
         json_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.json"
         h5_path = tmp_path / f"dummy_dataset_{obs_mode}_{control_mode}.h5"
 
@@ -67,7 +67,7 @@ def datamodule_factory(tmp_path: Path):
                     "env_states", data=np.ones((episode_length, env_state_dim), dtype=np.float32)
                 )
 
-        return ManiSkillDataModule(
+        return TrajectoryDataModule(
             dataset_file=h5_path,
             val_split=val_split,
             seed=seed,
@@ -86,8 +86,8 @@ class TestManiSkillDataModuleLogic:
         dm = datamodule_factory(num_episodes=10, val_split=0.2)
         dm.setup()
 
-        assert isinstance(dm.train_set, ManiSkillDataset)
-        assert isinstance(dm.val_set, ManiSkillDataset)
+        assert isinstance(dm.train_set, TrajectoryDataset)
+        assert isinstance(dm.val_set, TrajectoryDataset)
 
         # Check episode distribution (not temporal windows, but source episodes)
         assert len(dm.train_set.episodes) == 8
@@ -114,7 +114,7 @@ class TestManiSkillDataModuleLogic:
         # Different seed should shuffle differently
         assert get_episode_ids(dm_1.train_set) != get_episode_ids(dm_diff.train_set)
 
-    @patch("policy.datamodules.maniskill_datamodule.rank_zero_warn")
+    @patch("policy.datamodules.trajectory_datamodule.rank_zero_warn")
     def test_json_metadata_parsing(self, mock_warn, datamodule_factory):
         """Tests parsing logic for physx backends and observation modes."""
 
@@ -125,7 +125,7 @@ class TestManiSkillDataModuleLogic:
             "Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'."
         )
 
-    @patch("policy.datamodules.maniskill_datamodule.rank_zero_warn")
+    @patch("policy.datamodules.trajectory_datamodule.rank_zero_warn")
     def test_infer_padding_masks_absolute_mode(self, mock_warn, datamodule_factory):
         """Absolute modes should default to None (edge padding) and warn if overridden."""
         dm_abs = datamodule_factory(

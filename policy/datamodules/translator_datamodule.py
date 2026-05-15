@@ -4,15 +4,15 @@ import lightning.pytorch as L
 import torch
 from torch.utils.data import DataLoader
 
-from policy.datasets import ManiSkillDataset, TranslatorDataset
+from policy.datasets import TrajectoryDataset, TranslatorDataset
 
-from .maniskill_datamodule import ManiSkillDataModule
+from .trajectory_datamodule import TrajectoryDataModule
 
 
 class TranslatorDataModule(L.LightningDataModule):
     def __init__(
         self,
-        base_datamodule: ManiSkillDataModule,
+        base_datamodule: TrajectoryDataModule,
         adapter: Callable[[torch.Tensor], torch.Tensor],
         batch_size: int = 256,
         num_workers: int = 4,
@@ -38,14 +38,14 @@ class TranslatorDataModule(L.LightningDataModule):
 
         if stage == "fit" or stage is None:
             train_set = self.base_datamodule.train_set
-            if not isinstance(train_set, ManiSkillDataset):
+            if not isinstance(train_set, TrajectoryDataset):
                 raise ValueError(
                     f"Expected base_datamodule.train_set to be a ManiSkillDataset, but got {type(train_set)}"
                 )
             self.train_set = TranslatorDataset(base_dataset=train_set, adapter=self.adapter)
 
             val_set = self.base_datamodule.val_set
-            if not isinstance(val_set, ManiSkillDataset):
+            if not isinstance(val_set, TrajectoryDataset):
                 raise ValueError(
                     f"Expected base_datamodule.val_set to be a ManiSkillDataset, but got {type(val_set)}"
                 )
@@ -53,7 +53,7 @@ class TranslatorDataModule(L.LightningDataModule):
 
         if stage == "test" or stage is None:
             test_set = self.base_datamodule.test_set
-            if not isinstance(test_set, ManiSkillDataset):
+            if not isinstance(test_set, TrajectoryDataset):
                 raise ValueError(
                     f"Expected base_datamodule.test_set to be a ManiSkillDataset, but got {type(test_set)}"
                 )

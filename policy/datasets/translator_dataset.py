@@ -6,12 +6,12 @@ from torch.utils.data import Dataset
 
 from policy.utils.typing_utils import AdapterProtocol
 
-from .maniskill_dataset import ManiSkillDataset
+from .trajectory_dataset import TrajectoryDataset
 
 
 class TranslatorDataset(Dataset):
     def __init__(
-        self, base_dataset: ManiSkillDataset, adapter: Callable[[torch.Tensor], torch.Tensor]
+        self, base_dataset: TrajectoryDataset, adapter: Callable[[torch.Tensor], torch.Tensor]
     ):
         if not isinstance(adapter, AdapterProtocol):
             raise ValueError(

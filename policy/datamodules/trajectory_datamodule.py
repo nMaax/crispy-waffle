@@ -8,10 +8,10 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
-from policy.datasets import DummyDataset, ManiSkillDataset
+from policy.datasets import DummyDataset, TrajectoryDataset
 
 
-class ManiSkillDataModule(L.LightningDataModule):
+class TrajectoryDataModule(L.LightningDataModule):
     """DataModule for loading ManiSkill trajectories from HDF5 files, with train/val splitting and
     lazy loading support."""
 
@@ -96,7 +96,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             if stage == "fit" or stage is None:
                 if self.train_set is None:
                     rank_zero_info(f"{len(train_episodes)} training episodes.")
-                    self.train_set = ManiSkillDataset(
+                    self.train_set = TrajectoryDataset(
                         dataset_file=self.dataset_file,
                         obs_horizon=self.obs_horizon,
                         pred_horizon=self.pred_horizon,
@@ -114,7 +114,7 @@ class ManiSkillDataModule(L.LightningDataModule):
 
             if self.val_set is None:
                 rank_zero_info(f"{len(val_episodes)} validation episodes.")
-                self.val_set = ManiSkillDataset(
+                self.val_set = TrajectoryDataset(
                     dataset_file=self.dataset_file,
                     obs_horizon=self.obs_horizon,
                     pred_horizon=self.pred_horizon,

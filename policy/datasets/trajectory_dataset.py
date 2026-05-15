@@ -13,7 +13,7 @@ from policy.utils import print_dict_tree, to_tensor
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
 
 
-class ManiSkillDataset(Dataset):
+class TrajectoryDataset(Dataset):
     """Dataset for loading ManiSkill trajectories from HDF5 files."""
 
     def __init__(

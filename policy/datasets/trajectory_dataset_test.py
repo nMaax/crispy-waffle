@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 import torch
 
-from .maniskill_dataset import ManiSkillDataset
+from .trajectory_dataset import TrajectoryDataset
 
 
 @pytest.fixture
-def dummy_maniskill_data(tmp_path: Path) -> Path:
+def dummy_trajectory_data(tmp_path: Path) -> Path:
     """Creates a temporary, minimal HDF5/JSON dataset to reliably test dataset logic without
     requiring actual downloaded ManiSkill data."""
     json_path = tmp_path / "dummy_dataset.json"
@@ -71,7 +71,7 @@ class TestManiSkillDataset:
         bad_extension.touch()
 
         with pytest.raises(ValueError, match="Invalid file extension"):
-            ManiSkillDataset(
+            TrajectoryDataset(
                 dataset_file=bad_extension,
                 obs_horizon=2,
                 pred_horizon=4,
@@ -79,18 +79,18 @@ class TestManiSkillDataset:
 
         missing_file = tmp_path / "missing.h5"
         with pytest.raises(FileNotFoundError, match="not found"):
-            ManiSkillDataset(
+            TrajectoryDataset(
                 dataset_file=missing_file,
                 obs_horizon=2,
                 pred_horizon=4,
             )
 
-    def test_filtering_and_loading(self, dummy_maniskill_data: Path):
+    def test_filtering_and_loading(self, dummy_trajectory_data: Path):
         """Tests that success_only and load_count correctly filter the JSON episodes."""
 
         # Test success_only
-        dataset_success = ManiSkillDataset(
-            dataset_file=dummy_maniskill_data,
+        dataset_success = TrajectoryDataset(
+            dataset_file=dummy_trajectory_data,
             obs_horizon=2,
             pred_horizon=4,
             success_only=True,
@@ -101,8 +101,8 @@ class TestManiSkillDataset:
         assert len(dataset_success) == 10  # 10 windows for length 10
 
         # Test load_count
-        dataset_count = ManiSkillDataset(
-            dummy_maniskill_data,
+        dataset_count = TrajectoryDataset(
+            dummy_trajectory_data,
             obs_horizon=2,
             pred_horizon=4,
             load_count=1,
@@ -111,16 +111,16 @@ class TestManiSkillDataset:
         assert len(dataset_count.trajectories) == 1
         assert dataset_count.trajectories[0]["episode_id"] == 0
 
-    def test_lazy_vs_eager_parity(self, dummy_maniskill_data: Path):
+    def test_lazy_vs_eager_parity(self, dummy_trajectory_data: Path):
         """Ensures lazy=True and lazy=False return the exact same tensors and structure."""
         kwargs = dict(
-            dataset_file=dummy_maniskill_data,
+            dataset_file=dummy_trajectory_data,
             obs_horizon=2,
             pred_horizon=4,
         )
 
-        dataset_eager = ManiSkillDataset(**kwargs, lazy=False)  # type: ignore
-        dataset_lazy = ManiSkillDataset(**kwargs, lazy=True)  # type: ignore
+        dataset_eager = TrajectoryDataset(**kwargs, lazy=False)  # type: ignore
+        dataset_lazy = TrajectoryDataset(**kwargs, lazy=True)  # type: ignore
 
         assert len(dataset_eager) == len(dataset_lazy)
 
@@ -143,13 +143,13 @@ class TestManiSkillDataset:
             check_tensors_match(eager_item["obs_seq"], lazy_item["obs_seq"])
             check_tensors_match(eager_item["act_seq"], lazy_item["act_seq"])
 
-    def test_temporal_windowing(self, dummy_maniskill_data: Path):
+    def test_temporal_windowing(self, dummy_trajectory_data: Path):
         """Tests if _compute_trajectory_slices generates the right temporal boundaries."""
         obs_horizon = 2
         pred_horizon = 4
 
-        dataset = ManiSkillDataset(
-            dataset_file=dummy_maniskill_data,
+        dataset = TrajectoryDataset(
+            dataset_file=dummy_trajectory_data,
             obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
             success_only=True,  # Episode 0, length 10
@@ -170,10 +170,10 @@ class TestManiSkillDataset:
         assert obs_end == 10  # 9 + 1
         assert act_start == obs_start
 
-    def test_slice_and_pad(self, dummy_maniskill_data: Path):
+    def test_slice_and_pad(self, dummy_trajectory_data: Path):
         """Tests the padding logic applied to HDF5 sequences directly."""
-        dataset = ManiSkillDataset(
-            dataset_file=dummy_maniskill_data,
+        dataset = TrajectoryDataset(
+            dataset_file=dummy_trajectory_data,
             obs_horizon=2,
             pred_horizon=4,
             # Let's say actions have 2 dims: pad first with 0s, second with edge
@@ -227,7 +227,7 @@ class TestManiSkillDataset:
             else:
                 pytest.skip(f"Real dataset not found at {real_file}. Skipping integration test.")
 
-        dataset = ManiSkillDataset(
+        dataset = TrajectoryDataset(
             dataset_file=real_file,
             obs_horizon=2,
             pred_horizon=16,
