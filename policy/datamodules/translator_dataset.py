@@ -8,7 +8,7 @@ from policy.datamodules.maniskill_dataset import ManiSkillDataset
 from policy.utils.typing_utils import AdapterProtocol
 
 
-class AdapterDataset(Dataset):
+class TranslatorDataset(Dataset):
     def __init__(
         self, base_dataset: ManiSkillDataset, adapter: Callable[[torch.Tensor], torch.Tensor]
     ):

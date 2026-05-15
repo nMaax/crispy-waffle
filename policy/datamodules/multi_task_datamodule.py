@@ -4,10 +4,10 @@ import hydra_zen
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from policy.datamodules.pnp_adapter_dataset import PnpAdapterDataset
+from policy.datamodules.pnp_dataset import PnPDataset
 
 
-class MultiTaskAdapterDataModule(L.LightningDataModule):
+class MultiTaskDataModule(L.LightningDataModule):
     def __init__(
         self,
         task_configs: dict[str, dict[str, Any]],
@@ -40,8 +40,8 @@ class MultiTaskAdapterDataModule(L.LightningDataModule):
                 train_set = task_dm.train_set
                 val_set = task_dm.val_set
 
-                train_datasets.append(PnpAdapterDataset(train_set, env_id, task_idx))
-                val_datasets.append(PnpAdapterDataset(val_set, env_id, task_idx))
+                train_datasets.append(PnPDataset(train_set, env_id, task_idx))
+                val_datasets.append(PnPDataset(val_set, env_id, task_idx))
 
         if stage == "fit" or stage is None:
             self.train_set = ConcatDataset(train_datasets)

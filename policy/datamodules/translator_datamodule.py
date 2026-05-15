@@ -4,12 +4,12 @@ import lightning.pytorch as pl
 import torch
 from torch.utils.data import DataLoader
 
-from policy.datamodules.adapter_dataset import AdapterDataset
 from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
 from policy.datamodules.maniskill_dataset import ManiSkillDataset
+from policy.datamodules.translator_dataset import TranslatorDataset
 
 
-class AdapterDataModule(pl.LightningDataModule):
+class TranslatorDataModule(pl.LightningDataModule):
     def __init__(
         self,
         base_datamodule: ManiSkillDataModule,
@@ -42,14 +42,14 @@ class AdapterDataModule(pl.LightningDataModule):
                 raise ValueError(
                     f"Expected base_datamodule.train_set to be a ManiSkillDataset, but got {type(train_set)}"
                 )
-            self.train_set = AdapterDataset(base_dataset=train_set, adapter=self.adapter)
+            self.train_set = TranslatorDataset(base_dataset=train_set, adapter=self.adapter)
 
             val_set = self.base_datamodule.val_set
             if not isinstance(val_set, ManiSkillDataset):
                 raise ValueError(
                     f"Expected base_datamodule.val_set to be a ManiSkillDataset, but got {type(val_set)}"
                 )
-            self.val_set = AdapterDataset(base_dataset=val_set, adapter=self.adapter)
+            self.val_set = TranslatorDataset(base_dataset=val_set, adapter=self.adapter)
 
         if stage == "test" or stage is None:
             test_set = self.base_datamodule.test_set
@@ -57,7 +57,7 @@ class AdapterDataModule(pl.LightningDataModule):
                 raise ValueError(
                     f"Expected base_datamodule.test_set to be a ManiSkillDataset, but got {type(test_set)}"
                 )
-            self.test_dataset = AdapterDataset(base_dataset=test_set, adapter=self.adapter)
+            self.test_dataset = TranslatorDataset(base_dataset=test_set, adapter=self.adapter)
 
     def train_dataloader(self):
         return DataLoader(

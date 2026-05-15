@@ -1,5 +1,5 @@
 defaults:
-  - adapter_datamodule
+  - translator_datamodule
 
 base_datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceSphereWristcam-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5

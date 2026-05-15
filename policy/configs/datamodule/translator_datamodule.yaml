@@ -1,4 +1,4 @@
-_target_: policy.datamodules.adapter_datamodule.AdapterDataModule
+_target_: policy.datamodules.translator_datamodule.TranslatorDataModule
 batch_size: 256
 num_workers: 4
 pin_memory: true
