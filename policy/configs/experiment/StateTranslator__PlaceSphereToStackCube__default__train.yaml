@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - override /algorithm: state_translator
-  - override /datamodule: translator_datamodule_place_sphere_to_stack_cube
+  - override /datamodule: translator_datamodule_place_sphere_to_stack_cube_adapter
   - override /trainer: default
 
 name: ${hydra:runtime.choices.experiment}

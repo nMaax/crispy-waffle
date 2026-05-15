@@ -9,7 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
-        _target_: policy.adapters.place_sphere_to_stack_cube.PlaceSphereToStackCubeAdapter
+        _target_: policy.adapters.place_sphere_to_stack_cube_adapter.PlaceSphereToStackCubeAdapter
 
       env_id: "PlaceSphereWristcam-v1"
       obs_mode: "state"

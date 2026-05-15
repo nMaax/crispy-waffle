@@ -9,7 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
-        _target_: policy.adapters.stack_cube_swapped_to_stack_cube.StackCubeSwappedToStackCubeAdapter
+        _target_: policy.adapters.stack_cube_swapped_to_stack_cube_adapter.StackCubeSwappedToStackCubeAdapter
         swap_env_indices: "odd"
 
       env_id: "StackCubeSwapped-v1"
