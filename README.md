@@ -128,3 +128,35 @@ uv run python -m mani_skill.examples.motionplanning.panda.run -e "PlaceSphere-v1
 ```
 
 Keep this patched ManiSkill clone strictly for data generation. Once your trajectories are generated in the `demos/` folder, simply copy the `.h5` and `.json` files to your main project. Your main project can then use the latest versions of NumPy and ManiSkill without `mplib` installed, as the motion planning logic is only required during the initial offline data collection phase.
+
+---
+
+## Debugging and quick runs
+
+  1. trainer=debug
+  Ideal for a "smoke test" to ensure your code runs without crashing before starting a long training session.
+   - Action: Runs exactly 1 training and 1 validation batch (fast_dev_run: true).
+   -  Disables checkpointing and enables detect_anomaly: true to help catch NaNs or gradients issues.
+
+  2. trainer=overfit_one_batch
+  Useful for verifying that your model is actually capable of learning (i.e., it can memorize a single batch).
+   - Trains on only 1 batch for up to 50 epochs (overfit_batches: 1).
+   - You should see the loss drop almost to zero quickly. If it doesn't, there's likely a bug in your architecture or loss function.
+
+  3. trainer=cpu
+  Forces training on the CPU, which is occasionally useful for debugging CUDA-specific errors.
+
+  4. Direct CLI Overrides
+  Since it's just a standard Lightning Trainer, you can also pass any Lightning Trainer flag (https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-flags) directly from the command line:
+
+   - Quick check: trainer.fast_dev_run=true (what I used earlier).
+   - Limit data: trainer.limit_train_batches=10 (only use 10 batches per epoch).
+   - Precision: trainer.precision=16-mixed (use half-precision).
+   - Deterministic: trainer.deterministic=true (for reproducibility).
+
+| Profile | Command Override | Use Case |
+| :--- | :--- | :--- |
+| Debug | `trainer=debug` | Quick crash test (1 batch). |
+| Overfit | `trainer=overfit_one_batch` | Check if the model is learning anything. |
+| CPU | `trainer=cpu` | Run without a GPU. |
+| Custom | `trainer.fast_dev_run=5` | Run exactly 5 batches of everything. |
