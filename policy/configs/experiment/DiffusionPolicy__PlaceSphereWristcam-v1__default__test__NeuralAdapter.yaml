@@ -9,7 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
-        _target_: policy.adapters.learned_mlp_adapter.LearnedMLPAdapter
+        _target_: policy.adapters.neural_adapter.NeuralAdapter
         ckpt_path: ??? # ${oc.env:HOME}/Work/crispy-waffle/logs/MLPAdapter__PlaceSphereToStackCube__default__train/runs/2026-05-14/15-15-35/checkpoints/last.ckpt
 
       env_id: "PlaceSphereWristcam-v1"

@@ -9,7 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
-        _target_: policy.adapters.learned_mlp_adapter.LearnedMLPAdapter
+        _target_: policy.adapters.neural_adapter.NeuralAdapter
         ckpt_path: ???
 
       env_id: "StackCubeSwapped-v1"
