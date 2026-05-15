@@ -14,8 +14,8 @@ class TaskConditionedDataset(Dataset):
 
     def __init__(self, base_translator_dataset: TranslatorDataset, env_id: str, task_idx: int):
         self.base_translator_dataset = base_translator_dataset
-        self.task_idx = task_idx
         self.pnp_canonicalizer = PnPCanonicalizer(env_id)
+        self.task_idx = task_idx
 
     def __len__(self) -> int:
         return len(self.base_translator_dataset)

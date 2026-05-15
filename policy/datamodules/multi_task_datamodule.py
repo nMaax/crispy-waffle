@@ -4,7 +4,7 @@ import hydra_zen
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from .pnp_dataset import TaskConditionedDataset
+from .task_conditioned_dataset import TaskConditionedDataset
 
 
 class MultiTaskDataModule(L.LightningDataModule):
@@ -22,7 +22,7 @@ class MultiTaskDataModule(L.LightningDataModule):
         # Dynamically assign an integer ID to each environment (e.g. "PlaceSphere-v1" -> 0)
         self.env_to_idx = {env_id: idx for idx, env_id in enumerate(task_configs.keys())}
 
-        # Instantiate the underlying Maniskill DataModules
+        # Instantiate the underlying DataModules
         self.task_dms = {}
         for env_id, cfg in task_configs.items():
             self.task_dms[env_id] = hydra_zen.instantiate(cfg)
