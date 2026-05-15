@@ -10,7 +10,7 @@ algorithm:
   network:
     input_dim: 39 # proprio + tcp pose + A pose + B pose
     output_dim: 48
-    num_tasks: 2
+    num_tasks: 2 # TODO: should be fetched from the datamodule?
 
 trainer:
   max_steps: 25000

@@ -2,17 +2,18 @@ import torch
 import torch.nn as nn
 
 
-class ConditionedMLP(nn.Module):
+class TaskConditionedMLP(nn.Module):
     def __init__(
         self,
         input_dim: int,  # e.g., 39 (from CanonicalPnPAdapter: 18 + 7 + 7 + 7)
         output_dim: int,  # e.g., 48 (StackCube-v1 format)
         num_tasks: int,  # Number of unique envs/tasks
         embed_dim: int = 16,  # Size of the task embedding
-        hidden_dims: list[int] = [256, 256, 256],
+        hidden_dims: list[int] = [256, 256],
     ):
         super().__init__()
 
+        # TODO: Maybe rename variables to be just "conditioning" instead of "task conditioning" since it can be used for other types of conditioning as well
         self.task_embedding = nn.Embedding(num_tasks, embed_dim)
 
         layers = []

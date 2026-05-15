@@ -1,6 +1,0 @@
-_target_: policy.algorithms.networks.conditioned_mlp.ConditionedMLP
-input_dim: ???
-output_dim: ???
-num_tasks: ???
-embed_dim: 16
-hidden_dims: [256, 256, 256]

@@ -2,7 +2,7 @@ _target_: policy.algorithms.conditioned_mlp_adapter.ConditionedMLPAdapter
 _recursive_: false
 
 defaults:
-  - network: conditioned_mlp
+  - network: task_conditioned_mlp
   - optimizer: Adam
   - lr_scheduler: null
 
