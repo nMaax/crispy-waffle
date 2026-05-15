@@ -144,6 +144,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
+            persistent_workers=self.num_workers > 0,
             pin_memory=True,
         )
 
@@ -157,6 +158,7 @@ class ManiSkillDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
+            persistent_workers=self.num_workers > 0,
             pin_memory=True,
         )
 
