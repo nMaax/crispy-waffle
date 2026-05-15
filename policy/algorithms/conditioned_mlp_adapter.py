@@ -37,13 +37,13 @@ class ConditionedMLPAdapter(MLPAdapter):
 
         all_x, all_y = [], []
 
-        for task_dataset in dm.train_dataset.datasets:
-            base_set = task_dataset.base_adapter_dataset.base_dataset
+        for task_dataset in dm.train_set.datasets:
+            base_dataset = task_dataset.base_adapter_dataset.base_dataset
 
-            for traj in base_set.trajectories:
-                if base_set.lazy:
+            for traj in base_dataset.trajectories:
+                if base_dataset.lazy:
                     ep_id = traj["episode_id"]
-                    h5_traj = base_set.h5_file[f"traj_{ep_id}"]
+                    h5_traj = base_dataset.h5_file[f"traj_{ep_id}"]
                     x_ep = torch.from_numpy(h5_traj["obs"][:])
                 else:
                     x_ep = torch.from_numpy(traj["obs"])

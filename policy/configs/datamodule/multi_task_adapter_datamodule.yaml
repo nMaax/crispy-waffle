@@ -1,5 +1,8 @@
+defaults:
+  - /datamodule@task_configs.PlaceSphere-v1: adapter_datamodule_place_sphere_to_stack_cube
+  - /datamodule@task_configs.StackCubeSwapped-v1: adapter_datamodule_stack_cube_swapped
+
 _target_: policy.datamodules.multi_task_adapter_datamodule.MultiTaskAdapterDataModule
+_recursive_: false
 batch_size: 256
 num_workers: 8
-
-task_configs: ???

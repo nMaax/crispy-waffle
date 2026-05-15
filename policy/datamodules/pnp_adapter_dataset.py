@@ -8,8 +8,8 @@ from policy.utils.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
 
 
 class PnpAdapterDataset(Dataset):
-    """Wraps an existing AdapterDataset to enforce a canonical input shape (X) and attach an
-    integer task ID."""
+    """Wraps an existing AdapterDataset to enforce a canonical input shape for pick-and-place tasks
+    and attach an integer task ID."""
 
     def __init__(self, base_adapter_dataset: AdapterDataset, env_id: str, task_idx: int):
         self.base_adapter_dataset = base_adapter_dataset

@@ -12,14 +12,6 @@ algorithm:
     output_dim: 48
     num_tasks: 2
 
-datamodule:
-  task_configs:
-    "PlaceSphere-v1":
-      base_datamodule: ${datamodule.adapter_datamodule_place_sphere_to_stack_cube}
-
-    "StackCubeSwapped-v1":
-      base_datamodule: ${datamodule.adapter_datamodule_stack_cube_swapped}
-
 trainer:
   max_steps: 25000
   val_check_interval: 500
