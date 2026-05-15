@@ -14,7 +14,6 @@ class NeuralAdapter(AdapterProtocol):
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
         self.model = StateTranslator.load_from_checkpoint(ckpt_path, strict=False)
-
         self.model.eval()
         self.model.freeze()
 
