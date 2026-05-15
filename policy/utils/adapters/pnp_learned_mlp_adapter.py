@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import torch
 
-from policy.algorithms.conditioned_mlp_adapter import ConditionedMLPAdapter
+from policy.algorithms.state_translator import StateTranslator
 from policy.utils.adapters.canonical_pnp_adapter import CanonicalPnPAdapter
 from policy.utils.adapters.learned_mlp_adapter import LearnedMLPAdapter
 
@@ -15,7 +15,7 @@ class PnPLearnedMLPAdapter(LearnedMLPAdapter):
         task_mapping: dict[str, int],
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
-        self.model = ConditionedMLPAdapter.load_from_checkpoint(ckpt_path, strict=False)
+        self.model = StateTranslator.load_from_checkpoint(ckpt_path, strict=False)
         self.model.eval()
         self.model.freeze()
         self.passthrough_mapping = passthrough_mapping

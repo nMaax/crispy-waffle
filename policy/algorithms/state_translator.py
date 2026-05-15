@@ -13,7 +13,7 @@ from policy.utils.normalizer import TensorNormalizer
 from policy.utils.typing_utils import HydraConfigFor
 
 
-class MLPAdapter(L.LightningModule):
+class StateTranslator(L.LightningModule):
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],

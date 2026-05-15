@@ -1,4 +1,4 @@
-_target_: policy.algorithms.conditioned_mlp_adapter.ConditionedMLPAdapter
+_target_: policy.algorithms.multitask_state_translator.MultiTaskStateTranslator
 _recursive_: false
 
 defaults:

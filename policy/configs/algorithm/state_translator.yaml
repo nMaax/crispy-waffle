@@ -1,4 +1,4 @@
-_target_: policy.algorithms.mlp_adapter.MLPAdapter
+_target_: policy.algorithms.state_translator.StateTranslator
 _recursive_: false
 
 defaults:

@@ -1,9 +1,9 @@
 import torch
 
-from policy.algorithms.mlp_adapter import MLPAdapter
+from policy.algorithms.networks.multitask_state_translator import StateTranslator
 
 
-class ConditionedMLPAdapter(MLPAdapter):
+class MultiTaskStateTranslator(StateTranslator):
     def forward(self, x: torch.Tensor, task_idx: torch.Tensor) -> torch.Tensor:
         if self.network is None:
             raise ValueError("Network is not configured.")

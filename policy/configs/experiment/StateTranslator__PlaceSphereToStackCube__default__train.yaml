@@ -1,14 +1,14 @@
 # @package _global_
 defaults:
-  - override /algorithm: linear_adapter
-  - override /datamodule: adapter_datamodule_stack_cube_swapped
+  - override /algorithm: state_translator
+  - override /datamodule: adapter_datamodule_place_sphere_to_stack_cube
   - override /trainer: default
 
 name: ${hydra:runtime.choices.experiment}
 
 algorithm:
   network:
-    input_dim: 48
+    input_dim: 39
     output_dim: 48
 
 trainer:
