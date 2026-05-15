@@ -20,7 +20,13 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
 
         self.task_name = task_name
 
-        task_mapping = self.model.task_mapping
+        if hasattr(self.model, "task_mapping"):
+            task_mapping = self.model.task_mapping
+        else:
+            task_mapping = getattr(self.model.hparams, "task_mapping", None)
+            if task_mapping is None:
+                raise ValueError("The loaded model does not have a task_mapping attribute.")
+
         self.task_idx = task_mapping[task_name]
 
         self.pnp_canonicalizer = PnPCanonicalizer(task_name)
