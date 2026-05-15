@@ -4,7 +4,7 @@ import hydra_zen
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from .task_conditioned_dataset import TaskConditionedDataset
+from policy.datasets import TaskConditionedDataset
 
 
 class MultiTaskDataModule(L.LightningDataModule):

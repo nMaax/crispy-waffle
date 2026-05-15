@@ -4,9 +4,9 @@ import lightning.pytorch as pl
 import torch
 from torch.utils.data import DataLoader
 
+from policy.datasets import ManiSkillDataset, TranslatorDataset
+
 from .maniskill_datamodule import ManiSkillDataModule
-from .maniskill_dataset import ManiSkillDataset
-from .translator_dataset import TranslatorDataset
 
 
 class TranslatorDataModule(pl.LightningDataModule):

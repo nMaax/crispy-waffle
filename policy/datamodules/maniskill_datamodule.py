@@ -8,8 +8,7 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
-from .dummy_dataset import DummyDataset
-from .maniskill_dataset import ManiSkillDataset
+from policy.datasets import DummyDataset, ManiSkillDataset
 
 
 class ManiSkillDataModule(L.LightningDataModule):

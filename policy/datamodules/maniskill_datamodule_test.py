@@ -8,8 +8,8 @@ import pytest
 from torch.utils.data import DataLoader
 
 from policy.datamodules.datamodule_tests import DataModuleTests
-from policy.datamodules.maniskill_datamodule import DummyDataset, ManiSkillDataModule
-from policy.datamodules.maniskill_dataset import ManiSkillDataset
+from policy.datamodules.maniskill_datamodule import ManiSkillDataModule
+from policy.datasets import DummyDataset, ManiSkillDataset
 
 
 @pytest.mark.parametrize("datamodule_config", ["maniskill_datamodule"], indirect=True)
