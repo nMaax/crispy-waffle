@@ -1,0 +1,36 @@
+# @package _global_
+defaults:
+  - override /algorithm: conditioned_mlp_adapter
+  - override /datamodule: multi_task_adapter_datamodule
+  - override /trainer: default
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  network:
+    input_dim: 39 # proprio + tcp pose + A pose + B pose
+    output_dim: 48
+    num_tasks: 2
+
+datamodule:
+  task_configs:
+    # TODO: Hydra do not allow to define them here, plus the str ids are not correct? Should I use StackCubeSwapped-v1 or StackCube-v1?
+    "PlaceSphere-v1":
+      base_datamodule: ${datamodule.adapter_datamodule_place_sphere_to_stack_cube}
+
+    "StackCubeSwapped-v1":
+      base_datamodule: ${datamodule.adapter_datamodule_stack_cube_swapped}
+
+trainer:
+  max_steps: 25000
+  val_check_interval: 500
+
+  callbacks:
+    model_checkpoint:
+      monitor: "val/loss"
+      mode: "min"
+
+    rollout_evaluation: null
+
+    early_stopping:
+      patience: 3 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"

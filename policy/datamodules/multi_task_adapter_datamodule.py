@@ -1,0 +1,64 @@
+from typing import Any
+
+import hydra_zen
+import lightning as L
+from torch.utils.data import ConcatDataset, DataLoader
+
+from policy.datamodules.pnp_adapter_dataset import PnpAdapterDataset
+
+
+class MultiTaskAdapterDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        task_configs: dict[str, dict[str, Any]],
+        batch_size: int = 256,
+        num_workers: int = 4,
+    ):
+        super().__init__()
+        self.task_configs = task_configs
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+        # Dynamically assign an integer ID to each environment (e.g. "PlaceSphere-v1" -> 0)
+        self.env_to_idx = {env_id: idx for idx, env_id in enumerate(task_configs.keys())}
+
+        # Instantiate the underlying Maniskill DataModules
+        self.base_dms = {}
+        for env_id, cfg in task_configs.items():
+            self.base_dms[env_id] = hydra_zen.instantiate(cfg["base_datamodule"])
+
+    def setup(self, stage: str | None = None):
+        train_datasets = []
+        val_datasets = []
+
+        # TODO: a little doubtful on this? Review it later
+        for env_id, dm in self.base_dms.items():
+            dm.setup(stage)
+
+            if stage == "fit" or stage is None:
+                task_idx = self.env_to_idx[env_id]
+                train_base = dm.train_set
+                val_base = dm.val_set
+
+                train_datasets.append(PnpAdapterDataset(train_base, env_id, task_idx))
+                val_datasets.append(PnpAdapterDataset(val_base, env_id, task_idx))
+
+        if stage == "fit" or stage is None:
+            self.train_dataset = ConcatDataset(train_datasets)
+            self.val_dataset = ConcatDataset(val_datasets)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+        )
