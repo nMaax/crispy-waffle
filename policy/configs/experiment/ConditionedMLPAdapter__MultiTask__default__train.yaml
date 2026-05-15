@@ -14,7 +14,6 @@ algorithm:
 
 datamodule:
   task_configs:
-    # TODO: Hydra do not allow to define them here, plus the str ids are not correct? Should I use StackCubeSwapped-v1 or StackCube-v1?
     "PlaceSphere-v1":
       base_datamodule: ${datamodule.adapter_datamodule_place_sphere_to_stack_cube}
 
