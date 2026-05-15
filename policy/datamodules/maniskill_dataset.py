@@ -9,12 +9,8 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import Dataset
 
-from policy.utils import (
-    load_h5_data,
-    peek_trajectory_dimension,
-    print_dict_tree,
-    to_tensor,
-)
+from policy.utils import print_dict_tree, to_tensor
+from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
 
 
 class ManiSkillDataset(Dataset):

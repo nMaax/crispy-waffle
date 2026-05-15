@@ -19,7 +19,7 @@ from rich.progress import Progress
 from tqdm import tqdm
 
 import policy.environments  # noqa: F401
-from policy.adapters import NoOpAdapter
+from policy.adapters.no_op_adapter import NoOpAdapter
 from policy.utils import flatten_tensor_from_mapping, to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 

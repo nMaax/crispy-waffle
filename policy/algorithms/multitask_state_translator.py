@@ -1,6 +1,6 @@
 import torch
 
-from policy.algorithms.state_translator import StateTranslator
+from .state_translator import StateTranslator
 
 
 class MultiTaskStateTranslator(StateTranslator):

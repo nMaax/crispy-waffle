@@ -3,7 +3,7 @@ from collections.abc import Sequence
 import torch
 
 from policy.algorithms.state_translator import StateTranslator
-from policy.transforms.pnp_canonicalizer import PnPCanonicalizer
+from policy.transforms import PnPCanonicalizer
 from policy.utils.typing_utils import AdapterProtocol
 
 

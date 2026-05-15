@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from policy.datamodules.maniskill_dataset import ManiSkillDataset
+from .maniskill_dataset import ManiSkillDataset
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.transforms.normalizer import TensorNormalizer
+from policy.transforms import TensorNormalizer
 from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import HydraConfigFor
 

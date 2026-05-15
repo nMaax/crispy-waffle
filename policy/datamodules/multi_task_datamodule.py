@@ -4,7 +4,7 @@ import hydra_zen
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from policy.datamodules.pnp_dataset import PnPDataset
+from .pnp_dataset import PnPDataset
 
 
 class MultiTaskDataModule(L.LightningDataModule):

@@ -4,8 +4,9 @@ from typing import Any
 import torch
 from torch.utils.data import Dataset
 
-from policy.datamodules.maniskill_dataset import ManiSkillDataset
 from policy.utils.typing_utils import AdapterProtocol
+
+from .maniskill_dataset import ManiSkillDataset
 
 
 class TranslatorDataset(Dataset):
