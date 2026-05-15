@@ -9,6 +9,7 @@ trainer:
   callbacks:
     rollout_evaluation:
       adapter:
+        # TODO: StackCubeSwapped-v1 + CubesPermuter isn't going to return the original StackCube?
         _target_: policy.utils.adapters.CubesPermuter
         swap_env_indices: "odd"
 
