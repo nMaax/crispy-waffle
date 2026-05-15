@@ -7,7 +7,7 @@ from policy.transforms.pnp_canonicalizer import PnPCanonicalizer
 from policy.utils.typing_utils import AdapterProtocol
 
 
-class MultitaskNeuralAdapter(AdapterProtocol):
+class MultiTaskNeuralAdapter(AdapterProtocol):
     def __init__(
         self,
         ckpt_path: str,
