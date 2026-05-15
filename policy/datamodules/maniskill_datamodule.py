@@ -8,17 +8,8 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
+from .dummy_dataset import DummyDataset
 from .maniskill_dataset import ManiSkillDataset
-
-
-class DummyDataset(Dataset):
-    """A minimal dataset to trigger Lightning loops for simulation-only phases."""
-
-    def __len__(self):
-        return 1
-
-    def __getitem__(self, idx):
-        return {}
 
 
 class ManiSkillDataModule(L.LightningDataModule):
