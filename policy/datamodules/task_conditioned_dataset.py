@@ -8,7 +8,7 @@ from policy.transforms import PnPCanonicalizer
 from .translator_dataset import TranslatorDataset
 
 
-class PnPDataset(Dataset):
+class TaskConditionedDataset(Dataset):
     """Wraps an existing TranslatorDataset to enforce a canonical input shape for pick-and-place
     tasks and attach an integer task ID."""
 
