@@ -12,9 +12,9 @@ from lightning.pytorch.trainer.states import RunningStage
 from tensor_regression.fixture import TensorRegressionFixture
 from torch.utils.data import DataLoader
 
-from policy.algorithms.lightning_module_tests import convert_list_and_tuples_to_dicts
-from policy.conftest import algorithm_config
 from policy.utils.test_utils import IN_GITHUB_CLOUD_CI, get_gpu_arch_name
+from tests.algorithms.test_lightning_module import convert_list_and_tuples_to_dicts
+from tests.conftest import algorithm_config
 
 DataModuleType = TypeVar("DataModuleType", bound=LightningDataModule)
 

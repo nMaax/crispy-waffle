@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 from torch.utils.data import DataLoader
 
-from policy.datamodules.datamodule_tests import DataModuleTests
 from policy.datamodules.trajectory_datamodule import TrajectoryDataModule
 from policy.datasets import DummyDataset, TrajectoryDataset
+from tests.datamodules.test_datamodule import DataModuleTests
 
 
 @pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)

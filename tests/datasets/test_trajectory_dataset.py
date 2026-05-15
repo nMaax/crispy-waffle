@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from .trajectory_dataset import TrajectoryDataset
+from policy.datasets.trajectory_dataset import TrajectoryDataset
 
 
 @pytest.fixture

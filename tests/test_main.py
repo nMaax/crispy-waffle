@@ -11,7 +11,7 @@ from logging import getLogger
 from pathlib import Path
 from unittest.mock import Mock
 
-import omegaconf.errors
+import omegaconf
 import pytest
 import torch
 from _pytest.mark.structures import ParameterSet
@@ -23,7 +23,7 @@ import policy.configs
 import policy.experiment
 import policy.main
 from policy.algorithms.no_op import NoOp
-from policy.conftest import setup_with_overrides
+from tests.conftest import setup_with_overrides
 
 logger = getLogger(__name__)
 

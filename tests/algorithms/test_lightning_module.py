@@ -21,11 +21,11 @@ from omegaconf import DictConfig
 from tensor_regression import TensorRegressionFixture
 
 from policy.configs.config import Config
-from policy.conftest import DEFAULT_SEED
 from policy.experiment import instantiate_trainer
 from policy.main import instantiate_algorithm, setup_logging
 from policy.utils.hydra_utils import resolve_dictconfig
 from policy.utils.test_utils import get_gpu_arch_name
+from tests.conftest import DEFAULT_SEED
 
 logger = get_logger(__name__)
 
