@@ -53,6 +53,9 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
                 obs.shape[:-1], self.task_idx, dtype=torch.long, device=obs.device
             )
 
+        if self.model.device != obs.device:
+            self.model.to(obs.device)
+
         with torch.no_grad():
             prediction = self.model(obs, task_idx)
 

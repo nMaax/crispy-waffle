@@ -31,6 +31,8 @@ class NeuralAdapter(AdapterProtocol):
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
+        if self.model.device != obs.device:
+            self.model.to(obs.device)
         with torch.no_grad():
             model_predicted_swaps = self.model(obs)
 
