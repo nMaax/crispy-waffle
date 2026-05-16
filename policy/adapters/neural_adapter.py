@@ -36,8 +36,27 @@ class NeuralAdapter(AdapterProtocol):
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
+        if self.model.network is None:
+            raise ValueError(
+                "Model does not have a network attribute. Cannot apply NeuralAdapter."
+            )
+
         if self.model.device != obs.device:
             self.model.to(obs.device)
+
+        # Snap weights to nearest integer (0, 1, or -1) to induce a pure permutation matrix if the model is a single linear layer without bias.
+        #
+        # NOTE: In StackCubeSwapped doing this allow us to go from 66% to 89% as expected
+        #
+        # layer0 = self.model.network.net[0]
+        # if (
+        #     isinstance(self.model.network.net, torch.nn.Sequential)
+        #     and len(self.model.network.net) == 1
+        #     and isinstance(layer0, torch.nn.Linear)
+        #     and layer0.bias is None
+        # ):
+        #     with torch.no_grad():
+        #         layer0.weight.copy_(torch.round(layer0.weight))
 
         with torch.no_grad():
             result = self.model(obs)
