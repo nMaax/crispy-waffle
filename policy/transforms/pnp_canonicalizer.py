@@ -17,7 +17,7 @@ class PnPCanonicalizer:
         }
 
     # Should decouple from AdapterProtocol and rather make a TransformProtocol
-    def _call__(self, obs: dict | torch.Tensor) -> torch.Tensor:
+    def __call__(self, obs: dict | torch.Tensor) -> torch.Tensor:
         if isinstance(obs, dict):
             raise NotImplementedError(
                 "Dict observations not supported yet. Only tensor observations."
