@@ -9,7 +9,7 @@ from policy.utils.typing_utils import AdapterProtocol
 from .trajectory_dataset import TrajectoryDataset
 
 
-class TranslatorDataset(Dataset):
+class AlignedStatesDataset(Dataset):
     """Generates training pairs by converting raw environment observations into a target domain
     using a specified adapter."""
 

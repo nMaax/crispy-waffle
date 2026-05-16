@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import torch
 
-from policy.algorithms.multi_task_state_translator import MultiTaskStateTranslator
+from policy.algorithms.multi_task_state_aligner import MultiTaskStateAligner
 from policy.transforms import PnPCanonicalizer
 from policy.utils.typing_utils import AdapterProtocol
 
@@ -14,7 +14,7 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
         task_name: str,
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
-        self.model = MultiTaskStateTranslator.load_from_checkpoint(ckpt_path, strict=False)
+        self.model = MultiTaskStateAligner.load_from_checkpoint(ckpt_path, strict=False)
         self.model.eval()
         self.model.freeze()
 

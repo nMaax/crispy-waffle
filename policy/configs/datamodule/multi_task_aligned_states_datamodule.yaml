@@ -1,0 +1,8 @@
+defaults:
+  - /datamodule@task_configs.PlaceSphere-v1: aligned_states_datamodule_place_sphere_to_stack_cube
+  - /datamodule@task_configs.StackCubeSwapped-v1: aligned_states_datamodule_stack_cube_swapped_to_stack_cube
+
+_target_: policy.datamodules.multi_task_aligned_states_datamodule.MultiTaskAlignedStatesDataModule
+_recursive_: false
+batch_size: 256
+num_workers: 8

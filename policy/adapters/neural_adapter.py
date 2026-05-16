@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import torch
 
-from policy.algorithms.state_translator import StateTranslator
+from policy.algorithms.state_aligner import StateAligner
 from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import AdapterProtocol
 
@@ -13,7 +13,7 @@ class NeuralAdapter(AdapterProtocol):
         ckpt_path: str,
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
-        self.model = StateTranslator.load_from_checkpoint(ckpt_path, strict=False)
+        self.model = StateAligner.load_from_checkpoint(ckpt_path, strict=False)
         self.model.eval()
         self.model.freeze()
 

@@ -1,4 +1,4 @@
-_target_: policy.algorithms.state_translator.StateTranslator
+_target_: policy.algorithms.state_aligner.StateAligner
 _recursive_: false
 
 defaults:

@@ -5,14 +5,14 @@ from torch.utils.data import Dataset
 
 from policy.transforms import PnPCanonicalizer
 
-from .translator_dataset import TranslatorDataset
+from .aligned_states_dataset import AlignedStatesDataset
 
 
-class TaskConditionedDataset(Dataset):
-    """Wraps a translator dataset to apply canonical formatting and inject an integer task ID for
-    multi-task networks."""
+class TaskConditionedAlignedStatesDataset(Dataset):
+    """Wraps a aligned states dataset to apply canonical pick-and-place formatting for the input
+    and inject an integer task ID for multi-task networks."""
 
-    def __init__(self, base_translator_dataset: TranslatorDataset, env_id: str, task_idx: int):
+    def __init__(self, base_translator_dataset: AlignedStatesDataset, env_id: str, task_idx: int):
         self.base_translator_dataset = base_translator_dataset
         self.pnp_canonicalizer = PnPCanonicalizer(env_id)
         self.task_idx = task_idx

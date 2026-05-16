@@ -9,12 +9,12 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import TensorNormalizer
-from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import HydraConfigFor
 
 
-class MultiTaskStateTranslator(L.LightningModule):
-    """Trains a neural network to map states from one domain to another, across multiple tasks.
+class MultiTaskStateAligner(L.LightningModule):
+    """Trains a neural network to map/align states from one domain to another, across multiple
+    tasks.
 
     The neural network is instructed on how to generate output states by a task index.
     """
@@ -46,7 +46,6 @@ class MultiTaskStateTranslator(L.LightningModule):
 
     def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
-            self._parse_loss_mask()
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -114,17 +113,6 @@ class MultiTaskStateTranslator(L.LightningModule):
         y_norm_hat = self.network(x_norm, task_idx)
 
         return F.mse_loss(y_norm_hat, y_norm)
-
-    def _parse_loss_mask(self) -> None:
-        mask = torch.zeros(self.network_config.output_dim, dtype=torch.bool)
-
-        if self.loss_mask_slices is not None:
-            for s in self.loss_mask_slices:
-                mask[parse_slice(s)] = True
-        else:
-            mask[:] = True
-
-        self.register_buffer("loss_mask", mask)
 
     def _configure_normalizers(self) -> None:
         dm = getattr(self.trainer, "datamodule", None)

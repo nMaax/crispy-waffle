@@ -1,16 +1,15 @@
 # @package _global_
 defaults:
-  - override /algorithm: multi_task_state_translator
-  - override /datamodule: multi_task_datamodule
+  - override /algorithm: state_aligner
+  - override /datamodule: aligned_states_datamodule_stack_cube_swapped_to_stack_cube
   - override /trainer: default
 
 name: ${hydra:runtime.choices.experiment}
 
 algorithm:
   network:
-    input_dim: 39 # proprio + tcp pose + A pose + B pose
+    input_dim: 48
     output_dim: 48
-    num_tasks: 2 # TODO: should be fetched from the datamodule?
 
 trainer:
   max_steps: 25000

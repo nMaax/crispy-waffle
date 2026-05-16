@@ -4,10 +4,10 @@ import hydra_zen
 import lightning as L
 from torch.utils.data import ConcatDataset, DataLoader
 
-from policy.datasets import TaskConditionedDataset
+from policy.datasets import TaskConditionedAlignedStatesDataset
 
 
-class MultiTaskDataModule(L.LightningDataModule):
+class MultiTaskAlignedStatesDataModule(L.LightningDataModule):
     """Provides task-conditioned (source, target) state batches from multiple environments to train
     multi-task state translators."""
 
@@ -43,8 +43,10 @@ class MultiTaskDataModule(L.LightningDataModule):
                 train_set = task_dm.train_set
                 val_set = task_dm.val_set
 
-                train_datasets.append(TaskConditionedDataset(train_set, env_id, task_idx))
-                val_datasets.append(TaskConditionedDataset(val_set, env_id, task_idx))
+                train_datasets.append(
+                    TaskConditionedAlignedStatesDataset(train_set, env_id, task_idx)
+                )
+                val_datasets.append(TaskConditionedAlignedStatesDataset(val_set, env_id, task_idx))
 
         if stage == "fit" or stage is None:
             self.train_set = ConcatDataset(train_datasets)

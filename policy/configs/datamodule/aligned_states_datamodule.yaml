@@ -1,4 +1,4 @@
-_target_: policy.datamodules.translator_datamodule.TranslatorDataModule
+_target_: policy.datamodules.aligned_states_datamodule.AlignedStatesDataModule
 batch_size: 256
 num_workers: 4
 

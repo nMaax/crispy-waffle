@@ -13,8 +13,8 @@ from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import HydraConfigFor
 
 
-class StateTranslator(L.LightningModule):
-    """Trains a neural network to map states from one domain to another.
+class StateAligner(L.LightningModule):
+    """Trains a neural network to map/align states from one domain to another.
 
     The loss can be masked to only consider a subset of the output dimensions.
     """

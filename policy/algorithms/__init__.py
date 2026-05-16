@@ -1,6 +1,6 @@
 from .diffusion_policy import DiffusionPolicy
-from .multi_task_state_translator import MultiTaskStateTranslator
+from .multi_task_state_aligner import MultiTaskStateAligner
 from .no_op import NoOp
-from .state_translator import StateTranslator
+from .state_aligner import StateAligner
 
-__all__ = ["DiffusionPolicy", "MultiTaskStateTranslator", "NoOp", "StateTranslator"]
+__all__ = ["DiffusionPolicy", "MultiTaskStateAligner", "NoOp", "StateAligner"]
