@@ -24,21 +24,21 @@ class PlaceSphereToStackCubeAdapter(AdapterProtocol):
             return self._apply_to_tensor(obs)
 
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        """Projects a 39-dim PlaceSphere state into a 48-dim StackCube state."""
+        """Maps a 39-dim PlaceSphere state into a 48-dim StackCube state."""
 
         # PlaceSphere-v1: [0:18 (proprio), 18:19 (is_grasped), 19:26 (TCP pose), 26:29 (bin pos), 29:36 (obj pose), 36:39 (TCP to obj pos)
         # StackCube-v1: [0:18 (proprio), 18:25 (TCP pose), 25:32 (Cube A pose), 32:39 (Cube B pose), 39:42 (TCP to A), 42:45 (TCP to B), 45:48 (A to B)]
 
-        proprioception = obs[..., 0:18].clone()  # Proprioception
-        tcp_pose = obs[..., 19:26].clone()  # TCP
-        sphere_pos = obs[..., 29:32].clone()  # Cube A
-        bin_pos = obs[..., 26:29].clone()  # Cube B
+        proprioception = obs[..., 0:18].clone()
+        tcp_pose = obs[..., 19:26].clone()
+        sphere_pos = obs[..., 29:32].clone()
+        bin_pos = obs[..., 26:29].clone()
 
         bin_pos[..., 2] += self.BIN_Z_OFFSET
 
-        tcp_to_sphere_pos = sphere_pos - tcp_pose[..., 0:3]  # TCP to Cube A
-        tcp_to_bin = bin_pos - tcp_pose[..., 0:3]  # TCP to Cube B
-        sphere_to_bin = bin_pos - sphere_pos  # Cube A to Cube B
+        tcp_to_sphere_pos = sphere_pos - tcp_pose[..., 0:3]
+        tcp_to_bin = bin_pos - tcp_pose[..., 0:3]
+        sphere_to_bin = bin_pos - sphere_pos
 
         swapped = torch.zeros((*obs.shape[:-1], 48), dtype=obs.dtype, device=obs.device)
 
