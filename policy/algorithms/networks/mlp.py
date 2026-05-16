@@ -26,5 +26,8 @@ class MLP(nn.Module):
 
         self.net = nn.Sequential(*layers)
 
+        if not hidden_dims and not bias:
+            nn.init.zeros_(self.net[0].weight)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)

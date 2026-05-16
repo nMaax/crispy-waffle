@@ -7,6 +7,7 @@ defaults:
 name: ${hydra:runtime.choices.experiment}
 
 algorithm:
+  l1_lambda: 1e-4
   network:
     input_dim: 39
     output_dim: 48

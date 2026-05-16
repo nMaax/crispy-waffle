@@ -11,8 +11,8 @@ trainer:
       adapter:
         _target_: policy.adapters.neural_adapter.NeuralAdapter
         ckpt_path: ${oc.env:HOME}/Work/crispy-waffle/logs/StateAligner__StackCubeSwappedToStackCube__default__train/runs/2026-05-16/17-33-17/checkpoints/last.ckpt
-        passthrough_mapping:
-          - ["0:25", "0:25"]
+        # passthrough_mapping:
+        #   - ["0:25", "0:25"]
 
       env_id: "StackCubeSwapped-v1"
       obs_mode: "state"

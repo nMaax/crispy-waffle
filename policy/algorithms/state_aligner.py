@@ -24,6 +24,7 @@ class StateAligner(L.LightningModule):
         network: HydraConfigFor[nn.Module],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        l1_lambda: float = 0.0,
         loss_mask_slices: list[str | int] | None = None,
     ):
         super().__init__()
@@ -42,6 +43,7 @@ class StateAligner(L.LightningModule):
         self.x_normalizer = TensorNormalizer(network.input_dim)
         self.y_normalizer = TensorNormalizer(network.output_dim)
 
+        self.l1_lambda = l1_lambda
         self.loss_mask_slices = loss_mask_slices
 
     def setup(self, stage: str) -> None:
@@ -79,7 +81,17 @@ class StateAligner(L.LightningModule):
             return optimizer
 
     def training_step(self, batch, batch_idx):
-        loss = self._compute_loss(batch)
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
+        mse_loss = self._compute_loss(batch)
+
+        if self.l1_lambda > 0:
+            l1_norm = sum(p.abs().sum() for p in self.network.parameters())
+            loss = mse_loss + self.l1_lambda * l1_norm
+        else:
+            loss = mse_loss
+
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
