@@ -11,12 +11,14 @@ class NeuralAdapter(AdapterProtocol):
     def __init__(
         self,
         ckpt_path: str,
+        snap_weights: bool = False,
         passthrough_mapping: Sequence[tuple[str, int]] | None = None,
     ):
         self.model = StateAligner.load_from_checkpoint(ckpt_path, strict=False)
         self.model.eval()
         self.model.freeze()
 
+        self.snap_weights = snap_weights
         self.passthrough_mapping = []
         if passthrough_mapping is not None:
             for in_s, out_s in passthrough_mapping:
@@ -45,18 +47,21 @@ class NeuralAdapter(AdapterProtocol):
             self.model.to(obs.device)
 
         # Snap weights to nearest integer (0, 1, or -1) to induce a pure permutation matrix if the model is a single linear layer without bias.
-        #
         # NOTE: In StackCubeSwapped doing this allow us to go from 66% to 89% as expected
-        #
-        # layer0 = self.model.network.net[0]
-        # if (
-        #     isinstance(self.model.network.net, torch.nn.Sequential)
-        #     and len(self.model.network.net) == 1
-        #     and isinstance(layer0, torch.nn.Linear)
-        #     and layer0.bias is None
-        # ):
-        #     with torch.no_grad():
-        #         layer0.weight.copy_(torch.round(layer0.weight))
+        layer0 = self.model.network.net[0]
+        is_single_linear_layer = (
+            isinstance(self.model.network.net, torch.nn.Sequential)
+            and len(self.model.network.net) == 1
+            and isinstance(layer0, torch.nn.Linear)
+            and layer0.bias is None
+        )
+        if is_single_linear_layer and self.snap_weights:
+            with torch.no_grad():
+                layer0.weight.copy_(torch.round(layer0.weight))
+        elif not is_single_linear_layer and self.snap_weights:
+            raise ValueError(
+                "snap_weights is only supported for single linear layer networks without bias."
+            )
 
         with torch.no_grad():
             result = self.model(obs)

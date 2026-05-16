@@ -1,6 +1,7 @@
 import argparse
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
 
@@ -14,6 +15,11 @@ def main():
         type=str,
         default="scripts/figures/permutation_matrix.png",
         help="Where to save the plot",
+    )
+    parser.add_argument(
+        "--snap_weights",
+        action="store_true",
+        help="If set, snap weights to nearest integer values before plotting",
     )
     args = parser.parse_args()
 
@@ -41,6 +47,9 @@ def main():
         return
 
     weight_matrix = state_dict[weight_key].numpy()
+    weight_matrix = state_dict[weight_key].numpy()
+    if args.snap_weights:
+        weight_matrix = np.round(weight_matrix)
 
     print(f"Extracted weight matrix of shape: {weight_matrix.shape}")
 
@@ -54,6 +63,8 @@ def main():
     plt.xlabel("Input State Index", fontsize=12)
     plt.ylabel("Output State Index", fontsize=12)
 
+    plt.gca().set_xticks(range(weight_matrix.shape[1]), minor=False)
+    plt.gca().set_yticks(range(weight_matrix.shape[0]), minor=False)
     plt.grid(which="both", color="black", linestyle="-", linewidth=0.1, alpha=0.3)
 
     plt.tight_layout()
