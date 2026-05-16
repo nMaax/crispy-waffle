@@ -3,7 +3,7 @@ from collections.abc import Sequence
 import torch
 
 from policy.algorithms.state_aligner import StateAligner
-from policy.utils.hydra_utils import parse_slice
+from policy.utils.hydra_utils import parse_slice, slice_size
 from policy.utils.typing_utils import AdapterProtocol
 
 
@@ -20,7 +20,12 @@ class NeuralAdapter(AdapterProtocol):
         self.passthrough_mapping = []
         if passthrough_mapping is not None:
             for in_s, out_s in passthrough_mapping:
-                self.passthrough_mapping.append((parse_slice(in_s), parse_slice(out_s)))
+                in_s, out_s = parse_slice(in_s), parse_slice(out_s)
+                if slice_size(in_s) != slice_size(out_s):
+                    raise ValueError(
+                        f"Passthrough mapping slices must have the same size: {in_s} vs {out_s}"
+                    )
+                self.passthrough_mapping.append((in_s, out_s))
 
     def apply(
         self, obs: torch.Tensor | dict[str, torch.Tensor]
@@ -33,20 +38,15 @@ class NeuralAdapter(AdapterProtocol):
     def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
         if self.model.device != obs.device:
             self.model.to(obs.device)
-        with torch.no_grad():
-            model_predicted_swaps = self.model(obs)
 
-        swapped = torch.zeros(
-            (*obs.shape[:-1], model_predicted_swaps.shape[-1]), dtype=obs.dtype, device=obs.device
-        )
+        with torch.no_grad():
+            result = self.model(obs)
 
         if self.passthrough_mapping:
             for in_slice, out_slice in self.passthrough_mapping:
-                swapped[..., out_slice] = model_predicted_swaps[..., in_slice]
-        else:
-            swapped = model_predicted_swaps
+                result[..., out_slice] = obs[..., in_slice]
 
-        return swapped
+        return result
 
     def _apply_to_dict(self, obs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         raise NotImplementedError("LearnedMLPAdapter does not support dict observations yet.")

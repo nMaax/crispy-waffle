@@ -40,3 +40,12 @@ def parse_slice(slice_def: str | int) -> slice | int:
     step = int(parts[2]) if len(parts) > 2 and parts[2] else None
 
     return slice(start, end, step)
+
+
+def slice_size(s):
+    if isinstance(s, int):
+        return 1
+    elif isinstance(s, slice):
+        return s.stop - s.start
+    else:
+        raise TypeError("Expected int or slice")

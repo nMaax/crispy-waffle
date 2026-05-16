@@ -66,18 +66,6 @@ class StackCubeSwappedToStackCubeAdapter(AdapterProtocol):
         return swapped
 
     def _apply_to_dict(self, obs_dict: dict[str, Any], indices: torch.Tensor) -> dict[str, Any]:
-        swapped = obs_dict.copy()
-
-        a_pose = swapped["cubeA_pose"][indices].clone()
-        b_pose = swapped["cubeB_pose"][indices].clone()
-        tcp_to_a = swapped["tcp_to_cubeA_pos"][indices].clone()
-        tcp_to_b = swapped["tcp_to_cubeB_pos"][indices].clone()
-        a_to_b = swapped["cubeA_to_cubeB_pos"][indices].clone()
-
-        swapped["cubeA_pose"][indices] = b_pose
-        swapped["cubeB_pose"][indices] = a_pose
-        swapped["tcp_to_cubeA_pos"][indices] = tcp_to_b
-        swapped["tcp_to_cubeB_pos"][indices] = tcp_to_a
-        swapped["cubeA_to_cubeB_pos"][indices] = -a_to_b
-
-        return swapped
+        raise NotImplementedError(
+            "StackCubeSwappedToStackCubeAdapter does not support dict observations yet."
+        )
