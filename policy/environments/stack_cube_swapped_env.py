@@ -8,6 +8,9 @@ class StackCubeSwappedEnv(StackCubeEnv):
     """The goal is to pick up the green cube (Cube B) and stack it on top of the red cube (Cube A)
     and let go."""
 
+    # NOTE: Stack cube swapped only modifies the success and reward conditions. It doesn't actually swap any cube
+    # as it would be pointless. The task would be the same.
+
     def evaluate(self):
         pos_A = self.cubeA.pose.p
         pos_B = self.cubeB.pose.p

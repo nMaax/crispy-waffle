@@ -23,6 +23,21 @@ def main():
 
     weight_key = "network.net.0.weight"
 
+    other_layers = [
+        k
+        for k in state_dict
+        if k.startswith("network.net.") and k.endswith(".weight") and k != weight_key
+    ]
+    if other_layers:
+        print("Error: Multiple linear layers detected. Refusing to plot.")
+        print("Found additional layers:", other_layers)
+        return
+
+    bias_key = "network.net.0.bias"
+    if bias_key in state_dict:
+        print("Error: Bias detected in the linear layer. Refusing to plot.")
+        return
+
     if weight_key not in state_dict:
         print(f"Error: Could not find '{weight_key}' in state dict.")
         print("Available keys:")

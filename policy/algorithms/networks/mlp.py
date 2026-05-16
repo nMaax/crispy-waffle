@@ -22,7 +22,7 @@ class MLP(nn.Module):
             layers.append(nn.ReLU())
             current_dim = h_dim
 
-        layers.append(nn.Linear(current_dim, output_dim))
+        layers.append(nn.Linear(current_dim, output_dim, bias=bias))
 
         self.net = nn.Sequential(*layers)
 
