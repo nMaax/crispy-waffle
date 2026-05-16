@@ -2,7 +2,7 @@ defaults:
   - aligned_states_datamodule
 
 base_datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5
 
 adapter:
   _target_: policy.adapters.stack_cube_swapped_to_stack_cube_adapter.StackCubeSwappedToStackCubeAdapter

@@ -33,11 +33,6 @@ def main():
         print("Found additional layers:", other_layers)
         return
 
-    bias_key = "network.net.0.bias"
-    if bias_key in state_dict:
-        print("Error: Bias detected in the linear layer. Refusing to plot.")
-        return
-
     if weight_key not in state_dict:
         print(f"Error: Could not find '{weight_key}' in state dict.")
         print("Available keys:")
