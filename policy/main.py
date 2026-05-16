@@ -18,11 +18,11 @@ import hydra
 import lightning
 import rich
 import rich.logging
-import wandb
 from omegaconf import DictConfig
 from rich.panel import Panel
 
 import policy
+import wandb
 from policy.configs.config import Config
 from policy.experiment import train_and_validate
 from policy.utils.hydra_utils import resolve_dictconfig
@@ -65,7 +65,8 @@ def main(dict_config: DictConfig) -> dict:
             "[bold green]uv run python policy/eval.py experiment=YOUR_EXP ckpt_path=YOUR_CKPT[/bold green]\n\n"
             "[dim]The script will now proceed with validation only, no test rollouts will occur.[/dim]"
         )
-        rich.print(Panel(warning_msg, title="Architecture Notice", border_style="red"))
+        rich.print(Panel(warning_msg, title="Notice", border_style="red"))
+        raise ValueError("Testing via main.py is deprecated, please use eval.py instead.")
 
     setup_logging(
         log_level=config.log_level,
