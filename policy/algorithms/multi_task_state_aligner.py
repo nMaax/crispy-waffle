@@ -25,6 +25,7 @@ class MultiTaskStateAligner(L.LightningModule):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         task_mapping: dict[str, int],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
+        l1_lambda: float = 0.0,
     ):
         super().__init__()
 
@@ -43,6 +44,7 @@ class MultiTaskStateAligner(L.LightningModule):
         self.y_normalizer = TensorNormalizer(network.output_dim)
 
         self.task_mapping = task_mapping
+        self.l1_lambda = l1_lambda
 
     def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
@@ -78,16 +80,32 @@ class MultiTaskStateAligner(L.LightningModule):
             return optimizer
 
     def training_step(self, batch, batch_idx):
-        loss = self._compute_loss(batch)
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
+        mse_loss = self._compute_loss(batch)
+
+        if self.l1_lambda > 0:
+            l1_norm = sum(p.abs().sum() for p in self.network.parameters())
+            loss = mse_loss + self.l1_lambda * l1_norm
+        else:
+            loss = mse_loss
+
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
         loss = self._compute_loss(batch)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
         loss = self._compute_loss(batch)
         self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         return loss
@@ -121,6 +139,7 @@ class MultiTaskStateAligner(L.LightningModule):
 
         all_x, all_y = [], []
 
+        # Directly fetch the data from files to speed up the process
         for task_dataset in dm.train_set.datasets:
             base_dataset = task_dataset.base_translator_dataset.base_dataset
 

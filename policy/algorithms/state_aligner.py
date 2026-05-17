@@ -9,7 +9,6 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import TensorNormalizer
-from policy.utils.hydra_utils import parse_slice
 from policy.utils.typing_utils import HydraConfigFor
 
 
@@ -25,7 +24,6 @@ class StateAligner(L.LightningModule):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         l1_lambda: float = 0.0,
-        loss_mask_slices: list[str | int] | None = None,
     ):
         super().__init__()
 
@@ -44,11 +42,9 @@ class StateAligner(L.LightningModule):
         self.y_normalizer = TensorNormalizer(network.output_dim)
 
         self.l1_lambda = l1_lambda
-        self.loss_mask_slices = loss_mask_slices
 
     def setup(self, stage: str) -> None:
         if stage == "fit" and not self.x_normalizer.is_fit:
-            self._parse_loss_mask()
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -96,11 +92,17 @@ class StateAligner(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
         loss = self._compute_loss(batch)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
+        if self.network is None:
+            raise ValueError("Network is not configured. Call configure_model() before training.")
+
         loss = self._compute_loss(batch)
         self.log("test/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         return loss
@@ -125,22 +127,7 @@ class StateAligner(L.LightningModule):
 
         y_norm_hat = self.network(x_norm)
 
-        if self.loss_mask is not None:
-            y_norm_hat = y_norm_hat[..., self.loss_mask]
-            y_norm = y_norm[..., self.loss_mask]
-
         return F.mse_loss(y_norm_hat, y_norm)
-
-    def _parse_loss_mask(self) -> None:
-        mask = torch.zeros(self.network_config.output_dim, dtype=torch.bool)
-
-        if self.loss_mask_slices is not None:
-            for s in self.loss_mask_slices:
-                mask[parse_slice(s)] = True
-        else:
-            mask[:] = True
-
-        self.register_buffer("loss_mask", mask)
 
     def _configure_normalizers(self) -> None:
         dm = getattr(self.trainer, "datamodule", None)
@@ -155,6 +142,7 @@ class StateAligner(L.LightningModule):
         all_x = []
         all_y = []
 
+        # Directly fetch the data from files to speed up the process
         for traj in train_set.trajectories:
             if train_set.lazy:
                 ep_id = traj["episode_id"]
