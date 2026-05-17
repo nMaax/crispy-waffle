@@ -46,8 +46,10 @@ class MultiTaskStateAligner(L.LightningModule):
         self.task_mapping = task_mapping
         self.l1_lambda = l1_lambda
 
-    def setup(self, stage: str) -> None:
-        if stage == "fit" and not self.x_normalizer.is_fit:
+    def setup(self, stage: str | None) -> None:
+        if (stage == "fit" or stage is None) and (
+            not self.x_normalizer.is_fit or not self.y_normalizer.is_fit
+        ):
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -127,6 +129,8 @@ class MultiTaskStateAligner(L.LightningModule):
         all_x, all_y = [], []
 
         # Directly fetch the data from files to speed up the process
+        # This breaks Law of Demeter, the alternative would have been to
+        # access the underlying DataLoader/Dataset but it slows the pipeline down.
         for task_dataset in dm.train_set.datasets:
             base_dataset = task_dataset.base_translator_dataset.base_dataset
 

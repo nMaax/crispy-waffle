@@ -43,8 +43,10 @@ class StateAligner(L.LightningModule):
 
         self.l1_lambda = l1_lambda
 
-    def setup(self, stage: str) -> None:
-        if stage == "fit" and not self.x_normalizer.is_fit:
+    def setup(self, stage: str | None) -> None:
+        if (stage == "fit" or stage is None) and (
+            not self.x_normalizer.is_fit or not self.y_normalizer.is_fit
+        ):
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -130,6 +132,8 @@ class StateAligner(L.LightningModule):
         all_y = []
 
         # Directly fetch the data from files to speed up the process
+        # This breaks Law of Demeter, the alternative would have been to
+        # access the underlying DataLoader/Dataset but it slows the pipeline down.
         for traj in train_set.trajectories:
             if train_set.lazy:
                 ep_id = traj["episode_id"]

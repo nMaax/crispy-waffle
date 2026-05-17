@@ -41,6 +41,7 @@ class AlignedStatesDataModule(L.LightningDataModule):
                 )
             self.train_set = AlignedStatesDataset(base_dataset=train_set, adapter=self.adapter)
 
+        if stage in ("fit", "validate") or stage is None:
             val_set = self.base_datamodule.val_set
             if not isinstance(val_set, TrajectoryDataset):
                 raise ValueError(

@@ -93,25 +93,26 @@ class TrajectoryDataModule(L.LightningDataModule):
             train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
-            if stage == "fit" or stage is None:
-                if self.train_set is None:
-                    rank_zero_info(f"{len(train_episodes)} training episodes.")
-                    self.train_set = TrajectoryDataset(
-                        dataset_file=self.dataset_file,
-                        obs_horizon=self.obs_horizon,
-                        pred_horizon=self.pred_horizon,
-                        obs_dim=self.obs_dim,
-                        act_dim=self.act_dim,
-                        obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                        obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                        action_left_pad_as_zero_mask=left_mask,
-                        action_right_pad_as_zero_mask=right_mask,
-                        episodes=train_episodes,
-                        load_count=self.load_count,
-                        success_only=self.success_only,
-                        lazy=self.lazy,
-                    )
+        if stage == "fit" or stage is None:
+            if self.train_set is None:
+                rank_zero_info(f"{len(train_episodes)} training episodes.")
+                self.train_set = TrajectoryDataset(
+                    dataset_file=self.dataset_file,
+                    obs_horizon=self.obs_horizon,
+                    pred_horizon=self.pred_horizon,
+                    obs_dim=self.obs_dim,
+                    act_dim=self.act_dim,
+                    obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
+                    obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
+                    action_left_pad_as_zero_mask=left_mask,
+                    action_right_pad_as_zero_mask=right_mask,
+                    episodes=train_episodes,
+                    load_count=self.load_count,
+                    success_only=self.success_only,
+                    lazy=self.lazy,
+                )
 
+        if stage in ("fit", "validate") or stage is None:
             if self.val_set is None:
                 rank_zero_info(f"{len(val_episodes)} validation episodes.")
                 self.val_set = TrajectoryDataset(

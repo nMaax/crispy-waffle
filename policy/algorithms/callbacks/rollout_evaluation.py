@@ -88,7 +88,7 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tTest seed: {self.test_seed}"
         )
 
-    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str | None) -> None:
 
         if self.adapter_config is not None:
             self.adapter = hydra_zen.instantiate(self.adapter_config)

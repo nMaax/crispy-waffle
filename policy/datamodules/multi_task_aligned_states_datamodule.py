@@ -33,24 +33,35 @@ class MultiTaskAlignedStatesDataModule(L.LightningDataModule):
     def setup(self, stage: str | None = None):
         train_datasets = []
         val_datasets = []
+        test_datasets = []
 
-        # TODO: a little doubtful on this? Review it later, it should include also the stage='validate' and 'test' cases(?)
         for env_id, task_dm in self.task_dms.items():
             task_dm.setup(stage)
+            task_idx = self.env_to_idx[env_id]
 
             if stage == "fit" or stage is None:
-                task_idx = self.env_to_idx[env_id]
-                train_set = task_dm.train_set
-                val_set = task_dm.val_set
-
                 train_datasets.append(
-                    TaskConditionedAlignedStatesDataset(train_set, env_id, task_idx)
+                    TaskConditionedAlignedStatesDataset(task_dm.train_set, env_id, task_idx)
                 )
-                val_datasets.append(TaskConditionedAlignedStatesDataset(val_set, env_id, task_idx))
+
+            if stage in ("fit", "validate") or stage is None:
+                val_datasets.append(
+                    TaskConditionedAlignedStatesDataset(task_dm.val_set, env_id, task_idx)
+                )
+
+            if stage == "test" or stage is None:
+                test_datasets.append(
+                    TaskConditionedAlignedStatesDataset(task_dm.test_dataset, env_id, task_idx)
+                )
 
         if stage == "fit" or stage is None:
             self.train_set = ConcatDataset(train_datasets)
+
+        if stage in ("fit", "validate") or stage is None:
             self.val_set = ConcatDataset(val_datasets)
+
+        if stage == "test" or stage is None:
+            self.test_set = ConcatDataset(test_datasets)
 
     def train_dataloader(self):
         return DataLoader(
@@ -65,6 +76,16 @@ class MultiTaskAlignedStatesDataModule(L.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.val_set,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=self.num_workers > 0,
+            pin_memory=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_set,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
