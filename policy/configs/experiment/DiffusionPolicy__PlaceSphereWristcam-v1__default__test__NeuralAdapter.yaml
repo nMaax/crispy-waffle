@@ -3,14 +3,14 @@ defaults:
   - DiffusionPolicy__StackCube-v1__default__test
 
 name: ${hydra:runtime.choices.experiment}
-ckpt_path: ${oc.env:HOME}/Work/crispy-waffle/logs/DiffusionPolicy__StackCube-v1__default__train/runs/2026-05-09/21-40-01/checkpoints/step_080000.ckpt
+ckpt_path: ${hydra:runtime.cwd}/logs/DiffusionPolicy__StackCube-v1__default__train/runs/2026-05-09/21-40-01/checkpoints/step_080000.ckpt
 
 trainer:
   callbacks:
     rollout_evaluation:
       adapter:
         _target_: policy.adapters.neural_adapter.NeuralAdapter
-        ckpt_path: ${oc.env:HOME}/Work/crispy-waffle/logs/StateAligner__PlaceSphereToStackCube__default__train/runs/2026-05-16/19-31-19/checkpoints/last.ckpt
+        ckpt_path: ${hydra:runtime.cwd}/logs/StateAligner__PlaceSphereToStackCube__default__train/runs/2026-05-16/19-31-19/checkpoints/last.ckpt
 
       env_id: "PlaceSphereWristcam-v1"
       obs_mode: "state"
