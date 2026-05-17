@@ -10,7 +10,7 @@ trainer:
     rollout_evaluation:
       adapter:
         _target_: policy.adapters.multi_task_neural_adapter.MultiTaskNeuralAdapter
-        ckpt_path: ${hydra:runtime.cwd}/logs/MultiTaskStateAligner__MultiTaskAlignedStates__default__train/runs/2026-05-17/13-44-54/checkpoints/last.ckpt
+        ckpt_path: ${hydra:runtime.cwd}/logs/MultiTaskStateAligner__MultiTaskAlignedStates__default__train/runs/2026-05-17/16-32-33/checkpoints/last.ckpt
         task_name: "StackCubeSwapped-v1"
 
       env_id: "StackCubeSwapped-v1"

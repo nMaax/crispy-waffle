@@ -13,7 +13,7 @@ task_mapping:
   StackCubeSwapped-v1: 1
 
 network:
-  num_tasks: 2 # Must match the above
+  num_conditions: 2 # Must match the above
 
 optimizer:
   lr: 1e-3
