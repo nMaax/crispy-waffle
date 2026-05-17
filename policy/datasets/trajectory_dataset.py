@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ class TrajectoryDataset(Dataset):
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
+        obs_transform: Callable[[dict | torch.Tensor], dict | torch.Tensor] | None = None,
     ):
         super().__init__()
 
@@ -47,6 +49,7 @@ class TrajectoryDataset(Dataset):
             )
 
         self.lazy = lazy
+        self.obs_transform = obs_transform
 
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
@@ -154,6 +157,9 @@ class TrajectoryDataset(Dataset):
 
         obs_seq = to_tensor(obs_seq)
         act_seq = to_tensor(act_seq)
+
+        if self.obs_transform is not None:
+            obs_seq = self.obs_transform(obs_seq)
 
         return {
             "obs_seq": obs_seq,

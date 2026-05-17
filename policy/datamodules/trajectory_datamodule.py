@@ -9,6 +9,7 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
+from policy.transforms import PnPCanonicalizer
 
 
 class TrajectoryDataModule(L.LightningDataModule):
@@ -31,6 +32,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         success_only: bool = False,
         lazy: bool = False,
         seed: int | None = None,
+        canonicalize: bool = False,
     ):
         super().__init__()
 
@@ -72,6 +74,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.success_only = success_only
         self.lazy = lazy
         self.seed = seed
+        self.canonicalize = canonicalize
 
         (
             self.env_id,
@@ -93,6 +96,10 @@ class TrajectoryDataModule(L.LightningDataModule):
             train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
+            obs_transform = None
+            if self.canonicalize:
+                obs_transform = PnPCanonicalizer(self.env_id)
+
         if stage == "fit" or stage is None:
             if self.train_set is None:
                 rank_zero_info(f"{len(train_episodes)} training episodes.")
@@ -110,6 +117,7 @@ class TrajectoryDataModule(L.LightningDataModule):
                     load_count=self.load_count,
                     success_only=self.success_only,
                     lazy=self.lazy,
+                    obs_transform=obs_transform,
                 )
 
         if stage in ("fit", "validate") or stage is None:
@@ -129,6 +137,7 @@ class TrajectoryDataModule(L.LightningDataModule):
                     load_count=self.load_count,
                     success_only=self.success_only,
                     lazy=self.lazy,
+                    obs_transform=obs_transform,
                 )
 
         if stage == "test" or stage is None:

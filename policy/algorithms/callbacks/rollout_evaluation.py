@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
+from policy.transforms import PnPCanonicalizer
 from policy.utils import flatten_tensor_from_mapping, to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 
@@ -50,6 +51,7 @@ class RolloutEvaluationCallback(L.Callback):
         obs_mode: str | None = None,
         control_mode: str | None = None,
         physx_backend: str | None = None,
+        canonicalize: bool | None = None,
     ):
         super().__init__()
 
@@ -64,6 +66,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.num_envs = num_envs
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
+        self.canonicalize = canonicalize
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -90,6 +93,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str | None) -> None:
 
+        # TODO: Shouldn't this be resolved from the datamodule like the attributes below?
         if self.adapter_config is not None:
             self.adapter = hydra_zen.instantiate(self.adapter_config)
         else:
@@ -99,21 +103,26 @@ class RolloutEvaluationCallback(L.Callback):
 
         datamodule = getattr(trainer, "datamodule", None)
 
-        def _resolve_param(param_value: Any, param_name: str) -> Any:
+        def _resolve_param(
+            param_value: Any, param_name: str, strict: bool = True, default: Any = None
+        ) -> Any:
             if param_value is not None:
                 return param_value
             elif datamodule is not None and hasattr(datamodule, param_name):
                 return getattr(datamodule, param_name)
-            else:
+            elif strict:
                 raise ValueError(
                     f"`{param_name}` must be explicitly provided to RolloutEvaluationCallback "
                     f"or attached to trainer.datamodule."
                 )
+            else:
+                return default
 
         self.env_id = _resolve_param(self.env_id, "env_id")
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
+        self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -151,6 +160,11 @@ class RolloutEvaluationCallback(L.Callback):
                 "We will proceed with num_envs=1, however consider setting num_envs > 1 or switching to a CPU replayed data for training."
             )
 
+        if self.canonicalize:
+            self.canonicalizer = PnPCanonicalizer(self.env_id)
+        else:
+            self.canonicalizer = None
+
         rank_zero_info(
             f"Rollout Config setup complete:\n"
             f"\tenv_id: {self.env_id},\n"
@@ -159,6 +173,7 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tbackend: {self.physx_backend}\n"
             f"\tnum_envs: {self.num_envs}\n"
             f"\tnum_episodes: {self.num_episodes}"
+            f"\tcanonical PnP state vector: {self.canonicalize}"
         )
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
@@ -265,6 +280,9 @@ class RolloutEvaluationCallback(L.Callback):
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
 
+        if self.canonicalizer is not None:
+            obs = self.canonicalizer(obs)
+
         if self.render_mode == "human":
             env.render()
 
@@ -293,6 +311,9 @@ class RolloutEvaluationCallback(L.Callback):
                     env.render()
 
                 obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
+                if self.canonicalizer is not None:
+                    obs = self.canonicalizer(obs)
+
                 truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 
                 # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
