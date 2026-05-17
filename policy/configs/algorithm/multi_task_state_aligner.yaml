@@ -7,10 +7,8 @@ defaults:
   - lr_scheduler: null
 
 task_mapping:
-  PlaceSphere-v1: 0
-  PlaceSphereWristcam-v1: 1
-  StackCube-v1: 2
-  StackCubeSwapped-v1: 3
+  PlaceSphereWristcam-v1: 0
+  StackCubeSwapped-v1: 1
 
 optimizer:
   lr: 1e-3

@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1__default__test
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ${hydra:runtime.cwd}/logs/DiffusionPolicy__StackCube-v1__default__train/runs/2026-05-09/21-40-01/checkpoints/step_080000.ckpt
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      adapter:
+        _target_: policy.adapters.multi_task_neural_adapter.MultiTaskNeuralAdapter
+        ckpt_path: ${hydra:runtime.cwd}/logs/MultiTaskStateAligner__MultiTaskAlignedStates__default__train/runs/2026-05-17/13-44-54/checkpoints/last.ckpt
+        task_name: "PlaceSphereWristcam-v1"
+
+      env_id: "PlaceSphereWristcam-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"

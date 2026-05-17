@@ -63,7 +63,7 @@ class PnPCanonicalizer:
         tcp_pose = obs[..., 19:26].clone()
         sphere_pos = obs[
             ..., 29:32
-        ].clone()  # Actually PlaceSphere also provides quat for spehre, but we can just ignore it thanks to sphere symmetrical geometry
+        ].clone()  # Actually PlaceSphere also provides quat for sphere, but we can just ignore it thanks to sphere symmetrical geometry
         bin_pos = obs[..., 26:29].clone()
 
         fake_quat = torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=obs.dtype, device=obs.device)
