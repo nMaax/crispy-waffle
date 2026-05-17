@@ -9,9 +9,8 @@ name: ${hydra:runtime.choices.experiment}
 algorithm:
   l1_lambda: 1e-4
   network:
-    input_dim: 39 # proprio + tcp pose + A pose + B pose
+    input_dim: 39
     output_dim: 48
-    num_tasks: 2 # TODO: should be fetched from the datamodule?
 
 trainer:
   max_steps: 25000
@@ -25,4 +24,4 @@ trainer:
     rollout_evaluation: null
 
     early_stopping:
-      patience: 3 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"
+      patience: 3

@@ -2,14 +2,18 @@ _target_: policy.algorithms.multi_task_state_aligner.MultiTaskStateAligner
 _recursive_: false
 
 defaults:
-  - network: task_conditioned_mlp
+  - network: conditioned_linear
   - optimizer: Adam
   - lr_scheduler: null
 
+# TODO: should num/dict of tasks be fetched from the datamodule?
+
 task_mapping:
-  # TODO: should be fetched from the datamodule?
   PlaceSphereWristcam-v1: 0
   StackCubeSwapped-v1: 1
+
+network:
+  num_tasks: 2 # Must match the above
 
 optimizer:
   lr: 1e-3

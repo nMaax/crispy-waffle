@@ -24,4 +24,4 @@ trainer:
     rollout_evaluation: null
 
     early_stopping:
-      patience: 3 # "Stop training if the monitored metric doesn't improve after 10 consecutive validation checks"
+      patience: 3

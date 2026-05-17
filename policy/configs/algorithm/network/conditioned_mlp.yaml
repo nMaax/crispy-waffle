@@ -1,0 +1,5 @@
+_target_: policy.algorithms.networks.conditioned_mlp.ConditionedMLP
+input_dim: ???
+output_dim: ???
+num_conditions: ???
+embed_dim: 16
