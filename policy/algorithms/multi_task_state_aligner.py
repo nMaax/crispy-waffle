@@ -119,19 +119,6 @@ class MultiTaskStateAligner(L.LightningModule):
         y_pred = self.y_normalizer.unnormalize(y_norm_pred)
         return y_pred
 
-    def _compute_loss(self, batch) -> torch.Tensor:
-        if self.network is None:
-            raise ValueError("Network is not configured.")
-
-        x, y, task_idx = batch
-
-        x_norm = self.x_normalizer.normalize(x)
-        y_norm = self.y_normalizer.normalize(y)
-
-        y_norm_hat = self.network(x_norm, task_idx)
-
-        return F.mse_loss(y_norm_hat, y_norm)
-
     def _configure_normalizers(self) -> None:
         dm = getattr(self.trainer, "datamodule", None)
         if dm is None:
@@ -160,3 +147,16 @@ class MultiTaskStateAligner(L.LightningModule):
 
         self.x_normalizer.fit(torch.cat(all_x, dim=0))
         self.y_normalizer.fit(torch.cat(all_y, dim=0))
+
+    def _compute_loss(self, batch) -> torch.Tensor:
+        if self.network is None:
+            raise ValueError("Network is not configured.")
+
+        x, y, task_idx = batch
+
+        x_norm = self.x_normalizer.normalize(x)
+        y_norm = self.y_normalizer.normalize(y)
+
+        y_norm_hat = self.network(x_norm, task_idx)
+
+        return F.mse_loss(y_norm_hat, y_norm)
