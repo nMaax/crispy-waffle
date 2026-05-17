@@ -89,6 +89,15 @@ def main(dict_config: DictConfig) -> dict:
     # Create the algo.
     algorithm = instantiate_algorithm(config.algorithm)
 
+    if getattr(config, "finetuning_ckpt_path", None) is not None:
+        logger.info(f"Fine-tuning requested! Loading weights from {config.finetuning_ckpt_path}")
+
+        algorithm = type(algorithm).load_from_checkpoint(
+            config.finetuning_ckpt_path, strict=False, **config.algorithm
+        )
+
+        config.ckpt_path = None
+
     # Do the training and evaluation, returns the metric name and the overall 'error' to minimize.
     metric_name, error = train_and_validate(algorithm, config=config, datamodule=datamodule)
 

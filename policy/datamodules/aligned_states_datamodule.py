@@ -62,7 +62,6 @@ class AlignedStatesDataModule(L.LightningDataModule):
             dataset=self.train_set,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            persistent_workers=self.num_workers > 0,
             pin_memory=True,
             shuffle=True,
         )
@@ -72,7 +71,6 @@ class AlignedStatesDataModule(L.LightningDataModule):
             dataset=self.val_set,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            persistent_workers=self.num_workers > 0,
             pin_memory=True,
             shuffle=False,
         )
@@ -82,7 +80,6 @@ class AlignedStatesDataModule(L.LightningDataModule):
             dataset=self.test_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            persistent_workers=self.num_workers > 0,
             pin_memory=True,
             shuffle=False,
         )

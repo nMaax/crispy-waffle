@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  optimizer:
+    lr: 1e-5
+
+datamodule:
+  # WARNING: Either I prepare some dataset of pure motionplanning where B is grabbed and put on A
+  # or I reuse my original StackCube episodes but feed the state vector with A and B values swapped
+  # thus the model will associate "grabbing B and placing it on A" as the action to do out of the box
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/...
+  load_count: 5
+
+trainer:
+  max_steps: 5000
+  callbacks:
+    rollout_evaluation:
+      env_id: StackCubeSwapped-v1
+      max_episode_steps: 200
