@@ -12,7 +12,7 @@ datamodule:
   # WARNING: Either I prepare some dataset of pure motionplanning where B is grabbed and put on A
   # or I reuse my original StackCube episodes but feed the state vector with A and B values swapped
   # thus the model will associate "grabbing B and placing it on A" as the action to do out of the box
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/...
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCubeSwapped-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
   load_count: 5
 
 trainer:
