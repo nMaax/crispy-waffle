@@ -172,15 +172,30 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tcontrol_mode: {self.control_mode},\n"
             f"\tbackend: {self.physx_backend}\n"
             f"\tnum_envs: {self.num_envs}\n"
-            f"\tnum_episodes: {self.num_episodes}"
+            f"\tnum_episodes: {self.num_episodes}\n"
             f"\tcanonical PnP state vector: {self.canonicalize}"
         )
+
+        self.gym_env = gym.make(
+            id=self.env_id,
+            obs_mode=self.obs_mode,
+            control_mode=self.control_mode,
+            render_mode=self.render_mode,
+            num_envs=self.num_envs,
+            max_episode_steps=self.max_episode_steps,
+        )
+        rank_zero_info("Rollout environment opened successfully.")
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_episodes, "val")
 
     def on_test_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         self._run_rollouts(trainer, pl_module, self.num_episodes, "test")
+
+    def teardown(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
+        if hasattr(self, "gym_env"):
+            self.gym_env.close()
+            rank_zero_info("Rollout environment closed successfully.")
 
     def _run_rollouts(
         self, trainer: L.Trainer, pl_module: L.LightningModule, num_episodes: int, phase: str
@@ -224,14 +239,7 @@ class RolloutEvaluationCallback(L.Callback):
         # TODO: I could rather use Sync/AsyncVectorEnv, or maybe CPUGym?
         # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
 
-        env = gym.make(
-            id=self.env_id,
-            obs_mode=self.obs_mode,
-            control_mode=self.control_mode,
-            render_mode=self.render_mode,
-            num_envs=self.num_envs,
-            max_episode_steps=self.max_episode_steps,
-        )
+        env = self.gym_env
 
         if self.video_dir:
             env = cast(BaseEnv, env)
@@ -415,7 +423,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         self._close_progress_bar(pbar)
 
-        env.close()
+        # env.close()
 
         success_once_rate = total_success_once / num_episodes
         success_at_end_rate = total_success_at_end / num_episodes
