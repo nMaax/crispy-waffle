@@ -44,18 +44,7 @@ class PnPCanonicalizer:
         }
 
     def _parse_stack_cube_swapped(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
-
-        proprio = obs[..., 0:18].clone()
-        tcp_pose = obs[..., 18:25].clone()
-        cube_a_pose = obs[..., 25:32].clone()
-        cube_b_pose = obs[..., 32:39].clone()
-
-        return {
-            "proprio": proprio,
-            "tcp_pose": tcp_pose,
-            "a_pose": cube_b_pose,
-            "b_pose": cube_a_pose,
-        }
+        return self._parse_stack_cube(obs)
 
     def _parse_place_sphere(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
 
