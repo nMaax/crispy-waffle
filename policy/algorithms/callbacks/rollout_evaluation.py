@@ -176,7 +176,7 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tcanonical PnP state vector: {self.canonicalize}"
         )
 
-        self.gym_env = gym.make(
+        gym_env = gym.make(
             id=self.env_id,
             obs_mode=self.obs_mode,
             control_mode=self.control_mode,
@@ -184,6 +184,13 @@ class RolloutEvaluationCallback(L.Callback):
             num_envs=self.num_envs,
             max_episode_steps=self.max_episode_steps,
         )
+        frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
+        vector_env = ManiSkillVectorEnv(
+            frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
+        )
+
+        self.env = vector_env
+
         rank_zero_info("Rollout environment opened successfully.")
 
     def on_validation_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
@@ -239,14 +246,14 @@ class RolloutEvaluationCallback(L.Callback):
         # TODO: I could rather use Sync/AsyncVectorEnv, or maybe CPUGym?
         # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
 
-        env = self.gym_env
+        env = self.env
 
         if self.video_dir:
             env = cast(BaseEnv, env)
             max_episode_steps = gym_utils.find_max_episode_steps_value(env)
 
             env = RecordEpisode(
-                env,
+                cast(BaseEnv, env),
                 output_dir=f"{self.video_dir}/{phase}",
                 save_trajectory=False,
                 save_video=True,
@@ -254,11 +261,6 @@ class RolloutEvaluationCallback(L.Callback):
                 source_type="diffusion_policy",
                 source_desc=f"Diffusion Policy rollout ({phase})",
             )
-
-        env = FrameStack(env, num_stack=pl_module.obs_horizon)
-        env = ManiSkillVectorEnv(
-            env, ignore_terminations=self.ignore_terminations, record_metrics=True
-        )
 
         action_space = env.action_space
 
