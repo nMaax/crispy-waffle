@@ -111,7 +111,7 @@ class TrajectoryDataModule(L.LightningDataModule):
                 )
 
         if stage in ("fit", "validate") or stage is None:
-            self.train_set = self._create_dataset(
+            self.val_set = self._create_dataset(
                 episodes=val_episodes,
                 left_mask=left_mask,
                 right_mask=right_mask,
