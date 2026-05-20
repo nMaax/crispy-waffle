@@ -22,12 +22,14 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         obs_seq = batch["obs_seq"]
         act_seq = batch["act_seq"]
         goal_state = batch["goal_state"]
+        if goal_state.dim() == 2:
+            goal_state = goal_state.unsqueeze(1)
 
         flat_obs = flatten_tensor_from_mapping(obs_seq)
         flat_goal = flatten_tensor_from_mapping(goal_state)
         flat_conditioning = torch.cat([flat_obs, flat_goal], dim=-1)
 
-        plan_embedding = self.trickster_mlp(flatten_tensor_from_mapping(flat_conditioning))
+        plan_embedding = self.trickster_mlp(flat_conditioning)
 
         loss = self._compute_loss(plan_embedding, act_seq)
 

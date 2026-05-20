@@ -1,0 +1,24 @@
+defaults:
+  - network: unet1d
+  - noise_scheduler: ddpm
+  - ema: default
+  - optimizer: AdamW
+  - lr_scheduler: cosine_with_warmup
+
+_target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy
+_recursive_: false
+
+obs_horizon: ${datamodule.obs_horizon}
+pred_horizon: ${datamodule.pred_horizon}
+act_horizon: 8
+
+obs_dim: ${datamodule.obs_dim}
+act_dim: ${datamodule.act_dim}
+plan_embedding_dim: 64
+
+optimizer:
+  lr: 1e-4
+  weight_decay: 1e-5
+
+lr_scheduler:
+  num_training_steps: ${trainer.max_steps}
