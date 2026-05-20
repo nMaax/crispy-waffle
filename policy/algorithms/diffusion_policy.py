@@ -86,14 +86,15 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
+        self.unet_cond_dim = self.obs_horizon * self.obs_dim
+
     def configure_model(self) -> None:
         if self.network is not None:
             return
 
         # We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
-        external_obs_dim = self.obs_horizon * self.obs_dim
         self.network = hydra_zen.instantiate(
-            self.network_config, input_dim=self.act_dim, external_obs_dim=external_obs_dim
+            self.network_config, input_dim=self.act_dim, external_cond_dim=self.unet_cond_dim
         )
 
         if self.ema is not None:

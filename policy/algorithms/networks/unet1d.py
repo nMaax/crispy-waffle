@@ -160,7 +160,7 @@ class ConditionalUnet1D(nn.Module):
     def __init__(
         self,
         input_dim,
-        external_obs_dim,
+        external_cond_dim,
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
         kernel_size=5,
@@ -182,7 +182,7 @@ class ConditionalUnet1D(nn.Module):
             nn.Mish(),
             nn.Linear(dsed * 4, dsed),
         )
-        obs_dim = dsed + external_obs_dim
+        obs_dim = dsed + external_cond_dim
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]
