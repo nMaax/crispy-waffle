@@ -103,42 +103,20 @@ class TrajectoryDataModule(L.LightningDataModule):
         if stage == "fit" or stage is None:
             if self.train_set is None:
                 rank_zero_info(f"{len(train_episodes)} training episodes.")
-                self.train_set = TrajectoryDataset(
-                    dataset_file=self.dataset_file,
-                    obs_horizon=self.obs_horizon,
-                    pred_horizon=self.pred_horizon,
-                    obs_dim=self.obs_dim,
-                    act_dim=self.act_dim,
-                    obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                    obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                    action_left_pad_as_zero_mask=left_mask,
-                    action_right_pad_as_zero_mask=right_mask,
+                self.train_set = self._create_dataset(
                     episodes=train_episodes,
-                    load_count=self.load_count,
-                    success_only=self.success_only,
-                    lazy=self.lazy,
+                    left_mask=left_mask,
+                    right_mask=right_mask,
                     obs_transform=obs_transform,
                 )
 
         if stage in ("fit", "validate") or stage is None:
-            if self.val_set is None:
-                rank_zero_info(f"{len(val_episodes)} validation episodes.")
-                self.val_set = TrajectoryDataset(
-                    dataset_file=self.dataset_file,
-                    obs_horizon=self.obs_horizon,
-                    pred_horizon=self.pred_horizon,
-                    obs_dim=self.obs_dim,
-                    act_dim=self.act_dim,
-                    obs_left_pad_as_zero_mask=None,  # Condition padding should always be edge
-                    obs_right_pad_as_zero_mask=None,  # Condition padding should always be edge
-                    action_left_pad_as_zero_mask=left_mask,
-                    action_right_pad_as_zero_mask=right_mask,
-                    episodes=val_episodes,
-                    load_count=self.load_count,
-                    success_only=self.success_only,
-                    lazy=self.lazy,
-                    obs_transform=obs_transform,
-                )
+            self.train_set = self._create_dataset(
+                episodes=val_episodes,
+                left_mask=left_mask,
+                right_mask=right_mask,
+                obs_transform=obs_transform,
+            )
 
         if stage == "test" or stage is None:
             if not hasattr(self, "test_set") or self.test_set is None:
@@ -154,7 +132,6 @@ class TrajectoryDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-
             pin_memory=True,
         )
 
@@ -168,7 +145,6 @@ class TrajectoryDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-
             pin_memory=True,
         )
 
@@ -272,3 +248,25 @@ class TrajectoryDataModule(L.LightningDataModule):
                 )
 
         return final_left_mask, final_right_mask
+
+    def _create_dataset(self, episodes, left_mask, right_mask, obs_transform):
+        """Factory method to instantiate the dataset.
+
+        Overridden by subclasses.
+        """
+        return TrajectoryDataset(
+            dataset_file=self.dataset_file,
+            obs_horizon=self.obs_horizon,
+            pred_horizon=self.pred_horizon,
+            obs_dim=self.obs_dim,
+            act_dim=self.act_dim,
+            obs_left_pad_as_zero_mask=None,
+            obs_right_pad_as_zero_mask=None,
+            action_left_pad_as_zero_mask=left_mask,
+            action_right_pad_as_zero_mask=right_mask,
+            episodes=episodes,
+            load_count=self.load_count,
+            success_only=self.success_only,
+            lazy=self.lazy,
+            obs_transform=obs_transform,
+        )
