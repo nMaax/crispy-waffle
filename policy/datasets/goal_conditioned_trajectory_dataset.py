@@ -36,5 +36,8 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
         if self.obs_transform is not None:
             goal_state = self.obs_transform(goal_state)
 
+        # TODO: kind of dirty, we are assuming the canonicalized tensor
+        goal_state = torch.cat([goal_state[25:28], goal_state[32:35]])
+
         batch["goal_state"] = goal_state
         return batch

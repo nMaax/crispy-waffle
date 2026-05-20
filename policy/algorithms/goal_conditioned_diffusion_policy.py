@@ -11,10 +11,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
     def __init__(self, *args, plan_embedding_dim: int = 64, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.trickster_input_dim = self.obs_horizon * self.obs_dim + 6
         self.unet_cond_dim = plan_embedding_dim
+
         self.trickster_mlp = MLP(
-            input_dim=(self.obs_horizon + 1) * self.obs_dim,
-            output_dim=plan_embedding_dim,
+            input_dim=self.trickster_input_dim,
+            output_dim=self.unet_cond_dim,
             hidden_dims=[256, 256, 256],
         )
 

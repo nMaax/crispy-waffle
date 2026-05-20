@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
+from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.transforms import PnPCanonicalizer
 from policy.utils import flatten_tensor_from_mapping, to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
@@ -201,7 +202,7 @@ class RolloutEvaluationCallback(L.Callback):
 
     def teardown(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
         if hasattr(self, "gym_env"):
-            self.gym_env.close()
+            self.env.close()
             rank_zero_info("Rollout environment closed successfully.")
 
     def _run_rollouts(
@@ -293,6 +294,9 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
+        if isinstance(pl_module, GoalConditionedDiffusionPolicy):
+            goal_state = self._generate_goal_state(obs, pl_module.device)
+
         if self.render_mode == "human":
             env.render()
 
@@ -302,7 +306,10 @@ class RolloutEvaluationCallback(L.Callback):
             flatten_obs = flatten_tensor_from_mapping(adapted_obs, device=pl_module.device)
 
             with torch.no_grad():
-                action_seq = pl_module.get_action(flatten_obs)
+                if isinstance(pl_module, GoalConditionedDiffusionPolicy):
+                    action_seq = pl_module.get_action(flatten_obs, goal_state)
+                else:
+                    action_seq = pl_module.get_action(flatten_obs)
 
             # Execute the action chunk
             for i in range(pl_module.act_horizon):
@@ -444,6 +451,21 @@ class RolloutEvaluationCallback(L.Callback):
             f"  [{phase.capitalize()} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
+
+    # TODO: should be passed as optional parameter (type Callable)
+    def _generate_goal_state(
+        self, initial_obs: torch.Tensor, device: torch.device
+    ) -> torch.Tensor:
+        goal = torch.zeros(initial_obs.shape[0], 6, device=device, dtype=torch.float32)
+
+        cube_A_pos = initial_obs[..., -1, 25:28].clone()
+        cube_half_size = 0.02
+
+        goal[..., 0:3] = cube_A_pos  # Cube A stay still
+        goal[..., 3:6] = cube_A_pos  # Cube B is on Cube A
+        goal[..., 5] += cube_half_size * 2  # But just above it
+
+        return goal
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""
