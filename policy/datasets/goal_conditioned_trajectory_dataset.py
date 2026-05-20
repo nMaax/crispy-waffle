@@ -1,5 +1,3 @@
-from typing import cast
-
 import h5py
 import torch
 
@@ -16,9 +14,19 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
 
         if self.lazy:
             episode_id = traj_meta["episode_id"]
-            h5_traj = cast(h5py.Group, self.h5_file[f"traj_{episode_id}"])
 
-            obs_dataset = cast(h5py.Dataset, h5_traj["obs"])
+            h5_traj = self.h5_file[f"traj_{episode_id}"]
+            if not isinstance(h5_traj, h5py.Group):
+                raise ValueError(
+                    f"Expected a group for trajectory {episode_id}, but got {type(h5_traj)}"
+                )
+
+            obs_dataset = h5_traj["obs"]
+            if not isinstance(obs_dataset, h5py.Dataset):
+                raise ValueError(
+                    f"Expected a dataset for observations in trajectory {episode_id}, but got {type(obs_dataset)}"
+                )
+
             final_obs = obs_dataset[-1]
         else:
             final_obs = traj_meta["obs"][-1]
