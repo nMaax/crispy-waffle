@@ -5,4 +5,4 @@ defaults:
 _target_: policy.datamodules.multi_task_aligned_states_datamodule.MultiTaskAlignedStatesDataModule
 _recursive_: false
 batch_size: 256
-num_workers: 8
+num_workers: 4
