@@ -8,15 +8,23 @@ from policy.utils import flatten_tensor_from_mapping
 
 
 class GoalConditionedDiffusionPolicy(DiffusionPolicy):
-    def __init__(self, *args, plan_embedding_dim: int = 64, **kwargs):
+    def __init__(
+        self, *args, plan_embedding_dim: int = 64, skip_connection: bool = False, **kwargs
+    ):
         super().__init__(*args, **kwargs)
 
-        self.trickster_input_dim = self.obs_horizon * self.obs_dim + 6
         self.unet_cond_dim = plan_embedding_dim
+        self.skip_connection = skip_connection
 
+        if self.skip_connection:
+            self.unet_cond_dim = plan_embedding_dim + self.obs_horizon * self.obs_dim
+        else:
+            self.unet_cond_dim = plan_embedding_dim
+
+        self.trickster_input_dim = self.obs_horizon * self.obs_dim + 6
         self.trickster_mlp = MLP(
             input_dim=self.trickster_input_dim,
-            output_dim=self.unet_cond_dim,
+            output_dim=plan_embedding_dim,
             hidden_dims=[256, 256, 256],
         )
 
@@ -29,11 +37,16 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
 
         flat_obs = flatten_tensor_from_mapping(obs_seq)
         flat_goal = flatten_tensor_from_mapping(goal_state)
-        flat_conditioning = torch.cat([flat_obs, flat_goal], dim=-1)
+        flat_obs_and_goal = torch.cat([flat_obs, flat_goal], dim=-1)
 
-        plan_embedding = self.trickster_mlp(flat_conditioning)
+        plan_embedding = self.trickster_mlp(flat_obs_and_goal)
 
-        loss = self._compute_loss(plan_embedding, act_seq)
+        if self.skip_connection:
+            unet_cond = torch.cat([flat_obs, plan_embedding], dim=-1)
+        else:
+            unet_cond = plan_embedding
+
+        loss = self._compute_loss(unet_cond, act_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -47,8 +60,13 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
     ) -> torch.Tensor:
         flat_obs = flatten_tensor_from_mapping(obs_seq)
         flat_goal = flatten_tensor_from_mapping(goal_state)
-        flat_conditioning = torch.cat([flat_obs, flat_goal], dim=-1)
+        flat_obs_and_goal = torch.cat([flat_obs, flat_goal], dim=-1)
 
-        plan_embedding = self.trickster_mlp(flat_conditioning)
+        plan_embedding = self.trickster_mlp(flat_obs_and_goal)
 
-        return super().get_action(plan_embedding, num_inference_steps, clamp_range)
+        if self.skip_connection:
+            unet_cond = torch.cat([flat_obs, plan_embedding], dim=-1)
+        else:
+            unet_cond = plan_embedding
+
+        return super().get_action(unet_cond, num_inference_steps, clamp_range)
