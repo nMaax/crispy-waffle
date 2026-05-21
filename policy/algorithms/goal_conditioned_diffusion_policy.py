@@ -9,11 +9,17 @@ from policy.utils import flatten_tensor_from_mapping
 
 class GoalConditionedDiffusionPolicy(DiffusionPolicy):
     def __init__(
-        self, *args, plan_embedding_dim: int = 64, skip_connection: bool = False, **kwargs
+        self,
+        *args,
+        goal_dim: int = 6,
+        plan_embedding_dim: int = 64,
+        skip_connection: bool = False,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        self.unet_cond_dim = plan_embedding_dim
+        self.goal_dim = goal_dim
+        self.plan_embedding_dim = plan_embedding_dim
         self.skip_connection = skip_connection
 
         if self.skip_connection:
@@ -21,10 +27,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         else:
             self.unet_cond_dim = plan_embedding_dim
 
-        self.trickster_input_dim = self.obs_horizon * self.obs_dim + 6
+        self.trickster_input_dim = self.obs_horizon * self.obs_dim + self.goal_dim
         self.trickster_mlp = MLP(
             input_dim=self.trickster_input_dim,
-            output_dim=plan_embedding_dim,
+            output_dim=self.plan_embedding_dim,
             hidden_dims=[256, 256, 256],
         )
 

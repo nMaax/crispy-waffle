@@ -53,6 +53,7 @@ class RolloutEvaluationCallback(L.Callback):
         control_mode: str | None = None,
         physx_backend: str | None = None,
         canonicalize: bool | None = None,
+        abs_goal: bool | None = None,
     ):
         super().__init__()
 
@@ -68,6 +69,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
         self.canonicalize = canonicalize
+        self.abs_goal = abs_goal
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -124,6 +126,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
+        self.abs_goal = _resolve_param(self.abs_goal, "abs_goal", strict=False, default=True)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -456,14 +459,20 @@ class RolloutEvaluationCallback(L.Callback):
     def _generate_goal_state(
         self, initial_obs: torch.Tensor, device: torch.device
     ) -> torch.Tensor:
-        goal = torch.zeros(initial_obs.shape[0], 6, device=device, dtype=torch.float32)
 
         cube_A_pos = initial_obs[..., -1, 25:28].clone()
-        cube_half_size = 0.02
+        cube_B_pos = cube_A_pos + torch.tensor(
+            [0.0, 0.0, 0.04], device=device
+        )  # Just above Cube A
 
-        goal[..., 0:3] = cube_A_pos  # Cube A stay still
-        goal[..., 3:6] = cube_A_pos  # Cube B is on Cube A
-        goal[..., 5] += cube_half_size * 2  # But just above it
+        if self.abs_goal:
+            goal = torch.zeros(initial_obs.shape[0], 6, device=device, dtype=torch.float32)
+            goal[..., 0:3] = cube_A_pos
+            goal[..., 3:6] = cube_B_pos
+        else:
+            # Relative position of Cube B to Cube A
+            goal = torch.zeros(initial_obs.shape[0], 3, device=device, dtype=torch.float32)
+            goal[..., 0:3] = cube_B_pos - cube_A_pos
 
         return goal
 

@@ -7,6 +7,7 @@ defaults:
 name: ${hydra:runtime.choices.experiment}
 
 algorithm:
+  goal_dim: 6
   act_horizon: 8
 
 datamodule:

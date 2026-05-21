@@ -1,0 +1,5 @@
+defaults:
+  - canonical_trajectory_datamodule
+
+_target_: policy.datamodules.goal_conditioned_trajectory_datamodule.GoalConditionedTrajectoryDataModule
+abs_goal: false

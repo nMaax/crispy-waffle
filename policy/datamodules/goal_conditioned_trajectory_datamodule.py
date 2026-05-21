@@ -3,6 +3,10 @@ from policy.datasets.goal_conditioned_trajectory_dataset import GoalConditionedT
 
 
 class GoalConditionedTrajectoryDataModule(TrajectoryDataModule):
+    def __init__(self, *args, abs_goal: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.abs_goal = abs_goal
+
     def _create_dataset(self, episodes, left_mask, right_mask, obs_transform):
         return GoalConditionedTrajectoryDataset(
             dataset_file=self.dataset_file,
@@ -19,4 +23,5 @@ class GoalConditionedTrajectoryDataModule(TrajectoryDataModule):
             success_only=self.success_only,
             lazy=self.lazy,
             obs_transform=obs_transform,
+            abs_goal=self.abs_goal,
         )

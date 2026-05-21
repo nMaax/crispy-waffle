@@ -6,6 +6,10 @@ from policy.utils import to_tensor
 
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
+    def __init__(self, *args, abs_goal: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.abs_goal = abs_goal
+
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         batch = super().__getitem__(idx)
 
@@ -37,7 +41,13 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
             goal_state = self.obs_transform(goal_state)
 
         # TODO: kind of dirty, we are assuming the canonicalized tensor
-        goal_state = torch.cat([goal_state[25:28], goal_state[32:35]])
+        cubeA_pos = goal_state[25:28]
+        cubeB_pos = goal_state[32:35]
+
+        if self.abs_goal:
+            goal_state = torch.cat([cubeA_pos, cubeB_pos])
+        else:
+            goal_state = cubeB_pos - cubeA_pos
 
         batch["goal_state"] = goal_state
         return batch
