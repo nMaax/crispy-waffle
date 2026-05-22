@@ -189,6 +189,7 @@ class RolloutEvaluationCallback(L.Callback):
             max_episode_steps=self.max_episode_steps,
         )
         frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
+        self._inner_env = frame_stack_env
         vector_env = ManiSkillVectorEnv(
             frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
@@ -253,17 +254,25 @@ class RolloutEvaluationCallback(L.Callback):
         env = self.env
 
         if self.video_dir:
-            env = cast(BaseEnv, env)
-            max_episode_steps = gym_utils.find_max_episode_steps_value(env)
+            # We wrap the inner environment of ManiSkillVectorEnv with RecordEpisode
+            # to avoid AssertionError (RecordEpisode expects a gymnasium.Env)
+            inner_env = cast(BaseEnv, self._inner_env)
+            max_episode_steps = gym_utils.find_max_episode_steps_value(inner_env)
 
-            env = RecordEpisode(
-                cast(BaseEnv, env),
+            wrapped_inner = RecordEpisode(
+                inner_env,
                 output_dir=f"{self.video_dir}/{phase}",
                 save_trajectory=False,
                 save_video=True,
                 max_steps_per_video=max_episode_steps,
                 source_type="diffusion_policy",
                 source_desc=f"Diffusion Policy rollout ({phase})",
+            )
+            # Re-wrap with ManiSkillVectorEnv to maintain the expected API and metrics
+            env = ManiSkillVectorEnv(
+                wrapped_inner,
+                ignore_terminations=self.ignore_terminations,
+                record_metrics=True,
             )
 
         action_space = env.action_space
