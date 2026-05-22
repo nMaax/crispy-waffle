@@ -4,7 +4,6 @@ import hydra
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
-from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
 from policy.utils.hydra_utils import resolve_dictconfig
@@ -18,7 +17,9 @@ def main(dict_config: DictConfig):
     ckpt_path = Path(config.ckpt_path)
 
     print(f"Loading policy from {ckpt_path}...")
-    model = DiffusionPolicy.load_from_checkpoint(ckpt_path)
+    # Load the model class dynamically from the config
+    model_class = hydra.utils.get_class(dict_config.algorithm._target_)
+    model = model_class.load_from_checkpoint(ckpt_path)
 
     trainer = instantiate_trainer(config.trainer)
 
