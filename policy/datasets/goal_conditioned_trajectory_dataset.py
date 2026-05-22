@@ -6,15 +6,26 @@ from policy.utils import to_tensor
 
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
-    def __init__(self, *args, abs_goal: bool = True, **kwargs):
+    def __init__(self, *args, abs_goal: bool = True, her_ratio: float = 0.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.abs_goal = abs_goal
+        self.her_ratio = her_ratio
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         batch = super().__getitem__(idx)
 
         traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]
         traj_meta = self.trajectories[traj_idx]
+
+        # The current timestep is the last observation in the sequence window
+        current_t = obs_end - 1
+
+        # HER: Randomly sample a future state as the goal with probability her_ratio
+        if self.her_ratio > 0.0 and torch.rand(1).item() < self.her_ratio:
+            # torch.randint(low, high) samples in range [low, high - 1]
+            goal_t = torch.randint(current_t, L, (1,)).item()
+        else:
+            goal_t = L - 1
 
         if self.lazy:
             episode_id = traj_meta["episode_id"]
@@ -31,9 +42,9 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
                     f"Expected a dataset for observations in trajectory {episode_id}, but got {type(obs_dataset)}"
                 )
 
-            final_obs = obs_dataset[-1]
+            final_obs = obs_dataset[goal_t]
         else:
-            final_obs = traj_meta["obs"][-1]
+            final_obs = traj_meta["obs"][goal_t]
 
         goal_state = to_tensor(final_obs, dtype=torch.float32)
 
