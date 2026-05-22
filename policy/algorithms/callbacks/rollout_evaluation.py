@@ -464,7 +464,7 @@ class RolloutEvaluationCallback(L.Callback):
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
 
-    # TODO: should be passed as optional parameter (type Callable)
+    # TODO: should be passed as optional parameter (type Callable), or maybe given by the environment itself
     def _generate_goal_state(
         self, initial_obs: torch.Tensor, device: torch.device
     ) -> torch.Tensor:

@@ -7,6 +7,10 @@ from policy.utils import to_tensor
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
     def __init__(self, *args, abs_goal: bool = True, her_ratio: float = 0.0, **kwargs):
+        if kwargs.get("canonicalize", False) is False:
+            # TODO: maybe we should just default to canonicaze:true and remove it
+            raise ValueError("GoalConditionedTrajectoryDataset requires canonicalize=True")
+
         super().__init__(*args, **kwargs)
         self.abs_goal = abs_goal
         self.her_ratio = her_ratio
@@ -51,7 +55,7 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
         if self.obs_transform is not None:
             goal_state = self.obs_transform(goal_state)
 
-        # TODO: kind of dirty, we are assuming the canonicalized tensor
+        # We are assuming the canonicalized tensor, which is checked in the __init__
         cubeA_pos = goal_state[25:28]
         cubeB_pos = goal_state[32:35]
 
