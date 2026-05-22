@@ -1,4 +1,0 @@
-defaults:
-  - goal_conditioned_trajectory_datamodule
-
-abs_goal: false
