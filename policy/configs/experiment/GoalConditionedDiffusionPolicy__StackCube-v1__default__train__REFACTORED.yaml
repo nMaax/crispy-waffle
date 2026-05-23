@@ -9,8 +9,6 @@ name: ${hydra:runtime.choices.experiment}
 algorithm:
   act_horizon: 8
   plan_embedding_dim: 64
-  abs_plan_cond: false
-  history_dropout_prob: 0.2
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5

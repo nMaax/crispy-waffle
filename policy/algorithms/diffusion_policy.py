@@ -10,7 +10,7 @@ from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.utils import flatten_tensor_from_mapping
+from policy.utils import flatten_tensor_from_mapping, get_batch_size
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
@@ -215,7 +215,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = obs_seq.shape[0]
+        B = get_batch_size(obs_seq)
+        obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())

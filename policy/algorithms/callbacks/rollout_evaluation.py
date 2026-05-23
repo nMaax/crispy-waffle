@@ -299,11 +299,13 @@ class RolloutEvaluationCallback(L.Callback):
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
 
+        obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
+
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
         if isinstance(pl_module, GoalConditionedDiffusionPolicy):
-            goal_state = self._generate_goal_state(obs, pl_module.device)
+            goal_state = self._generate_goal_state(obs)
 
         if self.render_mode == "human":
             env.render()
@@ -459,20 +461,19 @@ class RolloutEvaluationCallback(L.Callback):
         )
 
     # TODO: should be passed as optional parameter (type Callable), or maybe given by the environment itself
-    def _generate_goal_state(
-        self, initial_obs: torch.Tensor, device: torch.device
-    ) -> torch.Tensor:
+    def _generate_goal_state(self, initial_obs: torch.Tensor | dict) -> torch.Tensor:
 
-        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=device)  # Just above Cube A
+        if not isinstance(initial_obs, torch.Tensor):
+            raise ValueError(
+                f"Expected initial_obs to be a torch.Tensor, but got {type(initial_obs)}"
+            )
 
-        cube_A_pos = initial_obs[..., -1, 25:28].clone()
-        cube_B_pos = initial_obs[..., -1, 25:28].clone()
-        cube_B_pos += OFFSET
+        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=initial_obs.device)  # Just above Cube A
 
-        # We can just avoid proprio, TCP and others, as they will be ignore anyway
-        goal = torch.zeros_like(initial_obs)[:, -1, :]
-        goal[..., 25:28] = cube_A_pos
-        goal[..., 32:35] = cube_B_pos
+        goal = initial_obs[:, -1, :].clone()
+        goal_cube_A_pos = goal[..., 25:28]
+        goal_cube_B_pos = goal_cube_A_pos + OFFSET
+        goal[..., 32:35] = goal_cube_B_pos
 
         return goal
 
