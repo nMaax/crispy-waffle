@@ -14,13 +14,18 @@ class MLP(nn.Module):
     ):
         super().__init__()
 
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dims = hidden_dims
+        self.bias = bias
+
         layers = []
         current_dim = input_dim
 
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(current_dim, h_dim, bias=bias))
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(current_dim, hidden_dim, bias=bias))
             layers.append(nn.ReLU())
-            current_dim = h_dim
+            current_dim = hidden_dim
 
         layers.append(nn.Linear(current_dim, output_dim, bias=bias))
 
