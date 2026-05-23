@@ -22,7 +22,7 @@ import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.transforms import PnPCanonicalizer
-from policy.utils import flatten_tensor_from_mapping, to_tensor
+from policy.utils import to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
@@ -53,7 +53,6 @@ class RolloutEvaluationCallback(L.Callback):
         control_mode: str | None = None,
         physx_backend: str | None = None,
         canonicalize: bool | None = None,
-        abs_goal: bool | None = None,
     ):
         super().__init__()
 
@@ -69,7 +68,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
         self.canonicalize = canonicalize
-        self.abs_goal = abs_goal
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -126,7 +124,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
-        self.abs_goal = _resolve_param(self.abs_goal, "abs_goal", strict=False, default=True)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -189,11 +186,10 @@ class RolloutEvaluationCallback(L.Callback):
             max_episode_steps=self.max_episode_steps,
         )
         frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
-        self._inner_env = frame_stack_env
         vector_env = ManiSkillVectorEnv(
             frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
-
+        self._inner_env = frame_stack_env
         self.env = vector_env
 
         rank_zero_info("Rollout environment opened successfully.")
@@ -315,13 +311,11 @@ class RolloutEvaluationCallback(L.Callback):
         while episodes_completed < num_episodes:
             adapted_obs = self.adapter.apply(obs)
 
-            flatten_obs = flatten_tensor_from_mapping(adapted_obs, device=pl_module.device)
-
             with torch.no_grad():
                 if isinstance(pl_module, GoalConditionedDiffusionPolicy):
-                    action_seq = pl_module.get_action(flatten_obs, goal_state)
+                    action_seq = pl_module.get_action(adapted_obs, goal_state)
                 else:
-                    action_seq = pl_module.get_action(flatten_obs)
+                    action_seq = pl_module.get_action(adapted_obs)
 
             # Execute the action chunk
             for i in range(pl_module.act_horizon):
@@ -469,19 +463,16 @@ class RolloutEvaluationCallback(L.Callback):
         self, initial_obs: torch.Tensor, device: torch.device
     ) -> torch.Tensor:
 
-        cube_A_pos = initial_obs[..., -1, 25:28].clone()
-        cube_B_pos = cube_A_pos + torch.tensor(
-            [0.0, 0.0, 0.04], device=device
-        )  # Just above Cube A
+        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=device)  # Just above Cube A
 
-        if self.abs_goal:
-            goal = torch.zeros(initial_obs.shape[0], 6, device=device, dtype=torch.float32)
-            goal[..., 0:3] = cube_A_pos
-            goal[..., 3:6] = cube_B_pos
-        else:
-            # Relative position of Cube B to Cube A
-            goal = torch.zeros(initial_obs.shape[0], 3, device=device, dtype=torch.float32)
-            goal[..., 0:3] = cube_B_pos - cube_A_pos
+        cube_A_pos = initial_obs[..., -1, 25:28].clone()
+        cube_B_pos = initial_obs[..., -1, 25:28].clone()
+        cube_B_pos += OFFSET
+
+        # We can just avoid proprio, TCP and others, as they will be ignore anyway
+        goal = torch.zeros_like(initial_obs)[:, -1, :]
+        goal[..., 25:28] = cube_A_pos
+        goal[..., 32:35] = cube_B_pos
 
         return goal
 

@@ -3,9 +3,8 @@ from policy.datasets.goal_conditioned_trajectory_dataset import GoalConditionedT
 
 
 class GoalConditionedTrajectoryDataModule(TrajectoryDataModule):
-    def __init__(self, *args, abs_goal: bool = True, her_ratio: float = 0.0, **kwargs):
+    def __init__(self, *args, her_ratio: float = 0.0, **kwargs):
         super().__init__(*args, **kwargs)
-        self.abs_goal = abs_goal
         self.her_ratio = her_ratio
 
     def _create_dataset(self, episodes, left_mask, right_mask, obs_transform):
@@ -24,6 +23,5 @@ class GoalConditionedTrajectoryDataModule(TrajectoryDataModule):
             success_only=self.success_only,
             lazy=self.lazy,
             obs_transform=obs_transform,
-            abs_goal=self.abs_goal,
             her_ratio=self.her_ratio,
         )
