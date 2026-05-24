@@ -3,42 +3,39 @@ from typing import Any
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.algorithms.networks.mlp import MLP
-from policy.utils import flatten_tensor_from_mapping
+from policy.algorithms.networks.egnn import SiameseEGNNPlanner
+from policy.utils import flatten_tensor_from_mapping, get_batch_size, get_device
 
 
 class GoalConditionedDiffusionPolicy(DiffusionPolicy):
     def __init__(
         self,
         *args,
-        plan_embedding_dim: int = 64,
-        dropout_rate: float = 0.0,
+        graph_embedding_dim: int = 64,
+        drpopout_rate: float = 0.0,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        self.proprio_dim = 25  # TODO: this should be defined in a more graceful way, maybe by looking at the dataset or something
-        self.plan_embedding_dim = plan_embedding_dim
-        self.dropout_rate = dropout_rate
-        self.unet_cond_dim = (
-            self.proprio_dim * self.obs_horizon + 14 * self.obs_horizon + self.plan_embedding_dim
-        )
+        self.dropout_rate = drpopout_rate
 
-        # TODO: like down below, this should be defined in a more graceful way
-        self.planner_input_dim = 20
-        self.planner = MLP(
-            input_dim=self.planner_input_dim,
-            output_dim=self.plan_embedding_dim,
-            hidden_dims=[256, 256, 256],
+        self.proprio_dim = 25  # XXX: dirty
+        self.graph_embedding_dim = graph_embedding_dim
+
+        self.unet_cond_dim = self.proprio_dim * self.obs_horizon + self.graph_embedding_dim * 2
+
+        # 3 Nodes, 7 Semantic Features (3 for One-Hot ID + 4 for Quaternion)
+        self.planner = SiameseEGNNPlanner(
+            num_nodes=3, channels_h=7, out_dim=self.graph_embedding_dim
         )
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
         goal_state = batch["goal_state"]
-        act_seq = batch["act_seq"]
+        action_seq = batch["act_seq"]
 
         unet_cond = self._prepare_unet_cond(obs_seq, goal_state)
-        loss = self._compute_loss(unet_cond, act_seq)
+        loss = self._compute_loss(unet_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -49,8 +46,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         goal_state: torch.Tensor | dict,
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
-    ) -> torch.Tensor:
-
+    ):
         unet_cond = self._prepare_unet_cond(obs_seq, goal_state)
         return super().get_action(unet_cond, num_inference_steps, clamp_range)
 
@@ -58,59 +54,75 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         self, obs_seq: torch.Tensor | dict, goal_state: torch.Tensor | dict
     ) -> torch.Tensor:
 
-        if isinstance(obs_seq, dict):
-            obs_seq_tensor = obs_seq["state"]
-        else:
-            obs_seq_tensor = obs_seq
+        batch_size = get_batch_size(obs_seq)
+        device = get_device(obs_seq)
 
-        if isinstance(goal_state, dict):
-            goal_state_tensor = goal_state["state"]
-        else:
-            goal_state_tensor = goal_state
+        obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
+        goal_state_tensor = goal_state["state"] if isinstance(goal_state, dict) else goal_state
 
         proprio_seq = obs_seq_tensor[:, :, :25]
         cubeA_seq = obs_seq_tensor[:, :, 25:32]
         cubeB_seq = obs_seq_tensor[:, :, 32:39]
 
+        # Extract last frame for the Planner
         last_proprio = proprio_seq[:, -1, :]
+        last_tcp = last_proprio[..., 18:25]
         last_cubeA = cubeA_seq[:, -1, :]
         last_cubeB = cubeB_seq[:, -1, :]
-
-        last_tcp_pos = last_proprio[..., 0:3]
-
-        last_cubeA_rel_pos = last_cubeA[..., 0:3] - last_tcp_pos
-        last_cubeA_quat = last_cubeA[..., 3:7]
-        last_cubeB_rel_pos = last_cubeB[..., 0:3] - last_tcp_pos
-        last_cubeB_quat = last_cubeB[..., 3:7]
-
         goal_cubeA = goal_state_tensor[..., 0:7]
         goal_cubeB = goal_state_tensor[..., 7:14]
 
-        delta_A = goal_cubeA[..., 0:3] - last_cubeA[..., 0:3]
-        delta_B = goal_cubeB[..., 0:3] - last_cubeB[..., 0:3]
-
-        flat_planner_input = torch.cat(
-            [
-                last_cubeA_rel_pos,
-                last_cubeA_quat,
-                last_cubeB_rel_pos,
-                last_cubeB_quat,
-                delta_A,
-                delta_B,
-            ],
-            dim=-1,
+        # Coordinates (x)
+        curr_coords = torch.stack(
+            [last_tcp[..., 0:3], last_cubeA[..., 0:3], last_cubeB[..., 0:3]], dim=1
         )
 
-        plan_embedding = self.planner(flat_planner_input)
+        # Since we cannot have the goal TCP we use the current TCP position in the goal graph as well
+        goal_coords = torch.stack(
+            [last_tcp[..., 0:3], goal_cubeA[..., 0:3], goal_cubeB[..., 0:3]], dim=1
+        )
 
+        # Semantic Features (h)
+        # ID Tags to tell the EGNN what it's looking at
+        id_tcp = torch.tensor([1, 0, 0], device=device).expand(batch_size, -1)
+        id_A = torch.tensor([0, 1, 0], device=device).expand(batch_size, -1)
+        id_B = torch.tensor([0, 0, 1], device=device).expand(batch_size, -1)
+
+        # Quaternions
+        quat_tcp = last_tcp[..., 3:7]
+
+        curr_feats = torch.stack(
+            [
+                torch.cat([id_tcp, quat_tcp], dim=-1),
+                torch.cat([id_A, last_cubeA[..., 3:7]], dim=-1),
+                torch.cat([id_B, last_cubeB[..., 3:7]], dim=-1),
+            ],
+            dim=1,
+        )
+
+        goal_feats = torch.stack(
+            [
+                torch.cat([id_tcp, quat_tcp], dim=-1),
+                torch.cat([id_A, goal_cubeA[..., 3:7]], dim=-1),
+                torch.cat([id_B, goal_cubeB[..., 3:7]], dim=-1),
+            ],
+            dim=1,
+        )
+
+        # --- EQUIVARIANT EMBEDDINGS ---
+        curr_embedding = self.planner(curr_coords, curr_feats)
+        goal_embedding = self.planner(goal_coords, goal_feats)
+
+        plan_embedding = torch.cat([goal_embedding, curr_embedding], dim=-1)
+
+        # --- U-NET COND ---
         flat_proprio = flatten_tensor_from_mapping(proprio_seq)
 
-        cubes_seq = torch.cat([cubeA_seq, cubeB_seq], dim=-1)
-        flat_cubes = flatten_tensor_from_mapping(cubes_seq)
+        # cubes_seq = torch.cat([cubeA_seq, cubeB_seq], dim=-1)
+        # flat_cubes = flatten_tensor_from_mapping(cubes_seq)
 
-        if self.training and torch.rand(1).item() < self.dropout_rate:
-            flat_cubes = torch.zeros_like(flat_cubes)
+        # if self.training and torch.rand(1).item() < self.dropout_rate:
+        #     flat_cubes = torch.zeros_like(flat_cubes)
 
-        unet_cond = torch.cat([flat_proprio, flat_cubes, plan_embedding], dim=-1)
-
+        unet_cond = torch.cat([flat_proprio, plan_embedding], dim=-1)
         return unet_cond
