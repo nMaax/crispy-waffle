@@ -1,6 +1,0 @@
-# @package _global_
-defaults:
-  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train__SkipConnection__RelativeDistancesGoal
-
-datamodule:
-  her_ratio: 0.8
