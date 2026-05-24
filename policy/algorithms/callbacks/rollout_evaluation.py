@@ -475,7 +475,7 @@ class RolloutEvaluationCallback(L.Callback):
         goal_cube_A_pos = goal_cube_B_pos + OFFSET
         goal[..., 25:28] = goal_cube_A_pos
 
-        return goal
+        return goal  # We didn't update proprio, but it is okay since the algorithm do not use it
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""

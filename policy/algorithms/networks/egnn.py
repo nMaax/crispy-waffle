@@ -86,7 +86,7 @@ class SiameseEGNNPlanner(nn.Module):
             ]
         )
 
-        self.pool = nn.Linear(num_nodes * channels_h, out_dim)
+        self.pool = nn.Linear(num_nodes * (channels_h + 3), out_dim)
 
     def forward(self, coords: torch.Tensor, feats: torch.Tensor) -> torch.Tensor:
         """
@@ -119,7 +119,16 @@ class SiameseEGNNPlanner(nn.Module):
             x_out, h_out = egnn_layer(x_out, h_out, edge_attr, edge_index)
 
         # Reshape back to a dense batch and pool
+        x_out = x_out.view(B, self.num_nodes, 3)
         h_out = h_out.view(B, self.num_nodes, self.channels_h)
-        plan_embedding = self.pool(h_out.view(B, -1))
 
+        tcp_x = x_out[:, 0:1, :]
+        rel_x_out = x_out - tcp_x
+
+        # Flatten and combine
+        flat_h = h_out.view(B, -1)
+        flat_x = rel_x_out.view(B, -1)
+        combined = torch.cat([flat_h, flat_x], dim=-1)
+
+        plan_embedding = self.pool(combined)
         return plan_embedding
