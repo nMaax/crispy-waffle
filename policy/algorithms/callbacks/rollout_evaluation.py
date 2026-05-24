@@ -471,9 +471,9 @@ class RolloutEvaluationCallback(L.Callback):
         OFFSET = torch.tensor([0.0, 0.0, 0.04], device=initial_obs.device)  # Just above Cube A
 
         goal = initial_obs[:, -1, :].clone()
-        goal_cube_A_pos = goal[..., 25:28]
-        goal_cube_B_pos = goal_cube_A_pos + OFFSET
-        goal[..., 32:35] = goal_cube_B_pos
+        goal_cube_B_pos = goal[..., 32:35]
+        goal_cube_A_pos = goal_cube_B_pos + OFFSET
+        goal[..., 25:28] = goal_cube_A_pos
 
         return goal
 
