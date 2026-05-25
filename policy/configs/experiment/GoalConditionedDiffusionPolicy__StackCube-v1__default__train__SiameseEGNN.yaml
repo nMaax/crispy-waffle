@@ -4,7 +4,7 @@ defaults:
   - override /datamodule: goal_conditioned_trajectory_datamodule
   - override /trainer: default
 
-name: ${hydra:runtime.choices.experiment}
+name: ${hydra:runtime.choices.experiment}__embedding_as_diff__1_EGNN_layer__goal_tcp
 
 algorithm:
   act_horizon: 8

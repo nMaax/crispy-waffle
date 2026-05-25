@@ -465,17 +465,37 @@ class RolloutEvaluationCallback(L.Callback):
 
         if not isinstance(initial_obs, torch.Tensor):
             raise ValueError(
-                f"Expected initial_obs to be a torch.Tensor, but got {type(initial_obs)}"
+                "_generate_goal_state currently only supports tensor observations, but got "
+                f"{type(initial_obs).__name__}."
             )
 
-        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=initial_obs.device)  # Just above Cube A
+        # We want to craft a fake goal tensor with a simple heurisstic:
+        #   - A is on top of B, so they have same x and y
+        #   - z_A is slightly above z_B, so we add a small offset in z
+        #   - A and B roughly have the same orientation, so we keep the same quaternion
+        #   - TCP should have just ungrasped A, so they should have same position (x, y, z)
+        #   - For orientation of TCP we just pass the same quarternion as A and B
+        #   - Proprioception can be set to zero, it is ignored by the planner, and is uncraftable anyway
 
-        goal = initial_obs[:, -1, :].clone()
-        goal_cube_B_pos = goal[..., 32:35]
-        goal_cube_A_pos = goal_cube_B_pos + OFFSET
-        goal[..., 25:28] = goal_cube_A_pos
+        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=initial_obs.device)
+        goal = torch.zeros_like(
+            initial_obs[:, -1, :], device=initial_obs.device, dtype=torch.float32
+        )
 
-        return goal  # We didn't update proprio, but it is okay since the algorithm do not use it
+        cube_B_pose = initial_obs[..., 32:39]
+
+        # From the intial_obs we can craft the goal with the above heuristic
+        goal_cube_B = cube_B_pose.clone()
+        goal_cube_A = cube_B_pose.clone()
+        goal_cube_A[..., 0:3] += OFFSET
+        goal_tcp = goal_cube_A.clone()
+
+        # Set the new poses back to the goal
+        goal[..., 18:25] = goal_tcp
+        goal[..., 25:32] = goal_cube_A
+        goal[..., 32:39] = goal_cube_B
+
+        return goal
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""

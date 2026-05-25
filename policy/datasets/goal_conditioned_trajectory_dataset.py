@@ -45,10 +45,11 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
         else:
             future_obs = traj_meta["obs"][goal_t]
 
-        goal_state = to_tensor(future_obs, dtype=torch.float32)
+        # TODO: this should allow also dictionaries
+        goal = to_tensor(future_obs, dtype=torch.float32)
 
         if self.obs_transform is not None:
-            goal_state = self.obs_transform(goal_state)
+            goal = self.obs_transform(goal)
 
-        batch["goal_state"] = goal_state
+        batch["goal"] = goal
         return batch
