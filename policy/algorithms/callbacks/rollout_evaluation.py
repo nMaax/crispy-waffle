@@ -20,7 +20,6 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
-from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy_egnn import (
     GoalConditionedDiffusionPolicyEGNN,
 )
@@ -310,7 +309,10 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
-        if not isinstance(pl_module, DiffusionPolicy):
+        if isinstance(
+            pl_module,
+            GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+        ):
             goal_state = self._generate_goal_state(obs)
 
         if self.render_mode == "human":
