@@ -189,7 +189,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
     def get_action(
         self,
-        obs_seq: torch.Tensor,
+        obs_seq: torch.Tensor | dict,
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):

@@ -20,7 +20,13 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
-from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
+from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.algorithms.goal_conditioned_diffusion_policy_egnn import (
+    GoalConditionedDiffusionPolicyEGNN,
+)
+from policy.algorithms.goal_conditioned_diffusion_policy_mlp import (
+    GoalConditionedDiffusionPolicyMLP,
+)
 from policy.transforms import PnPCanonicalizer
 from policy.utils import to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
@@ -304,7 +310,7 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
-        if isinstance(pl_module, GoalConditionedDiffusionPolicy):
+        if not isinstance(pl_module, DiffusionPolicy):
             goal_state = self._generate_goal_state(obs)
 
         if self.render_mode == "human":
@@ -314,7 +320,10 @@ class RolloutEvaluationCallback(L.Callback):
             adapted_obs = self.adapter.apply(obs)
 
             with torch.no_grad():
-                if isinstance(pl_module, GoalConditionedDiffusionPolicy):
+                if isinstance(
+                    pl_module,
+                    GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+                ):
                     action_seq = pl_module.get_action(adapted_obs, goal_state)
                 else:
                     action_seq = pl_module.get_action(adapted_obs)

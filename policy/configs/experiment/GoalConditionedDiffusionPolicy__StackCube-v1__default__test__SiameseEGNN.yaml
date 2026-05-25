@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train__REFACTORED
+  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train__SiameseEGNN
 
 name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???

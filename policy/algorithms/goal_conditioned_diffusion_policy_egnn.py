@@ -3,34 +3,34 @@ from typing import Any
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.algorithms.networks.egnn import SiameseEGNNPlanner
+from policy.algorithms.networks import SiameseEGNNPlanner
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
 
-class GoalConditionedDiffusionPolicy(DiffusionPolicy):
+class GoalConditionedDiffusionPolicyEGNN(DiffusionPolicy):
     def __init__(
         self,
         *args,
-        graph_embedding_dim: int = 64,
-        drpopout_rate: float = 0.0,
+        plan_embedding_dim: int = 64,
+        # dropout_rate: float = 0.0,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        self.dropout_rate = drpopout_rate
+        # self.dropout_rate = dropout_rate
 
         # XXX: dirty, as well as the overall idea of hardcoding dimensions
         self.proprio_dim = 18
         self.tcp_dim = 7
-        self.graph_embedding_dim = graph_embedding_dim
+        self.plan_embedding_dim = plan_embedding_dim
 
         self.unet_cond_dim = (
             self.proprio_dim + self.tcp_dim
-        ) * self.obs_horizon + self.graph_embedding_dim
+        ) * self.obs_horizon + self.plan_embedding_dim
 
         # 3 Nodes, 7 Semantic Features (3 for One-Hot ID + 4 for Quaternion)
         self.planner = SiameseEGNNPlanner(
-            num_nodes=3, channels_h=7, out_dim=self.graph_embedding_dim
+            num_nodes=3, channels_h=7, out_dim=self.plan_embedding_dim
         )
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
@@ -63,15 +63,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
         goal_state_tensor = goal["state"] if isinstance(goal, dict) else goal
 
-        proprio_seq = obs_seq_tensor[:, :, 0:18]
-        tcp_seq = obs_seq_tensor[:, :, 18:25]
-        cubeA_seq = obs_seq_tensor[:, :, 25:32]
-        cubeB_seq = obs_seq_tensor[:, :, 32:39]
+        proprio_seq = obs_seq_tensor[..., :, 0:18]
+        tcp_seq = obs_seq_tensor[..., :, 18:25]
+        cubeA_seq = obs_seq_tensor[..., :, 25:32]
+        cubeB_seq = obs_seq_tensor[..., :, 32:39]
 
         # Extract last frame for the Planner
         last_tcp = tcp_seq[..., -1, :]
-        last_cubeA = cubeA_seq[:, -1, :]
-        last_cubeB = cubeB_seq[:, -1, :]
+        last_cubeA = cubeA_seq[..., -1, :]
+        last_cubeB = cubeB_seq[..., -1, :]
 
         # We ignore proprio as it is not reasonably craftable during simulations
         goal_tcp = goal_state_tensor[..., 18:25]
@@ -117,7 +117,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy):
         # it basically represents the "delta" to achieve the goal from the current state
         plan_embedding = goal_embedding - curr_embedding
 
-        # --- U-NET COND ---
+        # DIRECT INFO FOR UNET
         flat_proprio = flatten_tensor_from_mapping(proprio_seq)
         flat_tcp = flatten_tensor_from_mapping(tcp_seq)
 

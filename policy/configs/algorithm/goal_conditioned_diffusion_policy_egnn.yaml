@@ -1,0 +1,5 @@
+defaults:
+  - diffusion_policy
+
+_target_: policy.algorithms.goal_conditioned_diffusion_policy_egnn.GoalConditionedDiffusionPolicyEGNN
+plan_embedding_dim: 64
