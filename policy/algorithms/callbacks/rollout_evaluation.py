@@ -482,7 +482,7 @@ class RolloutEvaluationCallback(L.Callback):
             initial_obs[:, -1, :], device=initial_obs.device, dtype=torch.float32
         )
 
-        cube_B_pose = initial_obs[..., 32:39]
+        cube_B_pose = initial_obs[..., -1, 32:39]
 
         # From the intial_obs we can craft the goal with the above heuristic
         goal_cube_B = cube_B_pose.clone()
