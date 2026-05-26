@@ -5,7 +5,6 @@ from typing import Any, cast
 import gymnasium as gym
 import hydra_zen
 import lightning as L
-import mani_skill.envs  # noqa: F401
 import torch
 from gymnasium.spaces import Box
 from lightning.fabric.utilities import rank_zero_warn
@@ -194,8 +193,13 @@ class RolloutEvaluationCallback(L.Callback):
         vector_env = ManiSkillVectorEnv(
             frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
-        self._inner_env = frame_stack_env
-        self.env = vector_env
+
+        self._inner_env = gym_env.unwrapped  # type: ignore
+        self._gym_env = gym_env
+        self._frame_stack_env = frame_stack_env
+        self._vector_env = vector_env
+
+        self.env = self._vector_env  # alias
 
         rank_zero_info("Rollout environment opened successfully.")
 
@@ -257,7 +261,7 @@ class RolloutEvaluationCallback(L.Callback):
         if self.video_dir:
             # We wrap the inner environment of ManiSkillVectorEnv with RecordEpisode
             # to avoid AssertionError (RecordEpisode expects a gymnasium.Env)
-            inner_env = cast(BaseEnv, self._inner_env)
+            inner_env = cast(BaseEnv, self._frame_stack_env)
             max_episode_steps = gym_utils.find_max_episode_steps_value(inner_env)
 
             wrapped_inner = RecordEpisode(
@@ -313,7 +317,11 @@ class RolloutEvaluationCallback(L.Callback):
             pl_module,
             GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
         ):
-            goal_state = self._fetch_goal_state(pl_module)
+            goal_state = self._inner_env.generate_heuristic_goal()
+
+            goal_state = to_tensor(goal_state)
+            if self.canonicalizer is not None:
+                goal_state = self.canonicalizer(goal_state)
 
         if self.render_mode == "human":
             env.render()
@@ -350,13 +358,17 @@ class RolloutEvaluationCallback(L.Callback):
                 if self.canonicalizer is not None:
                     obs = self.canonicalizer(obs)
 
-                truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
-
                 if isinstance(
                     pl_module,
                     GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
                 ):
-                    goal_state = self._fetch_goal_state(pl_module)
+                    goal_state = self._inner_env.generate_heuristic_goal()
+
+                    goal_state = to_tensor(goal_state)
+                    if self.canonicalizer is not None:
+                        goal_state = self.canonicalizer(goal_state)
+
+                truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 
                 # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
                 #
@@ -476,22 +488,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"  [{phase.capitalize()} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
-
-    def _fetch_goal_state(self, pl_module: L.LightningModule) -> torch.Tensor:
-        """Retrieves the target goal state directly from the environments and canonicalizes it."""
-        import numpy as np
-
-        # self.env is a ManiSkillVectorEnv. Calling a method returns a list of results
-        # from each sub-environment. We must stack them into a single batch (numpy array).
-        goals = self.env.call("get_goal_state")
-        goals = np.stack(goals)
-
-        goals = to_tensor(goals, device=pl_module.device, dtype=torch.float32)
-
-        if self.canonicalizer is not None:
-            goals = self.canonicalizer(goals)
-
-        return goals
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""

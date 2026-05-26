@@ -71,24 +71,57 @@ class StackCubeSwappedEnv(StackCubeEnv):
 
         return reward
 
-    def get_goal_state(self):
-        """Returns the raw observation vector for the goal state (Cube B on top of Cube A)."""
-        obs = self.get_obs()
-        if isinstance(obs, dict):
-            pass # assume flat for now
+    def generate_heuristic_goal(self) -> torch.Tensor | dict:
+        """Generates a heuristic goal state based on the current observation.
 
-        # Cube A pose (p, q) is at 25:32
-        cube_A_pose = obs[25:32].copy()
+        Heuristic:
+        - Cube B is on top of Cube A (same x,y, offset z by cube size)
+        - Orientations of Cube B and TCP match Cube A
+        - TCP is positioned exactly at Cube B
+        """
 
-        # Target for B: A_pos + [0, 0, 0.04], A_quat
-        target_pos_B = cube_A_pose[:3].copy()
-        target_pos_B[2] += 0.04
+        # Observation structure is just like in StackCube (assuming Panda robot with 18-dim proprioception):
+        # 0:18   - Robot proprioception (qpos, qvel) - set to 0
+        # 18:25  - TCP Pose (7)
+        # 25:32  - Cube A Pose (7)
+        # 32:39  - Cube B Pose (7)
+        # 39:42  - tcp_to_cubeA_pos (3)
+        # 42:45  - tcp_to_cubeB_pos (3)
+        # 45:48  - cubeA_to_cubeB_pos (3)
 
-        # Set Cube B pose
-        obs[32:35] = target_pos_B
-        obs[35:39] = cube_A_pose[3:7]
+        obs = torch.as_tensor(self.get_obs(), device=self.device)
+        goal = torch.zeros_like(obs)
 
-        # TCP goal: same as Cube B (just ungrasped)
-        obs[18:25] = obs[32:39]
+        # Goal: Cube A is stacked on top of Cube B
+        cube_A_pose = obs[..., 25:32]
+        cube_A_pos = cube_A_pose[..., :3]
+        cube_A_quat = cube_A_pose[..., 3:7]
 
-        return obs
+        goal_cube_A_pos = cube_A_pos.clone()
+        goal_cube_A_quat = cube_A_quat.clone()
+
+        goal_cube_B_pos = cube_A_pos.clone()
+        goal_cube_B_pos[..., 2] += self.cube_half_size[2] * 2
+        goal_cube_B_quat = cube_A_quat.clone()  # Keep same orientation for simplicity
+
+        # Goal: TCP is at Cube B's position
+        goal_tcp_pos = goal_cube_B_pos.clone()
+        goal_tcp_quat = goal_cube_B_quat.clone()
+
+        # Fill goal state
+        goal[..., 18:21] = goal_tcp_pos
+        goal[..., 21:25] = goal_tcp_quat
+        goal[..., 25:28] = goal_cube_A_pos
+        goal[..., 28:32] = goal_cube_A_quat
+        goal[..., 32:35] = goal_cube_B_pos
+        goal[..., 35:39] = goal_cube_B_quat
+
+        # Relative positions
+        # tcp_to_cubeA_pos = cubeA.p - tcp.p
+        goal[..., 39:42] = goal_cube_A_pos - goal_tcp_pos
+        # tcp_to_cubeB_pos = cubeB.p - tcp.p
+        goal[..., 42:45] = goal_cube_B_pos - goal_tcp_pos
+        # cubeA_to_cubeB_pos = cubeB.p - cubeA.p
+        goal[..., 45:48] = goal_cube_B_pos - goal_cube_A_pos
+
+        return goal
