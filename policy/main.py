@@ -92,8 +92,22 @@ def main(dict_config: DictConfig) -> dict:
     if getattr(config, "finetuning_ckpt_path", None) is not None:
         logger.info(f"Fine-tuning requested! Loading weights from {config.finetuning_ckpt_path}")
 
+        # Filter out Hydra-specific keys that would cause TypeErrors in the constructor
+        from omegaconf import OmegaConf
+
+        algo_dict = (
+            OmegaConf.to_container(config.algorithm, resolve=True)
+            if OmegaConf.is_config(config.algorithm)
+            else config.algorithm
+        )
+        algo_kwargs = {
+            k: v
+            for k, v in algo_dict.items()
+            if k not in ["_target_", "_recursive_", "_convert_"]
+        }
+
         algorithm = type(algorithm).load_from_checkpoint(
-            config.finetuning_ckpt_path, strict=False, **config.algorithm
+            config.finetuning_ckpt_path, strict=False, **algo_kwargs
         )
 
         config.ckpt_path = None

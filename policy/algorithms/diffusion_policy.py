@@ -108,7 +108,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         # however I prefer to follow the template prescription, just for coherence
 
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
-        optimizer = optimizer_partial(self.parameters())
+        optimizer = optimizer_partial(filter(lambda p: p.requires_grad, self.parameters()))
 
         if self.lr_scheduler_config is not None:
             lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)

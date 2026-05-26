@@ -2,7 +2,7 @@
 
 defaults:
   - GoalConditionedDiffusionPolicy__StackCube-v1__default__train__MLP
-  - /trainer/callbacks@trainer.callbacks: differential_lr
+  - override /trainer/callbacks@trainer.callbacks: differential_lr
 
 finetuning_ckpt_path: ???
 

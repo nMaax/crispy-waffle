@@ -14,6 +14,7 @@ class PnPCanonicalizer:
             "StackCubeSwapped-v1": self._parse_stack_cube_swapped,
             "PlaceSphere-v1": self._parse_place_sphere,
             "PlaceSphereWristcam-v1": self._parse_place_sphere_wristcam,
+            "PlaceCubeLeft-v1": self._parse_place_cube_left,
         }
 
     # Should decouple from AdapterProtocol and rather make a TransformProtocol
@@ -28,6 +29,9 @@ class PnPCanonicalizer:
         components = list(components.values())
 
         return torch.cat(components, dim=-1)
+
+    def _parse_place_cube_left(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube(obs)
 
     def _parse_stack_cube(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
 
