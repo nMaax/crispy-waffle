@@ -57,5 +57,12 @@ class Config:
     This is the same as the `ckpt_path` argument in the `lightning.Trainer.fit` method.
     """
 
+    finetuning_ckpt_path: str | None = None
+    """Path to a checkpoint to load the weights for fine-tuning.
+
+    If provided, the weights will be loaded into the algorithm, and the trainer's `ckpt_path`
+    will be set to None to avoid resuming the training state.
+    """
+
     render: Any | None = None
     """Optional render mode."""
