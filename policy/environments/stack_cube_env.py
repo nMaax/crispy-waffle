@@ -29,7 +29,7 @@ class StackCubeEnv(ManiSkillStackCubeEnv):
         goal = torch.zeros_like(obs)
 
         # Goal: Cube A is stacked (+z) on top of Cube B
-        cube_B_pose = obs[..., 25:32]
+        cube_B_pose = obs[..., 32:39]
         cube_B_pos = cube_B_pose[..., :3]
         cube_B_quat = cube_B_pose[..., 3:7]
 
