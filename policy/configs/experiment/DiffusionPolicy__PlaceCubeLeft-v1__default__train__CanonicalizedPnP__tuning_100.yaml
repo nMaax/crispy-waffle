@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP
+
+name: ${hydra:runtime.choices.experiment}
+
+finetuning_ckpt_path: ???
+
+algorithm:
+  optimizer:
+    lr: 1e-5
+
+datamodule:
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceCubeLeft-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+  load_count: 100
+
+trainer:
+  max_steps: 20000
+  callbacks:
+    rollout_evaluation:
+      env_id: PlaceCubeLeft-v1
+      max_episode_steps: 200
