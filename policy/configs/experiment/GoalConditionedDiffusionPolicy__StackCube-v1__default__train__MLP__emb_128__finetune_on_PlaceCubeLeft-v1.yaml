@@ -18,5 +18,5 @@ trainer:
 
 algorithm:
   lr_scheduler:
-    num_warmup_steps: 0
+    num_warmup_steps: 500
     num_training_steps: ${trainer.max_steps}
