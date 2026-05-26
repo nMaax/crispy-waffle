@@ -5,17 +5,17 @@ from mani_skill.utils.registration import register_env
 
 @register_env("PlaceCubeLeft-v1", max_episode_steps=50)
 class PlaceCubeLeftEnv(StackCubeEnv):
+    Y_OFFSET = 0.08
+
     def evaluate(self):
         pos_A = self.cubeA.pose.p
         pos_B = self.cubeB.pose.p
-
-        target_y_offset = 0.08
 
         is_on_table = torch.abs(pos_A[:, 2] - pos_B[:, 2]) < 0.01
 
         is_x_aligned = torch.abs(pos_A[:, 0] - pos_B[:, 0]) < 0.02
 
-        is_y_left = torch.abs(pos_A[:, 1] - (pos_B[:, 1] + target_y_offset)) < 0.02
+        is_y_left = torch.abs(pos_A[:, 1] - (pos_B[:, 1] + self.Y_OFFSET)) < 0.02
 
         is_placed = is_on_table & is_x_aligned & is_y_left
 
@@ -99,7 +99,7 @@ class PlaceCubeLeftEnv(StackCubeEnv):
         goal_cube_B_quat = cube_B_quat.clone()
 
         goal_cube_A_pos = cube_B_pos.clone()
-        goal_cube_A_pos[..., 1] += self.cube_half_size[2] * 2 + 0.04  # This will be roughly 8cm
+        goal_cube_A_pos[..., 1] += self.Y_OFFSET  # This will be roughly 8cm
         goal_cube_A_quat = cube_B_quat.clone()  # Keep same orientation for simplicity
 
         # Goal: TCP is at Cube A's position, slightly above
