@@ -121,3 +121,5 @@ class PlaceCubeLeftEnv(StackCubeEnv):
         goal[..., 42:45] = goal_cube_B_pos - goal_tcp_pos
         # cubeA_to_cubeB_pos = cubeB.p - cubeA.p
         goal[..., 45:48] = goal_cube_B_pos - goal_cube_A_pos
+
+        return goal
