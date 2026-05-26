@@ -54,21 +54,23 @@ class EGNN(MessagePassing):
         return self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=edge_attr, c=c)
 
     def message(self, x_i, x_j, h_i, h_j, edge_attr):
-        sq_dist = torch.sum((x_i - x_j) ** 2, dim=-1, keepdim=True)
-
-        mh_ij = self.phi_e(torch.cat([h_i, h_j, sq_dist, edge_attr], dim=-1))
+        mh_ij = self.phi_e(
+            torch.cat(
+                [h_i, h_j, torch.norm(x_i - x_j, dim=-1, keepdim=True) ** 2, edge_attr], dim=-1
+            )
+        )
         mx_ij = (x_i - x_j) * self.phi_x(mh_ij)
         return torch.cat((mx_ij, mh_ij), dim=-1)
 
     def update(self, aggr_out, x, h, edge_attr, c):
         m_x, m_h = aggr_out[:, :3], aggr_out[:, 3:]
         h_l1 = self.phi_h(torch.cat([h, m_h], dim=-1))
-        x_l1 = x + (m_x / (c + 1e-8))
+        x_l1 = x + (m_x / c)
         return x_l1, h_l1
 
 
 class SiameseEGNNPlanner(nn.Module):
-    """Wraps the EGNN to handle batches and outputs the graph embedding."""
+    """Wraps the EGNN to handle dense PyTorch batches and outputs the Plan Embedding."""
 
     def __init__(self, num_nodes=3, channels_h=7, channels_m=128, out_dim=64):
         super().__init__()
@@ -104,10 +106,10 @@ class SiameseEGNNPlanner(nn.Module):
         )
 
         # Replicate the edges for every item in the batch
-        offsets = (torch.arange(B, device=device) * self.num_nodes).view(-1, 1)
-        edge_index = (
-            (base_edges.unsqueeze(0) + offsets.unsqueeze(2)).transpose(1, 2).reshape(2, -1)
-        )
+        edge_index = []
+        for batch_idx in range(B):
+            edge_index.append(base_edges + batch_idx * self.num_nodes)
+        edge_index = torch.cat(edge_index, dim=1)
 
         # Create dummy edge attributes
         edge_attr = torch.zeros((edge_index.shape[1], 1), device=device)
