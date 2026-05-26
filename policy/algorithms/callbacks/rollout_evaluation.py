@@ -352,6 +352,12 @@ class RolloutEvaluationCallback(L.Callback):
 
                 truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 
+                if isinstance(
+                    pl_module,
+                    GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+                ):
+                    goal_state = self._generate_goal_state(obs)
+
                 # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
                 #
                 # > *final_* entries will only appear once the env is effectively done,
