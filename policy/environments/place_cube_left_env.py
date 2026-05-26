@@ -72,3 +72,25 @@ class PlaceCubeLeftEnv(StackCubeEnv):
 
     def compute_normalized_dense_reward(self, obs, action, info):
         return self.compute_dense_reward(obs=obs, action=action, info=info) / 8
+
+    def get_goal_state(self):
+        """Returns the raw observation vector for the goal state (Cube A 8cm left of Cube B)."""
+        obs = self.get_obs()
+        if isinstance(obs, dict):
+            pass # assume flat for now
+
+        # Cube B pose (p, q) is at 32:39
+        cube_B_pose = obs[32:39].copy()
+
+        # Target for A: B_pos + [0, 0.08, 0], B_quat
+        target_pos_A = cube_B_pose[:3].copy()
+        target_pos_A[1] += 0.08
+
+        # Set Cube A pose
+        obs[25:28] = target_pos_A
+        obs[28:32] = cube_B_pose[3:7]
+
+        # TCP goal: same as Cube A (just ungrasped)
+        obs[18:25] = obs[25:32]
+
+        return obs

@@ -70,3 +70,25 @@ class StackCubeSwappedEnv(StackCubeEnv):
         reward[info["success"]] = 8
 
         return reward
+
+    def get_goal_state(self):
+        """Returns the raw observation vector for the goal state (Cube B on top of Cube A)."""
+        obs = self.get_obs()
+        if isinstance(obs, dict):
+            pass # assume flat for now
+
+        # Cube A pose (p, q) is at 25:32
+        cube_A_pose = obs[25:32].copy()
+
+        # Target for B: A_pos + [0, 0, 0.04], A_quat
+        target_pos_B = cube_A_pose[:3].copy()
+        target_pos_B[2] += 0.04
+
+        # Set Cube B pose
+        obs[32:35] = target_pos_B
+        obs[35:39] = cube_A_pose[3:7]
+
+        # TCP goal: same as Cube B (just ungrasped)
+        obs[18:25] = obs[32:39]
+
+        return obs

@@ -313,7 +313,7 @@ class RolloutEvaluationCallback(L.Callback):
             pl_module,
             GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
         ):
-            goal_state = self._generate_goal_state(obs)
+            goal_state = self._fetch_goal_state(pl_module)
 
         if self.render_mode == "human":
             env.render()
@@ -356,7 +356,7 @@ class RolloutEvaluationCallback(L.Callback):
                     pl_module,
                     GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
                 ):
-                    goal_state = self._generate_goal_state(obs)
+                    goal_state = self._fetch_goal_state(pl_module)
 
                 # Consider that the info dictionary returned by the environment looks like this (for StackCube-v1):
                 #
@@ -477,42 +477,21 @@ class RolloutEvaluationCallback(L.Callback):
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
 
-    # TODO: should be passed as optional parameter (type Callable), or maybe given by the environment itself
-    def _generate_goal_state(self, initial_obs: torch.Tensor | dict) -> torch.Tensor:
+    def _fetch_goal_state(self, pl_module: L.LightningModule) -> torch.Tensor:
+        """Retrieves the target goal state directly from the environments and canonicalizes it."""
+        import numpy as np
 
-        if not isinstance(initial_obs, torch.Tensor):
-            raise ValueError(
-                "_generate_goal_state currently only supports tensor observations, but got "
-                f"{type(initial_obs).__name__}."
-            )
+        # self.env is a ManiSkillVectorEnv. Calling a method returns a list of results
+        # from each sub-environment. We must stack them into a single batch (numpy array).
+        goals = self.env.call("get_goal_state")
+        goals = np.stack(goals)
 
-        # We want to craft a fake goal tensor with a simple heurisstic:
-        #   - A is on top of B, so they have same x and y
-        #   - z_A is slightly above z_B, so we add a small offset in z
-        #   - A and B roughly have the same orientation, so we keep the same quaternion
-        #   - TCP should have just ungrasped A, so they should have same position (x, y, z)
-        #   - For orientation of TCP we just pass the same quarternion as A and B
-        #   - Proprioception can be set to zero, it is ignored by the planner, and is uncraftable anyway
+        goals = to_tensor(goals, device=pl_module.device, dtype=torch.float32)
 
-        OFFSET = torch.tensor([0.0, 0.0, 0.04], device=initial_obs.device)
-        goal = torch.zeros_like(
-            initial_obs[:, -1, :], device=initial_obs.device, dtype=torch.float32
-        )
+        if self.canonicalizer is not None:
+            goals = self.canonicalizer(goals)
 
-        cube_B_pose = initial_obs[..., -1, 32:39]
-
-        # From the intial_obs we can craft the goal with the above heuristic
-        goal_cube_B = cube_B_pose.clone()
-        goal_cube_A = cube_B_pose.clone()
-        goal_cube_A[..., 0:3] += OFFSET
-        goal_tcp = goal_cube_A.clone()
-
-        # Set the new poses back to the goal
-        goal[..., 18:25] = goal_tcp
-        goal[..., 25:32] = goal_cube_A
-        goal[..., 32:39] = goal_cube_B
-
-        return goal
+        return goals
 
     def _init_progress_bar(self, total: int, phase: str, use_rich_bar: bool) -> tuple[Any, Any]:
         """Initialize a progress bar using either Rich or TQDM."""
