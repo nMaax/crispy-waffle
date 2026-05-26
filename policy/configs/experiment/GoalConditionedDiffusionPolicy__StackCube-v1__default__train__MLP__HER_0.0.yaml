@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train__MLP
+
+datamodule:
+  her_ratio: 0.0
