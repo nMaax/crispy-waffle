@@ -28,7 +28,7 @@ class StackCubeEnv(ManiSkillStackCubeEnv):
         obs = torch.as_tensor(self.get_obs(), device=self.device)
         goal = torch.zeros_like(obs)
 
-        # Goal: Cube A is stacked on top of Cube B
+        # Goal: Cube A is stacked (+z) on top of Cube B
         cube_B_pose = obs[..., 25:32]
         cube_B_pos = cube_B_pose[..., :3]
         cube_B_quat = cube_B_pose[..., 3:7]
@@ -40,8 +40,9 @@ class StackCubeEnv(ManiSkillStackCubeEnv):
         goal_cube_A_pos[..., 2] += self.cube_half_size[2] * 2
         goal_cube_A_quat = cube_B_quat.clone()  # Keep same orientation for simplicity
 
-        # Goal: TCP is at Cube B's position
+        # Goal: TCP is at Cube A's position, slightly above
         goal_tcp_pos = goal_cube_A_pos.clone()
+        goal_tcp_pos[..., 2] += 0.03  # Just 3cm above the cube
         goal_tcp_quat = goal_cube_A_quat.clone()
 
         # Fill goal state
