@@ -1,0 +1,4 @@
+# policy/configs/trainer/callbacks/differential_lr.yaml
+differential_lr:
+  _target_: policy.algorithms.callbacks.differential_lr.DifferentialLRCallback
+  unet_lr: 1e-5
