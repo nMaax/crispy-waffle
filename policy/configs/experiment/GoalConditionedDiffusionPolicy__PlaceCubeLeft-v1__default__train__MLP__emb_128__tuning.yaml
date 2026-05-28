@@ -7,11 +7,6 @@ name: ${hydra:runtime.choices.experiment}__${datamodule.load_count}__${trainer.m
 
 finetuning_ckpt_path: ???
 
-algorithm:
-  lr_scheduler:
-    num_warmup_steps: 500
-    num_training_steps: ${trainer.max_steps}
-
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceCubeLeft-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
   load_count: 100
