@@ -19,9 +19,6 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
-from policy.algorithms.goal_conditioned_diffusion_policy_egnn import (
-    GoalConditionedDiffusionPolicyEGNN,
-)
 from policy.algorithms.goal_conditioned_diffusion_policy_mlp import (
     GoalConditionedDiffusionPolicyMLP,
 )
@@ -315,7 +312,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         if isinstance(
             pl_module,
-            GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+            GoalConditionedDiffusionPolicyMLP,
         ):
             goal_state = self._inner_env.generate_heuristic_goal()
 
@@ -332,7 +329,7 @@ class RolloutEvaluationCallback(L.Callback):
             with torch.no_grad():
                 if isinstance(
                     pl_module,
-                    GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+                    GoalConditionedDiffusionPolicyMLP,
                 ):
                     action_seq = pl_module.get_action(adapted_obs, goal_state)
                 else:
@@ -360,7 +357,7 @@ class RolloutEvaluationCallback(L.Callback):
 
                 if isinstance(
                     pl_module,
-                    GoalConditionedDiffusionPolicyEGNN | GoalConditionedDiffusionPolicyMLP,
+                    GoalConditionedDiffusionPolicyMLP,
                 ):
                     goal_state = self._inner_env.generate_heuristic_goal()
 
