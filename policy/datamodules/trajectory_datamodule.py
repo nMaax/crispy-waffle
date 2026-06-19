@@ -175,8 +175,14 @@ class TrajectoryDataModule(L.LightningDataModule):
         with open(self.json_path) as f:
             all_episodes = json.load(f)["episodes"]
 
+        if self.success_only:
+            all_episodes = [ep for ep in all_episodes if ep.get("success", False)]
+
         rng = random.Random(self.seed)
         rng.shuffle(all_episodes)
+
+        if self.load_count > 0:
+            all_episodes = all_episodes[: self.load_count]
 
         val_size = int(len(all_episodes) * self.val_split)
         train_size = len(all_episodes) - val_size
@@ -265,8 +271,6 @@ class TrajectoryDataModule(L.LightningDataModule):
             action_left_pad_as_zero_mask=left_mask,
             action_right_pad_as_zero_mask=right_mask,
             episodes=episodes,
-            load_count=self.load_count,
-            success_only=self.success_only,
             lazy=self.lazy,
             obs_transform=obs_transform,
         )
