@@ -14,8 +14,8 @@ class RemoveProprioVel:
         #                                   object_pose, goal_pose)
         #
         #    e.g. for standard Franka Panda:
-        #    - indices [0:9]   (9 elements) = qpos
-        #    - indices [9:18]  (9 elements) = qvel
+        #    - indices [0:9]   (9 elements) = qpos (joint 1 to 7, left finger, right finger)
+        #    - indices [9:18]  (9 elements) = qvel (joint 1 to 7, left finger, right finger)
         #    - indices [18:]   (X elements) = Task-related data
 
         self.qpos_dim = qpos_dim

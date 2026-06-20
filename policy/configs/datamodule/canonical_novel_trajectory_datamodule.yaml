@@ -3,3 +3,4 @@ defaults:
 
 obs_dim: 48 # Canonical PnP dimensionality: Proprio (18) + TCP Pose (7) + A Pose (7) + B Pose (7)
 canonicalize: true
+no_proprio_vel: true

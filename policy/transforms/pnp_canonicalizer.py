@@ -45,6 +45,9 @@ class PnPCanonicalizer:
             "tcp_pose": tcp_pose,
             "a_pose": cube_a_pose,
             "b_pose": cube_b_pose,
+            "a_to_b": cube_a_pose[..., :3] - cube_b_pose[..., :3],
+            "tcp_to_a": tcp_pose[..., :3] - cube_a_pose[..., :3],
+            "tcp_to_b": tcp_pose[..., :3] - cube_b_pose[..., :3],
         }
 
     def _parse_stack_cube_swapped(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -72,6 +75,9 @@ class PnPCanonicalizer:
             "tcp_pose": tcp_pose,
             "a_pose": sphere_pose,
             "b_pose": bin_pose,
+            "a_to_b": sphere_pose[..., :3] - bin_pose[..., :3],
+            "tcp_to_a": tcp_pose[..., :3] - sphere_pose[..., :3],
+            "tcp_to_b": tcp_pose[..., :3] - bin_pose[..., :3],
         }
 
     def _parse_place_sphere_wristcam(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
