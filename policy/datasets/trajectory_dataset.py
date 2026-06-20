@@ -64,6 +64,7 @@ class TrajectoryDataset(Dataset):
         self._h5_file = None
 
         self.trajectories: list[dict[str, Any]] = []
+        # traj_idx, obs_start, obs_end, act_start, act_end, total_episode_length
         self.slices: list[tuple[int, int, int, int, int, int]] = []
 
         self._load_metadata(episodes)
