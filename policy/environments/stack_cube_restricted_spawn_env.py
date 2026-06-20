@@ -18,12 +18,15 @@ class StackCubeRestrictedSpawnEnv(StackCubeEnv):
 
             xy = torch.zeros((b, 2))
 
-            region = ([-0.05, -0.05], [0.05, 0.05])
+            gripper_clearance = 0.025
+            radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + gripper_clearance
+
+            region = ([-0.08, -0.08], [0.08, 0.08])
 
             sampler = randomization.UniformPlacementSampler(
                 bounds=region, batch_size=b, device=self.device
             )
-            radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + 0.001
+
             cubeA_xy = xy + sampler.sample(radius, 100)
             cubeB_xy = xy + sampler.sample(radius, 100, verbose=False)
 

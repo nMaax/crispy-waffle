@@ -11,6 +11,7 @@ class PnPCanonicalizer:
         self.task_id = env_id
         self._parsers = {
             "StackCube-v1": self._parse_stack_cube,
+            "StackCubeRestrictedSpawn-v1": self._parse_stack_cube_restricted_spawn,
             "StackCubeSwapped-v1": self._parse_stack_cube_swapped,
             "PlaceSphere-v1": self._parse_place_sphere,
             "PlaceSphereWristcam-v1": self._parse_place_sphere_wristcam,
@@ -51,6 +52,9 @@ class PnPCanonicalizer:
         }
 
     def _parse_stack_cube_swapped(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube(obs)
+
+    def _parse_stack_cube_restricted_spawn(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube(obs)
 
     def _parse_place_sphere(self, obs: torch.Tensor) -> dict[str, torch.Tensor]:
