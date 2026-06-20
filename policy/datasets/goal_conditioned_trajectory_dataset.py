@@ -6,7 +6,7 @@ from policy.utils import to_tensor
 
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
-    def __init__(self, *args, her_ratio: float = 0.0, **kwargs):
+    def __init__(self, *args, her_ratio: float = 0.8, **kwargs):
         super().__init__(*args, **kwargs)
         self.her_ratio = her_ratio
 

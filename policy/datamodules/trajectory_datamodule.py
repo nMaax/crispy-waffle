@@ -9,7 +9,7 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
-from policy.transforms import PnPCanonicalizer
+from policy.transforms import PnPCanonicalizer, RemoveProprioVel
 
 
 class TrajectoryDataModule(L.LightningDataModule):
@@ -33,6 +33,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
         canonicalize: bool = False,
+        no_proprio_vel: bool = False,
     ):
         super().__init__()
 
@@ -75,6 +76,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.lazy = lazy
         self.seed = seed
         self.canonicalize = canonicalize
+        self.no_proprio_vel = no_proprio_vel
 
         (
             self.env_id,
@@ -96,9 +98,22 @@ class TrajectoryDataModule(L.LightningDataModule):
             train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
-            obs_transform = None
+            transforms = []
+
             if self.canonicalize:
-                obs_transform = PnPCanonicalizer(self.env_id)
+                transforms.append(PnPCanonicalizer(self.env_id))
+
+            if self.no_proprio_vel:
+                transforms.append(RemoveProprioVel())
+
+            if transforms:
+
+                def obs_transform(obs):
+                    for t in transforms:
+                        obs = t(obs)
+                    return obs
+            else:
+                obs_transform = None  # type: ignore
 
         if stage == "fit" or stage is None:
             if self.train_set is None:
