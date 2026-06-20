@@ -7,6 +7,9 @@ defaults:
 name: ${hydra:runtime.choices.experiment}
 
 algorithm:
+  network:
+    down_dims: [128, 256, 512]
+    diffusion_step_embed_dim: 128
   act_horizon: 8
 
 datamodule:
@@ -14,9 +17,11 @@ datamodule:
   obs_horizon: 2
   pred_horizon: 16
   batch_size: 256
+  load_count: 500
 
 trainer:
   callbacks:
+    early_stopping: null
     rollout_evaluation:
       max_episode_steps: 200 # WARN: HIGHLY IMPORTANT!!!
       clamp_action: true

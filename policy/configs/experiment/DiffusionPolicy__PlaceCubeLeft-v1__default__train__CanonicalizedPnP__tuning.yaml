@@ -12,7 +12,7 @@ algorithm:
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/PlaceCubeLeft-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
-  load_count: 100
+  load_count: 10
 
 trainer:
   max_steps: 5000
