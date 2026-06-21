@@ -18,6 +18,7 @@ import hydra
 import lightning
 import rich
 import rich.logging
+import torch
 from omegaconf import DictConfig
 from rich.panel import Panel
 
@@ -33,8 +34,7 @@ PROJECT_NAME = policy.__name__
 REPO_ROOTDIR = Path(__file__).parent.parent
 logger = logging.getLogger(__name__)
 
-# TODO: since I sometimes train on a RTX 4080 I should use `torch.set_float32_matmul_precision=high` instead of default 'highest'
-# tho this is not supported on TITAN X and other architectures, I think Lightning provides a handy way to handle this anyway.
+torch.set_float32_matmul_precision("high")
 
 
 @hydra.main(
@@ -100,10 +100,12 @@ def main(dict_config: DictConfig) -> dict:
             if OmegaConf.is_config(config.algorithm)
             else config.algorithm
         )
+
+        if algo_dict is None:
+            raise ValueError("Algorithm config is None, cannot load checkpoint for fine-tuning.")
+
         algo_kwargs = {
-            k: v
-            for k, v in algo_dict.items()
-            if k not in ["_target_", "_recursive_", "_convert_"]
+            k: v for k, v in algo_dict.items() if k not in ["_target_", "_recursive_", "_convert_"]
         }
 
         algorithm = type(algorithm).load_from_checkpoint(

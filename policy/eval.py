@@ -1,12 +1,15 @@
 from pathlib import Path
 
 import hydra
+import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
 from policy.utils.hydra_utils import resolve_dictconfig
+
+torch.set_float32_matmul_precision("high")
 
 
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
