@@ -72,19 +72,21 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
         goal_state_tensor = goal["state"] if isinstance(goal, dict) else goal
 
+        B = obs_seq_tensor.shape[0]
+
         # EMBEDDINGs from MLP
-        flatten_obs_seq_tensor = obs_seq_tensor.view(
-            obs_seq_tensor.shape[0] * self.obs_horizon, -1
+        flatten_obs_seq_tensor = obs_seq_tensor.view(B * self.obs_horizon, -1)
+        flatten_obs_embedding = self.state_embedder(flatten_obs_seq_tensor[:, self.proprio_dim :])
+        state_embeddings = flatten_obs_embedding.view(B, self.obs_horizon, -1)
+
+        goal_embedding = self.state_embedder(goal_state_tensor[..., self.proprio_dim :]).unsqueeze(
+            1
         )
-        flatten_obs_embedding = self.state_embedder(flatten_obs_seq_tensor[:, 18:])
-        obs_embedding = flatten_obs_embedding.view(obs_seq_tensor.shape[0], self.obs_horizon, -1)
 
-        goal_embedding = self.state_embedder(goal_state_tensor[..., 18:]).unsqueeze(1)
-
-        embeddings_seq = torch.cat([obs_embedding, goal_embedding], dim=1)
+        embeddings_seq = torch.cat([state_embeddings, goal_embedding], dim=1)
 
         # DIRECT INFO FOR UNET
-        proprio_seq = obs_seq_tensor[:, :, 0:18]
+        proprio_seq = obs_seq_tensor[:, :, 0 : self.proprio_dim]
 
         # For the goal we just craft a zero vector
         proprio_seq = torch.cat([proprio_seq, torch.zeros_like(proprio_seq[:, 0:1, :])], dim=1)
