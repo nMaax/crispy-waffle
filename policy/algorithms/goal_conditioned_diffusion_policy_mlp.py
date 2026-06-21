@@ -19,24 +19,40 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         # while it is true that I will only use canonicalized states
         # from now, they still should be managed via some parameters or
         # automatic inferenced from the dataset
-        proprio_dim: int = 18,
-        planner_input_dim: int = 7 + 7 + 7,  # TCP, A, B Poses
-        hidden_dims: list[int] = [128, 128, 128],
+        proprio_dim: int = 18,  # joint qpos and qvels, including fingers
+        state_embedder_input_dim: int = 30,  # TCP, A, B, A-B, TCP-A, TCP-B
+        state_embedder_hidden_dims: list[int] = [128, 128, 128],
         state_embedding_dim: int = 64,
+        planner_hidden_dims: list[int] = [256, 256],
+        planner_output_dim: int = 128,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        self.unet_cond_dim = (proprio_dim + state_embedding_dim) * (
-            self.obs_horizon + 1
-        )  # +1 for the goal state
+        self.proprio_dim = proprio_dim
+        self.state_embedder_input_dim = state_embedder_input_dim
+        self.state_embedding_dim = state_embedding_dim
+        self.state_embedder_hidden_dims = state_embedder_hidden_dims
 
-        # TODO: should not hard-code a MLP here, it should be set via parameters / hydra
+        self.state_embedder = MLP(
+            input_dim=state_embedder_input_dim,
+            output_dim=state_embedding_dim,
+            hidden_dims=state_embedder_hidden_dims,
+        )
+
+        planner_input_dim = state_embedding_dim * (self.obs_horizon + 1)  # +1 for the goal state
+
+        self.planner_input_dim = planner_input_dim
+        self.planner_output_dim = planner_output_dim
+        self.planner_hidden_dims = planner_hidden_dims
+
         self.planner = MLP(
             input_dim=planner_input_dim,
-            output_dim=state_embedding_dim,
-            hidden_dims=hidden_dims,
+            output_dim=planner_output_dim,
+            hidden_dims=planner_hidden_dims,
         )
+
+        self.unet_cond_dim = proprio_dim * self.obs_horizon + planner_output_dim
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
@@ -65,25 +81,27 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     ) -> torch.Tensor:
 
         obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
-        goal_state_tensor = goal["state"] if isinstance(goal, dict) else goal
+        goal_tensor = goal["state"] if isinstance(goal, dict) else goal
+
+        B = obs_seq_tensor.shape[0]
 
         # EMBEDDINGs from MLP
-        flatten_obs_seq_tensor = obs_seq_tensor.view(
-            obs_seq_tensor.shape[0] * self.obs_horizon, -1
-        )
-        flatten_obs_embedding = self.planner(flatten_obs_seq_tensor[:, 18:])
-        obs_embedding = flatten_obs_embedding.view(obs_seq_tensor.shape[0], self.obs_horizon, -1)
+        flatten_obs_seq_tensor = obs_seq_tensor.view(B * self.obs_horizon, -1)
+        flatten_obs_embedding = self.state_embedder(flatten_obs_seq_tensor[:, self.proprio_dim :])
+        obs_seq_embeddings = flatten_obs_embedding.view(B, self.obs_horizon, -1)
 
-        goal_embedding = self.planner(goal_state_tensor[..., 18:]).unsqueeze(1)
+        goal_embedding = self.state_embedder(goal_tensor[..., self.proprio_dim :]).unsqueeze(1)
 
-        embeddings_seq = torch.cat([obs_embedding, goal_embedding], dim=1)
+        embeddings_seq = torch.cat([obs_seq_embeddings, goal_embedding], dim=1)
+
+        plan_embedding = self.planner(embeddings_seq.view(B, -1)).unsqueeze(1)
 
         # DIRECT INFO FOR UNET
-        proprio_seq = obs_seq_tensor[:, :, 0:18]
+        proprio_seq = obs_seq_tensor[:, :, : self.proprio_dim]
 
         # For the goal we just craft a zero vector
         proprio_seq = torch.cat([proprio_seq, torch.zeros_like(proprio_seq[:, 0:1, :])], dim=1)
 
-        unet_cond = torch.cat([proprio_seq, embeddings_seq], dim=-1)
+        unet_cond = torch.cat([proprio_seq, plan_embedding], dim=-1)
 
         return unet_cond
