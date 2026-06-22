@@ -3,4 +3,3 @@ defaults:
 
 _target_: policy.algorithms.goal_conditioned_diffusion_policy_mlp.GoalConditionedDiffusionPolicyMLP
 state_embedding_dim: 64
-hidden_dims: [128, 128, 128]
