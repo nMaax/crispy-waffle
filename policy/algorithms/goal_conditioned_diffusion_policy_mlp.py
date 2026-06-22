@@ -43,6 +43,12 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             hidden_dims=hidden_dims,
         )
 
+        self.goal_embedder = MLP(
+            input_dim=task_dim,
+            output_dim=state_embedding_dim,
+            hidden_dims=hidden_dims,
+        )
+
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
         goal_state = batch["goal"]
@@ -79,7 +85,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         flatten_obs_embedding = self.state_embedder(flatten_obs_seq_tensor[:, self.proprio_dim :])
         state_embeddings = flatten_obs_embedding.view(B, self.obs_horizon, -1)
 
-        goal_embedding = self.state_embedder(goal_state_tensor[..., self.proprio_dim :]).unsqueeze(
+        goal_embedding = self.goal_embedder(goal_state_tensor[..., self.proprio_dim :]).unsqueeze(
             1
         )
 
