@@ -94,10 +94,10 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         embeddings_seq = torch.cat([obs_seq_embeddings, goal_embedding], dim=1)
 
-        plan_embedding = self.planner(embeddings_seq.view(B, -1))
+        plan_embedding = self.planner(embeddings_seq.reshape(B, -1))
 
         # DIRECT INFO FOR UNET
-        proprio_seq = obs_seq_tensor[:, :, : self.proprio_dim].view(B, -1)
+        proprio_seq = obs_seq_tensor[:, :, : self.proprio_dim].reshape(B, -1)
 
         unet_cond = torch.cat([proprio_seq, plan_embedding], dim=-1)
 
