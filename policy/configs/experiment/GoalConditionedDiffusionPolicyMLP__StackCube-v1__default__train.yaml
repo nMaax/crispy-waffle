@@ -4,7 +4,7 @@ defaults:
   - override /datamodule: goal_conditioned_trajectory_datamodule
   - override /trainer: default
 
-name: ${hydra:runtime.choices.experiment}
+name: ${hydra:runtime.choices.experiment}_NoStateEmbedding
 
 algorithm:
   act_horizon: 8

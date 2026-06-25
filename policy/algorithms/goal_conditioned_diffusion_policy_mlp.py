@@ -3,7 +3,6 @@ from typing import Any
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.algorithms.networks import MLP
 from policy.utils import flatten_tensor_from_mapping
 
 # TODO:
@@ -15,33 +14,10 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     def __init__(
         self,
         *args,
-        # TODO: should manage more cleanly these hardcoded dimensions,
-        # while it is true that I will only use canonicalized states
-        # from now, they still should be managed via some parameters or
-        # automatic inferenced from the dataset
-        proprio_dim: int = 18,  # qpos, qvel, including fingers
-        task_dim: int = 30,  # TCP, A, B, A-B, TCP-A, TCP-B
-        hidden_dims: list[int] = [128, 128, 128],
-        state_embedding_dim: int = 64,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-
-        self.proprio_dim = proprio_dim
-        self.task_dim = task_dim
-        self.hidden_dims = hidden_dims
-        self.state_embedding_dim = state_embedding_dim
-
-        self.unet_cond_dim = (proprio_dim + state_embedding_dim) * (
-            self.obs_horizon + 1
-        )  # +1 for the goal state
-
-        # TODO: should not hard-code a MLP here, it should be set via parameters / hydra
-        self.state_embedder = MLP(
-            input_dim=task_dim,
-            output_dim=state_embedding_dim,
-            hidden_dims=hidden_dims,
-        )
+        self.unet_cond_dim = self.unet_cond_dim + (49 - 18)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
@@ -72,25 +48,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
         goal_state_tensor = goal["state"] if isinstance(goal, dict) else goal
 
-        B = obs_seq_tensor.shape[0]
+        flatten_obs = flatten_tensor_from_mapping(obs_seq_tensor)
+        flatten_goal = flatten_tensor_from_mapping(goal_state_tensor)
 
-        # EMBEDDINGs from MLP
-        flatten_obs_seq_tensor = obs_seq_tensor.view(B * self.obs_horizon, -1)
-        flatten_obs_embedding = self.state_embedder(flatten_obs_seq_tensor[:, self.proprio_dim :])
-        state_embeddings = flatten_obs_embedding.view(B, self.obs_horizon, -1)
-
-        goal_embedding = self.state_embedder(goal_state_tensor[..., self.proprio_dim :]).unsqueeze(
-            1
-        )
-
-        embeddings_seq = torch.cat([state_embeddings, goal_embedding], dim=1)
-
-        # DIRECT INFO FOR UNET
-        proprio_seq = obs_seq_tensor[:, :, 0 : self.proprio_dim]
-
-        # For the goal we just craft a zero vector
-        proprio_seq = torch.cat([proprio_seq, torch.zeros_like(proprio_seq[:, 0:1, :])], dim=1)
-
-        unet_cond = torch.cat([proprio_seq, embeddings_seq], dim=-1)
+        unet_cond = torch.cat([flatten_obs, flatten_goal], dim=-1)
 
         return unet_cond
