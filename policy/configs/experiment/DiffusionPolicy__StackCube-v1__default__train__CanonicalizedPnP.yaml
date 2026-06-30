@@ -4,7 +4,7 @@ defaults:
   - override /datamodule: canonical_trajectory_datamodule
   - override /trainer: default
 
-name: ${hydra:runtime.choices.experiment}ExtendedMLP
+name: ${hydra:runtime.choices.experiment}ExtendedMLPStateEmbedder
 
 algorithm:
   act_horizon: 8

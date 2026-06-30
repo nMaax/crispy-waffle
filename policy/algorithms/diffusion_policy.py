@@ -38,8 +38,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         act_horizon: int = 8,
         obs_dim: int = 48,
         act_dim: int = 4,
-        embedder_output_dim: int = 128,
-        embedder_hidden_dims: list[int] = [256, 256],
+        embedder_output_dim: int = 64,
+        embedder_hidden_dims: list[int] = [128, 128, 128],
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
     ):
         super().__init__()
@@ -92,13 +92,13 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.embedder_input_dim = obs_dim
         self.embedder_hidden_dims = embedder_hidden_dims
         self.embedder_output_dim = embedder_output_dim
-        self.embedder = MLP(
-            input_dim=obs_dim * obs_horizon,
+        self.state_embedder = MLP(
+            input_dim=obs_dim,
             output_dim=embedder_output_dim,
             hidden_dims=embedder_hidden_dims,
         )
 
-        self.unet_cond_dim = embedder_output_dim
+        self.unet_cond_dim = embedder_output_dim * obs_horizon
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -155,10 +155,15 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
-        flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
+        obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
 
-        embedded_obs = self.embedder(flatten_obs)
+        B = get_batch_size(obs_seq)
+
+        flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
+        embedded_obs = self.state_embedder(flatten_obs.reshape(B * self.obs_horizon, -1)).reshape(
+            B, -1
+        )
 
         loss = self._compute_loss(embedded_obs, action_seq)
 
@@ -230,9 +235,11 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
 
         B = get_batch_size(obs_seq)
-        obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
+        obs_seq = flatten_tensor_from_mapping(obs_seq)
 
-        embedded_obs_seq = self.embedder(obs_seq)
+        embedded_obs_seq = self.state_embedder(obs_seq.reshape(B * self.obs_horizon, -1)).reshape(
+            B, -1
+        )
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())

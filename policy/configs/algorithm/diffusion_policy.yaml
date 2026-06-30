@@ -15,8 +15,8 @@ act_horizon: 8
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
-embedder_output_dim: 128
-embedder_hidden_dims: [256, 256]
+embedder_output_dim: 64
+embedder_hidden_dims: [128, 128, 128]
 
 optimizer:
   lr: 1e-4
