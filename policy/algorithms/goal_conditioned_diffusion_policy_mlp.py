@@ -32,9 +32,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         self.hidden_dims = hidden_dims
         self.state_embedding_dim = state_embedding_dim
 
-        self.unet_cond_dim = (proprio_dim + state_embedding_dim) * (
-            self.obs_horizon + 1
-        )  # +1 for the goal state
+        self.unet_cond_dim = (
+            self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
+        )  # proprio + embedded observation for each timestep in the horizon + the embedded goal
 
         # TODO: should not hard-code a MLP here, it should be set via parameters / hydra
         self.state_embedder = MLP(
@@ -58,10 +58,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         action_seq = batch["act_seq"]
 
-        unet_cond = self._prepare_unet_cond(obs_seq, goal)
-        flatten_unet_cond = flatten_tensor_from_mapping(unet_cond)
+        unet_cond = self._prepare_unet_cond(
+            obs_seq, goal
+        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
-        loss = self._compute_loss(flatten_unet_cond, action_seq)
+        loss = self._compute_loss(unet_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -87,7 +88,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         if isinstance(goal, dict):
             goal = flatten_tensor_from_mapping(goal)
 
-        unet_cond = self._prepare_unet_cond(obs_seq, goal)
+        unet_cond = self._prepare_unet_cond(
+            obs_seq, goal
+        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
         return super().get_action(unet_cond, num_inference_steps, clamp_range)
 
@@ -96,31 +99,23 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         B = get_batch_size(obs_seq)
 
         # DIRECT INPUT FOR DIFFUSION POLICY
-        proprio_seq = obs_seq[:, :, : self.proprio_dim]  # B, horizon, 18
-        proprio_for_goal = torch.zeros_like(proprio_seq[:, 0:1, :])  # all zeros
-        proprio_seq = torch.cat([proprio_seq, proprio_for_goal], dim=1)  # B, horizon+1, 18
+        proprio_seq = obs_seq[:, :, : self.proprio_dim].reshape(
+            B, self.obs_horizon * self.proprio_dim
+        )  # B, horizon * 18
 
         # OBSERVATION TO EMBED VIA MLP
         flatten_obs_seq = obs_seq.view(B * self.obs_horizon, self.obs_dim)
         flatten_obs_embedding = self.state_embedder(flatten_obs_seq[:, self.proprio_dim :])
         state_embeddings = flatten_obs_embedding.view(
-            B, self.obs_horizon, self.state_embedding_dim
-        )  # B, horizon, embedding_dim
+            B, self.obs_horizon * self.state_embedding_dim
+        )  # B, horizon * embedding_dim
 
         # GOAL TO EMBED VIA MLP
-        flatten_goal = goal
-        flatten_goal_embedding = self.state_embedder(flatten_goal[..., self.proprio_dim :])
-        goal_embedding = flatten_goal_embedding.view(
-            B, 1, self.state_embedding_dim
-        )  # B, 1, embedding_dim
+        goal_embedding = self.state_embedder(goal[..., self.proprio_dim :])
 
-        state_goal_embeddings = torch.cat(
-            [state_embeddings, goal_embedding], dim=1
-        )  # B, horizon+1, embedding_dim
-
-        # Concat everything
+        # Concatenate all together
         unet_cond = torch.cat(
-            [proprio_seq, state_goal_embeddings], dim=-1
-        )  # B, horizon+1, proprio_dim + embedding_dim
+            [proprio_seq, state_embeddings, goal_embedding], dim=-1
+        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
         return unet_cond
