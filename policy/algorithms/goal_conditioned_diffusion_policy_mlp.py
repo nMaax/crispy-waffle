@@ -20,13 +20,25 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         self.unet_cond_dim = self.unet_cond_dim + (49 - 18)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
+        """Main step logic, it doesn't differ between training and validation except for the
+        logging.
+
+        Shapes:
+            batch["obs_seq"]: [B, obs_horizon, obs_dim]
+            batch["goal"]: [B, obs_dim]
+            batch["act_seq"]: [B, pred_horizon, act_dim]
+            returns: scalar loss tensor []
+        """
         obs_seq = batch["obs_seq"]
-        goal_state = batch["goal"]
+        goal = batch["goal"]
+
         action_seq = batch["act_seq"]
 
-        unet_cond = self._prepare_unet_cond(obs_seq, goal_state)
-        flatten_unet_cond = flatten_tensor_from_mapping(unet_cond)
-        loss = self._compute_loss(flatten_unet_cond, action_seq)
+        unet_cond = self._prepare_unet_cond(
+            obs_seq, goal
+        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+
+        loss = self._compute_loss(unet_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -38,18 +50,30 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
-        unet_cond = self._prepare_unet_cond(obs_seq, goal)
+        """Runs the reverse diffusion process to predict an action sequence from the current
+        observation.
+
+        Shapes:
+            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
+            goal: [B, obs_dim] (flattened conditioning)
+            returns: [B, act_horizon, act_dim] (denoised actions to execute)
+        """
+        if isinstance(obs_seq, dict):
+            obs_seq = flatten_tensor_from_mapping(obs_seq)
+
+        if isinstance(goal, dict):
+            goal = flatten_tensor_from_mapping(goal)
+
+        unet_cond = self._prepare_unet_cond(
+            obs_seq, goal
+        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+
         return super().get_action(unet_cond, num_inference_steps, clamp_range)
 
-    def _prepare_unet_cond(
-        self, obs_seq: torch.Tensor | dict, goal: torch.Tensor | dict
-    ) -> torch.Tensor:
+    def _prepare_unet_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
 
-        obs_seq_tensor = obs_seq["state"] if isinstance(obs_seq, dict) else obs_seq
-        goal_state_tensor = goal["state"] if isinstance(goal, dict) else goal
-
-        flatten_obs = flatten_tensor_from_mapping(obs_seq_tensor)
-        flatten_goal = flatten_tensor_from_mapping(goal_state_tensor)
+        flatten_obs = flatten_tensor_from_mapping(obs_seq)
+        flatten_goal = flatten_tensor_from_mapping(goal)
 
         unet_cond = torch.cat([flatten_obs, flatten_goal], dim=-1)
 
