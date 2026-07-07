@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.algorithms.networks import MLP
-from policy.utils import flatten_tensor_from_mapping, get_batch_size
+from policy.utils import get_batch_size
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
@@ -89,16 +89,21 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
-        self.embedder_input_dim = obs_dim
-        self.embedder_hidden_dims = embedder_hidden_dims
+        self.proprio_dim = 18
+        self.task_dim = obs_dim - self.proprio_dim
+
+        self.embedder_input_dim = self.task_dim
         self.embedder_output_dim = embedder_output_dim
+        self.embedder_hidden_dims = embedder_hidden_dims
         self.state_embedder = MLP(
-            input_dim=obs_dim,
+            input_dim=self.embedder_input_dim,
             output_dim=embedder_output_dim,
             hidden_dims=embedder_hidden_dims,
         )
 
-        self.unet_cond_dim = embedder_output_dim * obs_horizon
+        self.unet_cond_dim = self.obs_horizon * (
+            self.proprio_dim + embedder_output_dim
+        )  # proprio + embedded observation for each timestep in the horizon
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -160,11 +165,17 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         B = get_batch_size(obs_seq)
 
-        embedded_obs = self.state_embedder(
-            batch["obs_seq"].reshape(B * self.obs_horizon, self.obs_dim)
+        proprio_obs_seq = obs_seq[..., : self.proprio_dim]
+        proprio_obs = proprio_obs_seq.reshape(B, self.obs_horizon * self.proprio_dim)
+
+        task_obs_seq = obs_seq[..., self.proprio_dim :]
+        embedded_task_obs = self.state_embedder(
+            task_obs_seq.reshape(B * self.obs_horizon, self.task_dim)
         ).reshape(B, self.obs_horizon * self.embedder_output_dim)
 
-        loss = self._compute_loss(embedded_obs, action_seq)
+        unet_cond = torch.cat([proprio_obs, embedded_task_obs], dim=-1)
+
+        loss = self._compute_loss(unet_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -234,11 +245,16 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
 
         B = get_batch_size(obs_seq)
-        obs_seq = flatten_tensor_from_mapping(obs_seq)
 
-        embedded_obs = self.state_embedder(
-            obs_seq.reshape(B * self.obs_horizon, self.obs_dim)
+        proprio_obs_seq = obs_seq[..., : self.proprio_dim]
+        proprio_obs = proprio_obs_seq.reshape(B, self.obs_horizon * self.proprio_dim)
+
+        task_obs_seq = obs_seq[..., self.proprio_dim :]
+        embedded_task_obs = self.state_embedder(
+            task_obs_seq.reshape(B * self.obs_horizon, self.task_dim)
         ).reshape(B, self.obs_horizon * self.embedder_output_dim)
+
+        unet_cond = torch.cat([proprio_obs, embedded_task_obs], dim=-1)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -256,7 +272,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
                 latent_model_input = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
-                model_pred = self.network(sample=latent_model_input, timestep=t, obs=embedded_obs)
+                model_pred = self.network(sample=latent_model_input, timestep=t, obs=unet_cond)
 
                 output = self.noise_scheduler.step(
                     model_output=model_pred,
