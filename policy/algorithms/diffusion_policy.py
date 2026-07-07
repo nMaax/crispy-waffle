@@ -160,10 +160,9 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         B = get_batch_size(obs_seq)
 
-        flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
-        embedded_obs = self.state_embedder(flatten_obs.reshape(B * self.obs_horizon, -1)).reshape(
-            B, -1
-        )
+        embedded_obs = self.state_embedder(
+            batch["obs_seq"].reshape(B * self.obs_horizon, self.obs_dim)
+        ).reshape(B, self.obs_horizon * self.embedder_output_dim)
 
         loss = self._compute_loss(embedded_obs, action_seq)
 
@@ -237,9 +236,9 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         B = get_batch_size(obs_seq)
         obs_seq = flatten_tensor_from_mapping(obs_seq)
 
-        embedded_obs_seq = self.state_embedder(obs_seq.reshape(B * self.obs_horizon, -1)).reshape(
-            B, -1
-        )
+        embedded_obs = self.state_embedder(
+            obs_seq.reshape(B * self.obs_horizon, self.obs_dim)
+        ).reshape(B, self.obs_horizon * self.embedder_output_dim)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -257,9 +256,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
                 latent_model_input = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
-                model_pred = self.network(
-                    sample=latent_model_input, timestep=t, obs=embedded_obs_seq
-                )
+                model_pred = self.network(sample=latent_model_input, timestep=t, obs=embedded_obs)
 
                 output = self.noise_scheduler.step(
                     model_output=model_pred,
