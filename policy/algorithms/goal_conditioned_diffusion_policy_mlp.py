@@ -17,7 +17,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.unet_cond_dim = self.unet_cond_dim + (49 - 18)
+        self.proprio_dim = 18
+        self.unet_cond_dim = self.unet_cond_dim + (self.obs_dim - self.proprio_dim)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -75,6 +76,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         flatten_obs = flatten_tensor_from_mapping(obs_seq)
         flatten_goal = flatten_tensor_from_mapping(goal)
 
-        unet_cond = torch.cat([flatten_obs, flatten_goal], dim=-1)
+        unet_cond = torch.cat([flatten_obs, flatten_goal[:, self.proprio_dim :]], dim=-1)
 
         return unet_cond
