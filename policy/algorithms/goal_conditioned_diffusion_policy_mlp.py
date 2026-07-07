@@ -35,9 +35,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         action_seq = batch["act_seq"]
 
-        unet_cond = self._prepare_unet_cond(
-            obs_seq, goal
-        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        unet_cond = self._prepare_unet_cond(obs_seq, goal)
 
         loss = self._compute_loss(unet_cond, action_seq)
 
@@ -65,9 +63,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         if isinstance(goal, dict):
             goal = flatten_tensor_from_mapping(goal)
 
-        unet_cond = self._prepare_unet_cond(
-            obs_seq, goal
-        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        unet_cond = self._prepare_unet_cond(obs_seq, goal)
 
         return super().get_action(unet_cond, num_inference_steps, clamp_range)
 
