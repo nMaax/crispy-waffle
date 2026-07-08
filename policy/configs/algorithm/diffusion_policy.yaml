@@ -10,7 +10,7 @@ _recursive_: false # Since we instantiate the network and optimizer inside the a
 
 obs_horizon: ${datamodule.obs_horizon}
 pred_horizon: ${datamodule.pred_horizon}
-act_horizon: 8
+act_horizon: 8 # Can't do math in hydra, otherwise this would be ${datamodule.act_dim}*2
 
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
