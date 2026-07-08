@@ -22,10 +22,14 @@ BIN_INITIAL_POSE = ([0.0410624, 0.0479882, 0.0025], [1, 0, 0, 0])
 
 
 def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
-    """Extracts raw observation slices from the HDF5 dataset."""
+    """Extracts raw observation slices and full step data from the HDF5 dataset."""
     data = {key: [] for key in STACKCUBE_STATE_MAPPING.keys()}
     grasp_offsets = []
     place_offsets = []
+
+    # Accumulators for overall action and input (observation) data
+    all_actions = []
+    all_inputs = []
 
     if not h5_path.exists():
         raise FileNotFoundError(f"Dataset not found at {h5_path}")
@@ -36,6 +40,10 @@ def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
                 continue
 
             obs = f[traj_key]["obs"][:]
+            actions = f[traj_key]["actions"][:]
+
+            all_inputs.append(obs)
+            all_actions.append(actions)
 
             for key, slc in STACKCUBE_STATE_MAPPING.items():
                 if "pos" in key or "quat" in key:
@@ -57,6 +65,8 @@ def load_raw_trajectory_data(h5_path: Path) -> dict[str, np.ndarray]:
         "cube_b_quat": np.array(data["cube_b_quat"]),
         "grasp_offsets": np.array(grasp_offsets),
         "place_offsets": np.array(place_offsets),
+        "actions": np.concatenate(all_actions, axis=0),
+        "inputs": np.concatenate(all_inputs, axis=0),
     }
 
 
@@ -72,6 +82,37 @@ def print_stat_summary(name: str, data: np.ndarray):
     if data.shape[1] >= 2:
         print(f"Proposed In-Dist X: [{mean[0] - std[0]:.5f}, {mean[0] + std[0]:.5f}]")
         print(f"Proposed In-Dist Y: [{mean[1] - std[1]:.5f}, {mean[1] + std[1]:.5f}]")
+    print()
+
+
+def print_extended_stats(name: str, data: np.ndarray):
+    """Prints global and feature-wise Mean, Std, Min, and Max for high-dimensional data."""
+    print("=========================================")
+    print(f" STATS FOR: {name.upper()}")
+    print("=========================================")
+    print(f"Shape: {data.shape}")
+    print(f"Global Mean: {np.mean(data):.5f}")
+    print(f"Global Std:  {np.std(data):.5f}")
+    print(f"Global Min:  {np.min(data):.5f}")
+    print(f"Global Max:  {np.max(data):.5f}")
+    print("\nPer-Dimension Breakdown:")
+
+    means = np.mean(data, axis=0)
+    stds = np.std(data, axis=0)
+    mins = np.min(data, axis=0)
+    maxs = np.max(data, axis=0)
+
+    # Cap breakdown printout to avoid overwhelming the console for huge observation vectors
+    max_dims_to_print = 60
+    dims_to_print = min(data.shape[1], max_dims_to_print)
+
+    for i in range(dims_to_print):
+        print(
+            f"  Dim {i:2d} -> Mean: {means[i]:.4f} | Std: {stds[i]:.4f} | Min: {mins[i]:.4f} | Max: {maxs[i]:.4f}"
+        )
+
+    if data.shape[1] > max_dims_to_print:
+        print(f"  ... and {data.shape[1] - max_dims_to_print} more dimensions.")
     print()
 
 
@@ -117,6 +158,10 @@ def main():
 
     print(f"Mean Grasp Offset (TCP->A): {np.mean(raw_data['grasp_offsets'], axis=0)}")
     print(f"Mean Place Offset (A->B):   {np.mean(raw_data['place_offsets'], axis=0)}\n")
+
+    # Print requested Action and Input (Observation) statistics
+    print_extended_stats("Action", raw_data["actions"])
+    print_extended_stats("Input (Observation)", raw_data["inputs"])
 
     plot_comparison(
         [
