@@ -1,4 +1,5 @@
 defaults:
+  - noise_scheduler: edm
   - ema: default
   - optimizer: AdamW
   - lr_scheduler: cosine_with_warmup
@@ -13,13 +14,9 @@ act_horizon: 8
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
-sigma_data: 0.5
-sigma_min: 0.001
-sigma_max: 80.0
-
 network:
   _target_: policy.algorithms.networks.karras_wrapper.KarrasDenoiserWrapper
-  sigma_data: ${..sigma_data}
+  sigma_data: 0.5
   inner_model:
     _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT
     obs_dim: ${..obs_dim}
