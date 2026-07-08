@@ -2,3 +2,4 @@ defaults:
   - canonical_trajectory_datamodule
 
 _target_: policy.datamodules.goal_conditioned_trajectory_datamodule.GoalConditionedTrajectoryDataModule
+her_ratio: 0.8
