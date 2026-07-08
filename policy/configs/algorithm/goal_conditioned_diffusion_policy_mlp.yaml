@@ -2,4 +2,12 @@ defaults:
   - diffusion_policy
 
 _target_: policy.algorithms.goal_conditioned_diffusion_policy_mlp.GoalConditionedDiffusionPolicyMLP
+
+proprio_dim: 18 # qpos, qvel, including fingers
+task_dim: 30 # TCP, A, B, A-B, TCP-A, TCP-B
+
 state_embedding_dim: 64
+state_embedder_hidden_dims: [128, 128, 128]
+
+planner_hidden_dims: [256, 256]
+planner_output_dim: 128

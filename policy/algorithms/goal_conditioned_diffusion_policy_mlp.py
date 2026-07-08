@@ -6,21 +6,13 @@ from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.networks import MLP
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
-# TODO:
-# - Try to see if setting a goal that (a) is not StackCube final state, but (b) is a reasonable intermediate state
-#   the DP listens to it and try to reproduce it (if it ignores it we can conclude that the goal is overall ignored, not just for OOD goal states)
-
 
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     def __init__(
         self,
         *args,
-        # TODO: should manage more cleanly these hardcoded dimensions,
-        # while it is true that I will only use canonicalized states
-        # from now, they still should be managed via some parameters or
-        # automatic inferenced from the dataset
-        proprio_dim: int = 18,  # joint qpos and qvels, including fingers
-        state_embedder_input_dim: int = 30,  # TCP, A, B, A-B, TCP-A, TCP-B
+        proprio_dim: int = 18,  # panda's qpos(9) + qvel(9), including fingers
+        task_dim: int = 30,  # TCP, A, B, A-B, TCP-A, TCP-B
         state_embedder_hidden_dims: list[int] = [128, 128, 128],
         state_embedding_dim: int = 64,
         planner_hidden_dims: list[int] = [256, 256],
@@ -29,25 +21,30 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     ):
         super().__init__(*args, **kwargs)
 
+        if proprio_dim + task_dim != self.obs_dim:
+            raise ValueError(
+                f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
+                f"do not match observation dimensionality ({self.obs_dim}). "
+                f"{proprio_dim} + {task_dim} != {self.obs_dim}."
+            )
+
         self.proprio_dim = proprio_dim
-        self.state_embedder_input_dim = state_embedder_input_dim
-        self.state_embedding_dim = state_embedding_dim
+        self.task_dim = task_dim
         self.state_embedder_hidden_dims = state_embedder_hidden_dims
+        self.state_embedding_dim = state_embedding_dim
 
         self.state_embedder = MLP(
-            input_dim=state_embedder_input_dim,
+            input_dim=task_dim,
             output_dim=state_embedding_dim,
             hidden_dims=state_embedder_hidden_dims,
         )
 
-        planner_input_dim = state_embedding_dim * (self.obs_horizon + 1)  # +1 for the goal state
-
-        self.planner_input_dim = planner_input_dim
-        self.planner_output_dim = planner_output_dim
+        self.planner_input_dim = self.obs_horizon * state_embedding_dim + state_embedding_dim
         self.planner_hidden_dims = planner_hidden_dims
+        self.planner_output_dim = planner_output_dim
 
         self.planner = MLP(
-            input_dim=planner_input_dim,
+            input_dim=self.planner_input_dim,
             output_dim=planner_output_dim,
             hidden_dims=planner_hidden_dims,
         )
@@ -66,7 +63,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         """
         obs_seq = batch["obs_seq"]
         goal = batch["goal"]
-
         action_seq = batch["act_seq"]
 
         unet_cond = self._prepare_unet_cond(obs_seq, goal)
@@ -105,23 +101,23 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         B = get_batch_size(obs_seq)
 
-        # DIRECT INPUT FOR DIFFUSION POLICY
         proprio_seq = obs_seq[:, :, : self.proprio_dim].reshape(
             B, self.obs_horizon * self.proprio_dim
-        )  # B, horizon * 18
+        )  # B, horizon * proprio_dim
 
-        # OBSERVATION TO EMBED VIA MLP
-        flatten_obs_seq = obs_seq.view(B * self.obs_horizon, self.obs_dim)
+        flatten_obs_seq = obs_seq.reshape(B * self.obs_horizon, self.obs_dim)
         flatten_obs_embedding = self.state_embedder(flatten_obs_seq[:, self.proprio_dim :])
-        state_embeddings = flatten_obs_embedding.view(
+        state_embeddings = flatten_obs_embedding.reshape(
             B, self.obs_horizon * self.state_embedding_dim
         )  # B, horizon * embedding_dim
 
-        # GOAL TO EMBED VIA MLP
         goal_embedding = self.state_embedder(goal[..., self.proprio_dim :])  # B, embedding_dim
 
-        embeddings_seq = torch.cat([state_embeddings, goal_embedding], dim=1)
-        plan_embedding = self.planner(embeddings_seq)  # B, planner_output_dim
+        state_embeddings_seq = torch.cat(
+            [state_embeddings, goal_embedding], dim=1
+        )  # B, horizon * embedding_dim + embedding_dim
+
+        plan_embedding = self.planner(state_embeddings_seq)  # B, planner_output_dim
 
         # Concatenate all together
         unet_cond = torch.cat(
