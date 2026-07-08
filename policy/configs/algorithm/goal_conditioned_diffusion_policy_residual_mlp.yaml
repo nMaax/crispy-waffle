@@ -2,3 +2,5 @@ defaults:
   - goal_conditioned_diffusion_policy_mlp
 
 _target_: policy.algorithms.goal_conditioned_diffusion_policy_residual_mlp.GoalConditionedDiffusionPolicyResidualMLP
+
+state_embedding_dim: ${algorithm.task_dim}
