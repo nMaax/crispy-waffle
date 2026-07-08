@@ -1,0 +1,38 @@
+defaults:
+  - ema: default
+  - optimizer: AdamW
+  - lr_scheduler: cosine_with_warmup
+
+_target_: policy.algorithms.beso_policy.BesoPolicy
+_recursive_: false
+
+obs_horizon: ${datamodule.obs_horizon}
+pred_horizon: ${datamodule.pred_horizon}
+act_horizon: 8
+
+obs_dim: ${datamodule.obs_dim}
+act_dim: ${datamodule.act_dim}
+
+sigma_data: 0.5
+sigma_min: 0.001
+sigma_max: 80.0
+
+network:
+  _target_: policy.algorithms.networks.karras_wrapper.KarrasDenoiserWrapper
+  sigma_data: ${..sigma_data}
+  inner_model:
+    _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT
+    obs_dim: ${..obs_dim}
+    act_dim: ${..act_dim}
+    embed_dim: 256
+    n_layers: 4
+    n_heads: 8
+    obs_horizon: ${..obs_horizon}
+    pred_horizon: ${..pred_horizon}
+
+optimizer:
+  lr: 1e-4
+  weight_decay: 1e-5
+
+lr_scheduler:
+  num_training_steps: ${trainer.max_steps}
