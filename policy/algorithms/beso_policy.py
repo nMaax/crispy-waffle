@@ -90,8 +90,9 @@ class BesoPolicy(DiffusionPolicy):
                 # In EDM, the timestep itself is the sigma value
                 sigma = t.expand(B)
 
-                # We do not need to call noise_scheduler.scale_model_input() here
-                # because our KarrasDenoiserWrapper explicitly handles the c_in scaling internally!
+                # Since our KarrasDenoiserWrapper explicitly handles the c_in scaling internally
+                # we can skip the Difffusers scale_model_input, which we still need to call to
+                # remove that annoying warnings during execution
                 _ = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
                 # Get model prediction (Our wrapper outputs the denoised x_0)
