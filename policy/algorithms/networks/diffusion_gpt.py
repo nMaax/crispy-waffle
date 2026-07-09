@@ -76,30 +76,41 @@ class DiffusionGPT(nn.Module):
         obs_dim: int,
         act_dim: int,
         embed_dim: int = 256,
+        obs_horizon: int = 8,
+        pred_horizon: int = 8,
         n_layers: int = 4,
         n_heads: int = 8,
+        embed_pdrop: float = 0.1,
         attn_pdrop: float = 0.1,
         resid_pdrop: float = 0.1,
-        obs_horizon: int = 2,
-        pred_horizon: int = 16,
     ):
         super().__init__()
+
+        if obs_horizon != pred_horizon:
+            raise ValueError(
+                "Observation horizon and act horizon must be equal for DiffusionGPT. (For now)"
+            )
+
+        # Dimension and horizons
+        self.obs_dim = obs_dim
+        self.act_dim = act_dim
+        self.embed_dim = embed_dim
+
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
-        self.embed_dim = embed_dim
-        self.act_dim = act_dim
 
-        # Maximum sequence length: 1 (sigma) + obs_horizon + pred_horizon
+        # Maximum sequence length: 1 (sigma) + obs_horizon + pred_horizon (i.e,, 2*obs_horizon + 1)
         self.block_size = 1 + obs_horizon + pred_horizon
+        self.seq_len = 1 + obs_horizon
 
         # Encoders
-        self.sigma_emb = nn.Linear(1, embed_dim)
         self.obs_emb = nn.Linear(obs_dim, embed_dim)
         self.act_emb = nn.Linear(act_dim, embed_dim)
+        self.sigma_emb = nn.Linear(1, embed_dim)
 
         # Positional Embedding
-        self.pos_emb = nn.Parameter(torch.zeros(1, self.block_size, embed_dim))
-        self.drop = nn.Dropout(resid_pdrop)
+        self.pos_emb = nn.Parameter(torch.zeros(1, self.seq_len, embed_dim))
+        self.drop = nn.Dropout(embed_pdrop)
 
         # Transformer Blocks
         self.blocks = nn.Sequential(
@@ -139,31 +150,46 @@ class DiffusionGPT(nn.Module):
         """
         B = sample.size(0)
 
-        # Embed Sigma (BESO scales down the log of sigma)
+        # Embed Sigma
         sigma = timestep.view(B, 1)
         sigma_log = sigma.log() / 4.0
         sigma_token = self.sigma_emb(sigma_log.to(torch.float32)).unsqueeze(1)  # [B, 1, embed_dim]
 
-        # Embed Observations (Unflatten and project)
+        # Embed Observations and Actions
         obs_seq = obs.view(B, self.obs_horizon, -1)
         obs_tokens = self.obs_emb(obs_seq)  # [B, obs_horizon, embed_dim]
-
-        # Embed Actions
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
 
-        # Concatenate Sequence: [Sigma, Obs..., Act...]
-        x = torch.cat([sigma_token, obs_tokens, act_tokens], dim=1)  # [B, block_size, embed_dim]
+        # Apply Positional Embeddings
+        # pos_emb is [1, 9, embed_dim].
+        # Index 0 is for sigma, Indices 1 through 8 are for the 8 timesteps.
+        sigma_token = self.drop(sigma_token + self.pos_emb[:, 0:1, :])
 
-        # Add Positional Embedding
-        x = self.drop(x + self.pos_emb)
+        pos_emb_sa = self.pos_emb[:, 1:, :]  # The 8 timestep embeddings (sa = state+action)
+        obs_tokens = self.drop(obs_tokens + pos_emb_sa)
+        act_tokens = self.drop(act_tokens + pos_emb_sa)
+
+        # Interleave the Sequence
+        # torch.stack creates [B, obs_horizon, 2, embed_dim]
+        # .view flattens it to [B, obs_horizon * 2, embed_dim] resulting in [s1, a1, s2, a2...]
+        sa_seq = torch.stack([obs_tokens, act_tokens], dim=2)
+        sa_seq = sa_seq.view(B, self.obs_horizon * 2, self.embed_dim)
+
+        # Assemble Final Sequence
+        x = torch.cat([sigma_token, sa_seq], dim=1)  # [B, block_size, embed_dim]
 
         # Pass through Transformer
         x = self.blocks(x)
         x = self.ln_f(x)
 
-        # Extract outputs corresponding ONLY to the action tokens
-        # The action tokens are the last `pred_horizon` tokens in the sequence
-        act_outputs = x[:, -self.pred_horizon :, :]
+        # Extract Action Tokens
+        # Because we interleaved [sigma, s1, a1, s2, a2...], the actions are now evenly spaced.
+        # First, strip off the sigma token:
+        x_sa = x[:, 1:, :]
+        # Reshape back to pairs [B, obs_horizon, 2, embed_dim]
+        x_sa = x_sa.view(B, self.obs_horizon, 2, self.embed_dim)
+        # Extract index 1 from the pairs (which corresponds to the actions)
+        act_outputs = x_sa[:, :, 1, :]
 
         # Decode back to action space
         predicted_actions = self.action_pred(act_outputs)
