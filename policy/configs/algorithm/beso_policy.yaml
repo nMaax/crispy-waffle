@@ -14,18 +14,19 @@ act_horizon: ??
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
+sigma_data: ${algorithm.noise_scheduler.sigma_data}
+sigma_mean: -1.2
+sigma_std: 1.2
+
 network:
-  _target_: policy.algorithms.networks.karras_wrapper.KarrasDenoiserWrapper
-  sigma_data: ${algorithm.noise_scheduler.sigma_data}
-  inner_model:
-    _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT
-    obs_dim: ${...obs_dim}
-    act_dim: ${...act_dim}
-    embed_dim: 256
-    n_layers: 4
-    n_heads: 8
-    obs_horizon: ${...obs_horizon}
-    pred_horizon: ${...pred_horizon}
+  _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT
+  obs_dim: ${..obs_dim}
+  act_dim: ${..act_dim}
+  embed_dim: 256
+  n_layers: 4
+  n_heads: 8
+  obs_horizon: ${..obs_horizon}
+  pred_horizon: ${..pred_horizon}
 
 optimizer:
   lr: 1e-4

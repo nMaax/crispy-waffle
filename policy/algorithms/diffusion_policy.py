@@ -69,12 +69,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 "The model cannot execute more timesteps (act_horizon) than its total prediction horizon (pred_horizon)."
             )
 
-        if self.act_horizon < self.obs_horizon:
-            raise ValueError(
-                f"Action horizon ({self.act_horizon}) cannot be less than observation horizon ({self.obs_horizon}). "
-                "The model needs to predict at least as many timesteps as it conditions on (including repredicting the past)."
-            )
-
         if self.obs_horizon + self.act_horizon - 1 > self.pred_horizon:
             raise ValueError(
                 f"Prediction horizon ({self.pred_horizon}) is too short! "
@@ -277,11 +271,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         if self.noise_scheduler is None:
             raise ValueError(
                 "Noise Scheduler not initialized. Call configure_model() before computing loss."
-            )
-
-        if self.ema is None:
-            raise ValueError(
-                "EMA Model not initialized. Call configure_model() before computing loss."
             )
 
         B = obs_seq.shape[0]

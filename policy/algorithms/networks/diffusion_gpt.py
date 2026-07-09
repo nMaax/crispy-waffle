@@ -151,7 +151,7 @@ class DiffusionGPT(nn.Module):
         B = sample.size(0)
 
         # Embed Sigma
-        sigma = timestep.view(B, 1)
+        sigma = timestep.view(B, 1, 1)
         sigma_log = sigma.log() / 4.0
         sigma_token = self.sigma_emb(sigma_log.to(torch.float32))  # [B, 1, embed_dim]
 
