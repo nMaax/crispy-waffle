@@ -2,4 +2,4 @@ _target_: diffusers.EDMEulerScheduler
 sigma_min: 0.001
 sigma_max: 80.0
 sigma_data: 0.5
-prediction_type: "epsilon" # HF requires this flag internally, but our wrapper outputs x_0
+prediction_type: "sample"

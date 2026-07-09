@@ -1,4 +1,3 @@
-import hydra_zen
 import torch
 import torch.nn as nn
 
@@ -10,10 +9,10 @@ class KarrasDenoiserWrapper(nn.Module):
     timestep, obs) interface.
     """
 
-    def __init__(self, inner_model: dict, sigma_data: float = 0.5):
+    def __init__(self, inner_model: nn.Module, sigma_data: float = 0.5):
         super().__init__()
         # Instantiate the inner DiffusionGPT using Hydra config
-        self.inner_model = hydra_zen.instantiate(inner_model)
+        self.inner_model = inner_model
         self.sigma_data = sigma_data
 
     def get_scalings(self, sigma: torch.Tensor):

@@ -1,10 +1,12 @@
-
+import hydra_zen
 import torch
 import torch.nn.functional as F
 from diffusers import EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
+
+# TODO: review BESO code and compare
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -22,6 +24,21 @@ class BesoPolicy(DiffusionPolicy):
             raise ValueError(
                 f"BesoPolicy requires an EDMEulerScheduler (Karras). Found: {type(self.noise_scheduler)}"
             )
+
+    def configure_model(self) -> None:
+        """Overrides DiffusionPolicy's configure_model to remove hardcoded U-Net dimensions.
+
+        The Karras Wrapper and DiffusionGPT handle their own dimensions via the Hydra config.
+        """
+        if self.network is not None:
+            return
+
+        self.network = hydra_zen.instantiate(self.network_config)
+
+        if self.ema is not None:
+            return
+
+        self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def _sample_lognormal_sigmas(
         self, batch_size: int, mean: float = -1.2, std: float = 1.2
@@ -75,6 +92,7 @@ class BesoPolicy(DiffusionPolicy):
 
                 # We do not need to call noise_scheduler.scale_model_input() here
                 # because our KarrasDenoiserWrapper explicitly handles the c_in scaling internally!
+                _ = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
                 # Get model prediction (Our wrapper outputs the denoised x_0)
                 model_pred = self.network(sample=noisy_act_seq, timestep=sigma, obs=obs_seq)
