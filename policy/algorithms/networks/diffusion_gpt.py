@@ -153,7 +153,7 @@ class DiffusionGPT(nn.Module):
         # Embed Sigma
         sigma = timestep.view(B, 1)
         sigma_log = sigma.log() / 4.0
-        sigma_token = self.sigma_emb(sigma_log.to(torch.float32)).unsqueeze(1)  # [B, 1, embed_dim]
+        sigma_token = self.sigma_emb(sigma_log.to(torch.float32))  # [B, 1, embed_dim]
 
         # Embed Observations and Actions
         obs_seq = obs.view(B, self.obs_horizon, -1)
