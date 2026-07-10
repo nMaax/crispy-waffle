@@ -17,6 +17,7 @@ act_dim: ${datamodule.act_dim}
 sigma_data: ${algorithm.noise_scheduler.sigma_data}
 sigma_mean: -1.2
 sigma_std: 1.2
+sigma_churn: 1.0 # Adds Langevin stochasticity during sampling, 0.0 means ODE, >0.0 mean SDE
 
 network:
   _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT

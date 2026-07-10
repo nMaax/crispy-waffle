@@ -6,14 +6,9 @@ from diffusers import EDMEulerScheduler
 from policy.algorithms import DiffusionPolicy
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
-# TODO: review BESO code and compare
-
 
 class BesoPolicy(DiffusionPolicy):
-    """Trains a Behavioral Cloning via Score-Based Diffusion (BESO) policy.
-
-    Replaces custom k-diffusion samplers with Hugging Face's EDMEulerScheduler.
-    """
+    """Trains a (BESO) policy."""
 
     def __init__(
         self,
@@ -21,6 +16,7 @@ class BesoPolicy(DiffusionPolicy):
         sigma_data: float = 0.5,
         sigma_mean: float = -1.2,
         sigma_std: float = 1.2,
+        sigma_churn: float = 0.0,
         **kwargs,
     ):
 
@@ -29,6 +25,7 @@ class BesoPolicy(DiffusionPolicy):
         self.sigma_data = sigma_data
         self.sigma_mean = sigma_mean
         self.sigma_std = sigma_std
+        self.sigma_churn = sigma_churn
 
         # Ensure we are using Karras scheduler
         if not isinstance(self.noise_scheduler, EDMEulerScheduler):
@@ -37,10 +34,6 @@ class BesoPolicy(DiffusionPolicy):
             )
 
     def configure_model(self) -> None:
-        """Overrides DiffusionPolicy's configure_model to remove hardcoded U-Net dimensions.
-
-        The Karras Wrapper and DiffusionGPT handle their own dimensions via the Hydra config.
-        """
         if self.network is not None:
             return
 
@@ -57,7 +50,7 @@ class BesoPolicy(DiffusionPolicy):
         num_inference_steps: int = 20,
         clamp_range: tuple | None = None,
     ):
-        """Runs the Karras EDM reverse diffusion process via Hugging Face."""
+        """BESO inference using Karras preconditioning."""
 
         if self.network is None:
             raise ValueError(
@@ -80,7 +73,6 @@ class BesoPolicy(DiffusionPolicy):
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
 
-        # Set up the HF EDM Scheduler discrete timesteps (which map to sigmas)
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
         with torch.no_grad():
@@ -90,30 +82,21 @@ class BesoPolicy(DiffusionPolicy):
             )
 
             for t in self.noise_scheduler.timesteps:
-                # EDM timestep is the sigma value
+                # Sigma is the EDM timestep
                 sigma = t.expand(B)
-                sigma_bd = sigma.view(-1, 1, 1)
-
-                # Get Karras scalings for current noise level
-                c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
 
                 # Precondition the input
-                scaled_sample = noisy_act_seq * c_in
-
-                # Call to silence Diffusers warning (it just returns the input in EDM)
-                _ = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
+                scaled_sample = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
                 # Get raw network prediction
                 model_pred = self.network(sample=scaled_sample, timestep=sigma, obs=obs_seq)
 
-                # Apply skip connection to get the predicted clean action (x_0)
-                x_0_pred = model_pred * c_out + noisy_act_seq * c_skip
-
-                # Step the scheduler using the predicted clean action
+                # Step the scheduler using the raw predicted action
                 output = self.noise_scheduler.step(
-                    model_output=x_0_pred,
+                    model_output=model_pred,
                     timestep=t,
                     sample=noisy_act_seq,
+                    s_churn=self.sigma_churn,
                     return_dict=False,
                 )
                 noisy_act_seq = output[0]
@@ -132,10 +115,7 @@ class BesoPolicy(DiffusionPolicy):
         return denoised_act_seq
 
     def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        """BESO Loss formulation.
-
-        The wrapper handles the preconditioner scaling.
-        """
+        """BESO Loss formulation using Karras preconditioning."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -161,7 +141,7 @@ class BesoPolicy(DiffusionPolicy):
         # Compute the Karras target (reversing the skip connection)
         target = (act_seq - c_skip * noisy_act_seq) / c_out
 
-        # Compute properly weighted MSE loss
+        # Compute MSE loss
         loss = F.mse_loss(model_output, target)
 
         return loss
