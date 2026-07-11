@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.transforms import TensorNormalizer
+from policy.transforms import ZScoreNormalizer
 from policy.utils.typing_utils import HydraConfigFor
 
 
@@ -38,8 +38,8 @@ class StateAligner(L.LightningModule):
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
 
-        self.x_normalizer = TensorNormalizer(network.input_dim)
-        self.y_normalizer = TensorNormalizer(network.output_dim)
+        self.x_normalizer = ZScoreNormalizer(network.input_dim)
+        self.y_normalizer = ZScoreNormalizer(network.output_dim)
 
         self.l1_lambda = l1_lambda
 

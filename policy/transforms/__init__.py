@@ -1,5 +1,5 @@
-from .normalizer import TensorNormalizer
+from .normalizer import ZScoreNormalizer
 from .pnp_canonicalizer import PnPCanonicalizer
 from .remove_proprio_vel import RemoveProprioVel
 
-__all__ = ["TensorNormalizer", "PnPCanonicalizer", "RemoveProprioVel"]
+__all__ = ["ZScoreNormalizer", "PnPCanonicalizer", "RemoveProprioVel"]

@@ -10,6 +10,7 @@ from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
+from policy.transforms import ZScoreNormalizer
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
@@ -82,6 +83,41 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         self.unet_cond_dim = self.obs_horizon * self.obs_dim
 
+        # Initialize the observation normalizer
+        self.normalizer = ZScoreNormalizer(obs_dim)
+
+    def setup(self, stage: str | None = None) -> None:
+        if (stage == "fit" or stage is None) and not self.normalizer.is_fit:
+            self._configure_normalizers()
+
+    def _configure_normalizers(self) -> None:
+        dm = getattr(self.trainer, "datamodule", None)
+        if dm is None:
+            raise ValueError(
+                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
+            )
+        base_dm = getattr(dm, "base_datamodule", dm)
+
+        if not hasattr(base_dm, "train_set") or base_dm.train_set is None:
+            base_dm.setup("fit")
+
+        train_set = base_dm.train_set
+        if train_set is None:
+            raise ValueError("Training set is not available in the datamodule.")
+
+        all_obs = []
+        for traj in train_set.trajectories:
+            if train_set.lazy:
+                ep_id = traj["episode_id"]
+                h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                obs_ep = torch.from_numpy(h5_traj["obs"][:])
+            else:
+                obs_ep = torch.from_numpy(traj["obs"])
+            all_obs.append(obs_ep)
+
+        self.normalizer.fit(torch.cat(all_obs, dim=0))
+
+
     def configure_model(self) -> None:
         if self.network is not None:
             return
@@ -137,7 +173,10 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
-        flatten_obs = flatten_tensor_from_mapping(batch["obs_seq"])
+        obs_seq = batch["obs_seq"]
+        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+            obs_seq = self.normalizer.normalize(obs_seq)
+        flatten_obs = flatten_tensor_from_mapping(obs_seq)
         action_seq = batch["act_seq"]
 
         loss = self._compute_loss(flatten_obs, action_seq)
@@ -210,6 +249,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
 
         B = get_batch_size(obs_seq)
+        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+            obs_seq = self.normalizer.normalize(obs_seq)
         obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
         self.ema.store(self.network.parameters())

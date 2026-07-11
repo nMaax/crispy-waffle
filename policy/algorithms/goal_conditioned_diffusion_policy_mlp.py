@@ -55,6 +55,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         goal = batch["goal"]
         action_seq = batch["act_seq"]
 
+        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+            obs_seq = self.normalizer.normalize(obs_seq)
+        if isinstance(goal, torch.Tensor) and goal.shape[-1] == self.obs_dim:
+            goal = self.normalizer.normalize(goal)
+
         unet_cond = self._prepare_unet_cond(
             obs_seq, goal
         )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
@@ -84,6 +89,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         if isinstance(goal, dict):
             goal = flatten_tensor_from_mapping(goal)
+
+        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+            obs_seq = self.normalizer.normalize(obs_seq)
+        if isinstance(goal, torch.Tensor) and goal.shape[-1] == self.obs_dim:
+            goal = self.normalizer.normalize(goal)
 
         unet_cond = self._prepare_unet_cond(
             obs_seq, goal

@@ -160,6 +160,8 @@ class BesoPolicy(DiffusionPolicy):
             )
 
         B = get_batch_size(obs_seq)
+        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+            obs_seq = self.normalizer.normalize(obs_seq)
         obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
         # If the episode just started, pad the history with zeros
