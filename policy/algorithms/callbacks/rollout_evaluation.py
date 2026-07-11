@@ -304,6 +304,8 @@ class RolloutEvaluationCallback(L.Callback):
         # Reset will handle seeding subsequent episodes automatically based on this initial seed
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
+        if hasattr(pl_module, "reset"):
+            pl_module.reset()
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
 

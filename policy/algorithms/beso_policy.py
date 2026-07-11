@@ -1,3 +1,5 @@
+from collections import deque
+
 import hydra_zen
 import torch
 import torch.nn.functional as F
@@ -27,6 +29,9 @@ class BesoPolicy(DiffusionPolicy):
         self.sigma_std = sigma_std
         self.sigma_churn = sigma_churn
 
+        # Store the past (obs_horizon - 1) actions
+        self.action_history = deque(maxlen=self.obs_horizon - 1)
+
         # Ensure we are using Karras scheduler
         if not isinstance(self.noise_scheduler, EDMEulerScheduler):
             raise ValueError(
@@ -43,6 +48,13 @@ class BesoPolicy(DiffusionPolicy):
             return
 
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
+
+    def reset(self):
+        """Clears the action history.
+
+        Call this at the start of every new rollout episode.
+        """
+        self.action_history = deque(maxlen=self.obs_horizon - 1)
 
     def get_action(
         self,
@@ -70,14 +82,22 @@ class BesoPolicy(DiffusionPolicy):
         B = get_batch_size(obs_seq)
         obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
+        # If the episode just started, pad the history with zeros
+        while len(self.action_history) < self.obs_horizon - 1:
+            self.action_history.append(torch.zeros((B, 1, self.act_dim), device=self.device))
+
+        # Combine the deque into a single [B, 7, act_dim] tensor
+        clean_past_actions = torch.cat(list(self.action_history), dim=1)
+
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
 
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
         with torch.no_grad():
-            noisy_act_seq = (
-                torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
+            # Only the CURRENT action (1 token) gets initialized with pure noise
+            current_noisy_action = (
+                torch.randn((B, 1, self.act_dim), device=self.device)
                 * self.noise_scheduler.init_noise_sigma
             )
 
@@ -85,34 +105,41 @@ class BesoPolicy(DiffusionPolicy):
                 # Sigma is the EDM timestep
                 sigma = t.expand(B)
 
-                # Precondition the input
-                scaled_sample = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
+                # Assemble the sequence: [Clean History (7), Noisy Current (1)]
+                combined_act_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
+
+                # Precondition the full sequence
+                scaled_sample = self.noise_scheduler.scale_model_input(combined_act_seq, t)
 
                 # Get raw network prediction
                 model_pred = self.network(sample=scaled_sample, timestep=sigma, obs=obs_seq)
 
+                # We ONLY extract and step the derivative for the final noisy token
+                current_noisy_action_pred = model_pred[:, -1:, :]
+
                 # Step the scheduler using the raw predicted action
                 output = self.noise_scheduler.step(
-                    model_output=model_pred,
+                    model_output=current_noisy_action_pred,
                     timestep=t,
-                    sample=noisy_act_seq,
+                    sample=current_noisy_action,
                     s_churn=self.sigma_churn,
                     return_dict=False,
                 )
-                noisy_act_seq = output[0]
+                current_noisy_action = output[0]
 
         self.ema.restore(self.network.parameters())
 
         # Extract the actions to execute
-        start = self.obs_horizon - 1
-        end = start + self.act_horizon
-        denoised_act_seq = noisy_act_seq[:, start:end]
+        denoised_action = current_noisy_action
 
         if clamp_range is not None:
             low, high = clamp_range
-            denoised_act_seq = torch.clamp(denoised_act_seq, low, high)
+            denoised_action = torch.clamp(denoised_action, low, high)
 
-        return denoised_act_seq
+        # Save the executed action to the history queue for the next step
+        self.action_history.append(denoised_action)
+
+        return denoised_action
 
     def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """BESO Loss formulation using Karras preconditioning."""
@@ -129,6 +156,7 @@ class BesoPolicy(DiffusionPolicy):
 
         # Add noise
         noise = torch.randn_like(act_seq)
+        noise[:, :-1, :] = 0.0
         noisy_act_seq = act_seq + noise * sigma_bd
 
         # Get Karras scalings
@@ -142,7 +170,7 @@ class BesoPolicy(DiffusionPolicy):
         target = (act_seq - c_skip * noisy_act_seq) / c_out
 
         # Compute MSE loss
-        loss = F.mse_loss(model_output, target)
+        loss = F.mse_loss(model_output[:, -1:, :], target[:, -1:, :])
 
         return loss
 
