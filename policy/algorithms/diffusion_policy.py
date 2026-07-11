@@ -87,8 +87,15 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.normalizer = ZScoreNormalizer(obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
-        if (stage == "fit" or stage is None) and not self.normalizer.is_fit:
-            self._configure_normalizers()
+        if stage != "fit" or self.normalizer.is_fit:
+            return
+
+        dm = getattr(self.trainer, "datamodule", None)
+        if dm is None:
+            raise ValueError(
+                "Trainer datamodule is required to fit the normalizer during training."
+            )
+        self._configure_normalizers()
 
     def _configure_normalizers(self) -> None:
         dm = getattr(self.trainer, "datamodule", None)
@@ -98,10 +105,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
         base_dm = getattr(dm, "base_datamodule", dm)
 
-        if not hasattr(base_dm, "train_set") or base_dm.train_set is None:
-            base_dm.setup("fit")
-
-        train_set = base_dm.train_set
+        train_set = getattr(base_dm, "train_set", None)
         if train_set is None:
             raise ValueError("Training set is not available in the datamodule.")
 
