@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from diffusers import EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
-from policy.algorithms.networks.diffusion_gpt import DiffsionGPT
+from policy.algorithms.networks.diffusion_gpt import DiffusionGPT
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
 
@@ -43,7 +43,7 @@ class BesoPolicy(DiffusionPolicy):
 
         self.network = hydra_zen.instantiate(self.network_config)
 
-        if not isinstance(self.network, DiffsionGPT):
+        if not isinstance(self.network, DiffusionGPT):
             raise ValueError(
                 f"BesoPolicy requires a DiffusionGPT network. Found: {type(self.network)}"
             )
