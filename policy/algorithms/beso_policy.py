@@ -181,23 +181,24 @@ class BesoPolicy(DiffusionPolicy):
                 * self.noise_scheduler.init_noise_sigma
             )
 
-            for t in self.noise_scheduler.timesteps:
-                # Sigma is the EDM timestep
-                sigma = t.expand(B)
+            for i, t in enumerate(self.noise_scheduler.timesteps):
+                # 't' is the HF transformed timestep (0.25 * log(sigma))
+                # 'raw_sigma' is the actual standard deviation we need for DiffusionGPT
+                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)
 
                 # Assemble the sequence: [Clean History (7), Noisy Current (1)]
                 combined_act_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
 
-                # Precondition the full sequence
+                # Precondition the full sequence (Diffusers expects 't')
                 scaled_sample = self.noise_scheduler.scale_model_input(combined_act_seq, t)
 
-                # Get raw network prediction
-                model_pred = self.network(sample=scaled_sample, timestep=sigma, obs=obs_seq)
+                # Get raw network prediction (DiffusionGPT expects 'raw_sigma')
+                model_pred = self.network(sample=scaled_sample, timestep=raw_sigma, obs=obs_seq)
 
                 # We ONLY extract and step the derivative for the final noisy token
                 current_noisy_action_pred = model_pred[:, -1:, :]
 
-                # Step the scheduler using the raw predicted action
+                # Step the scheduler using the raw predicted action (Diffusers expects 't')
                 output = self.noise_scheduler.step(
                     model_output=current_noisy_action_pred,
                     timestep=t,
