@@ -96,67 +96,14 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
-    def configure_optimizers(self):
-        """Overrides DiffusionPolicy's optimizer to apply Selective Weight Decay for GPTs."""
+    def configure_optimizers(self) -> Optimizer | dict:
 
-        if self.network is None:
-            raise ValueError(
-                "Network not initialized. Call configure_model() before configure_optimizers."
-            )
+        # Optimizers and schedulers could actually be made in one shot, without partial,
+        # however I prefer to follow the template prescription, just for coherence
 
-        # Separate parameters into decay/no_decay sets
-        decay = set()
-        no_decay = set()
-        whitelist_weight_modules = (torch.nn.Linear,)
-        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
-
-        # Iterate over the DiffusionGPT network
-        for mn, m in self.network.named_modules():
-            for pn, p in m.named_parameters():
-                if not p.requires_grad:
-                    continue
-
-                fpn = f"{mn}.{pn}" if mn else pn
-
-                if pn.endswith("bias"):
-                    no_decay.add(fpn)
-                elif pn.endswith("weight") and isinstance(m, whitelist_weight_modules):
-                    decay.add(fpn)
-                elif pn.endswith("weight") and isinstance(m, blacklist_weight_modules):
-                    no_decay.add(fpn)
-
-        # Positional embedding in DiffusionGPT
-        if hasattr(self.network, "pos_emb"):
-            no_decay.add("pos_emb")
-
-        # Validate that we categorized every parameter
-        param_dict = {pn: p for pn, p in self.network.named_parameters() if p.requires_grad}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, f"Parameters {inter_params} made it into both sets!"
-        assert len(param_dict.keys() - union_params) == 0, "Some parameters were not categorized!"
-
-        # Extract the weight decay value from your Hydra config
-        # hydra_zen partials store their configured kwargs in the `.keywords` dict
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
-        global_weight_decay = optimizer_partial.keywords.get("weight_decay", 1e-4)
+        optimizer = optimizer_partial(filter(lambda p: p.requires_grad, self.parameters()))
 
-        # Create PyTorch optimizer groups
-        optim_groups = [
-            {
-                "params": [param_dict[pn] for pn in sorted(list(decay))],
-                "weight_decay": global_weight_decay,
-            },
-            {
-                "params": [param_dict[pn] for pn in sorted(list(no_decay))],
-                "weight_decay": 0.0,  # Explicitly disable weight decay for these!
-            },
-        ]
-
-        # Instantiate the optimizer using the groups
-        optimizer = optimizer_partial(optim_groups)
-
-        # Handle the Learning Rate Scheduler (Standard Lightning logic)
         if self.lr_scheduler_config is not None:
             lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
             lr_scheduler = lr_scheduler_partial(optimizer)

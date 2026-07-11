@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from diffusers import EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
+from policy.algorithms.networks.diffusion_gpt import DiffsionGPT
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
 
@@ -29,10 +30,8 @@ class BesoPolicy(DiffusionPolicy):
         self.sigma_std = sigma_std
         self.sigma_churn = sigma_churn
 
-        # Store the past (obs_horizon - 1) actions
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
-        # Ensure we are using Karras scheduler
         if not isinstance(self.noise_scheduler, EDMEulerScheduler):
             raise ValueError(
                 f"BesoPolicy requires an EDMEulerScheduler (Karras). Found: {type(self.noise_scheduler)}"
@@ -44,10 +43,91 @@ class BesoPolicy(DiffusionPolicy):
 
         self.network = hydra_zen.instantiate(self.network_config)
 
+        if not isinstance(self.network, DiffsionGPT):
+            raise ValueError(
+                f"BesoPolicy requires a DiffusionGPT network. Found: {type(self.network)}"
+            )
+
         if self.ema is not None:
             return
 
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
+
+    def configure_optimizers(self):
+        """Overrides DiffusionPolicy's optimizer to apply Selective Weight Decay for GPTs."""
+
+        if self.network is None:
+            raise ValueError(
+                "Network not initialized. Call configure_model() before configure_optimizers."
+            )
+
+        # Separate parameters into decay/no_decay sets
+        decay = set()
+        no_decay = set()
+        whitelist_weight_modules = (torch.nn.Linear,)
+        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
+
+        # Iterate over the DiffusionGPT network
+        for mn, m in self.network.named_modules():
+            for pn, p in m.named_parameters():
+                if not p.requires_grad:
+                    continue
+
+                fpn = f"{mn}.{pn}" if mn else pn
+
+                if pn.endswith("bias"):
+                    no_decay.add(fpn)
+                elif pn.endswith("weight") and isinstance(m, whitelist_weight_modules):
+                    decay.add(fpn)
+                elif pn.endswith("weight") and isinstance(m, blacklist_weight_modules):
+                    no_decay.add(fpn)
+
+        # Positional embedding in DiffusionGPT
+        if hasattr(self.network, "pos_emb"):
+            no_decay.add("pos_emb")
+
+        # Validate that we categorized every parameter
+        param_dict = {pn: p for pn, p in self.network.named_parameters() if p.requires_grad}
+        inter_params = decay & no_decay
+        union_params = decay | no_decay
+        assert len(inter_params) == 0, f"Parameters {inter_params} made it into both sets!"
+        assert len(param_dict.keys() - union_params) == 0, "Some parameters were not categorized!"
+
+        # Extract the weight decay value from your Hydra config
+        # hydra_zen partials store their configured kwargs in the `.keywords` dict
+        optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
+        global_weight_decay = optimizer_partial.keywords.get("weight_decay", 1e-4)
+
+        # Create PyTorch optimizer groups
+        optim_groups = [
+            {
+                "params": [param_dict[pn] for pn in sorted(list(decay))],
+                "weight_decay": global_weight_decay,
+            },
+            {
+                "params": [param_dict[pn] for pn in sorted(list(no_decay))],
+                "weight_decay": 0.0,  # Explicitly disable weight decay for these!
+            },
+        ]
+
+        # Instantiate the optimizer using the groups
+        optimizer = optimizer_partial(optim_groups)
+
+        # Handle the Learning Rate Scheduler (Standard Lightning logic)
+        if self.lr_scheduler_config is not None:
+            lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
+            lr_scheduler = lr_scheduler_partial(optimizer)
+
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": lr_scheduler,
+                    "interval": "step",
+                    "frequency": 1,
+                },
+            }
+        else:
+            return optimizer
 
     def reset(self):
         """Clears the action history.
