@@ -44,7 +44,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             hidden_dims=hidden_dims,
         )
 
-        self.unet_cond_dim = (
+        self.network_cond_dim = (
             self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
         )  # (proprioception + embedded observation) for each timestep in the past + the embedded goal (no proprio)
 
@@ -76,11 +76,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         action_seq = batch["act_seq"]
 
-        unet_cond = self._prepare_unet_cond(
+        network_cond = self._prepare_network_cond(
             obs_seq, goal
         )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
-        loss = self._compute_loss(unet_cond, action_seq)
+        loss = self._compute_loss(network_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -101,13 +101,13 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
 
-        unet_cond = self._prepare_unet_cond(
+        network_cond = self._prepare_network_cond(
             obs_seq, goal
         )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
-        return super().get_action(unet_cond, num_inference_steps, clamp_range)
+        return super().get_action(network_cond, num_inference_steps, clamp_range)
 
-    def _prepare_unet_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+    def _prepare_network_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
 
         B = get_batch_size(obs_seq)
 
@@ -124,8 +124,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         goal_embedding = self.state_embedder(goal[..., self.proprio_dim :])  # B, embedding_dim
 
         # Concatenate all together
-        unet_cond = torch.cat(
+        network_cond = torch.cat(
             [proprio_seq, state_embeddings, goal_embedding], dim=-1
         )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
 
-        return unet_cond
+        return network_cond
