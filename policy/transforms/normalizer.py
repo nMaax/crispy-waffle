@@ -3,34 +3,67 @@ import torch.nn as nn
 
 
 class ZScoreNormalizer(nn.Module):
-    """Z-score normalizer for tensors (mean=0, std=1).
+    """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors.
 
-    Registers statistics as PyTorch buffers so they are automatically saved/loaded inside
-    state_dict.
+    A dict is treated as a tree; each leaf tensor gets its own independent
+    normalizer, fit/applied over its last (feature) dimension. Structure of
+    the tree of sub-normalizers is fixed at construction time via `spec`.
+
+    Example:
+        spec = {
+            "proprio": {"qpos": 9, "qvel": 9},
+            "states": 30,
+        }
+        normalizer = ZScoreNormalizer(spec)
+        normalizer.fit(batch)          # batch matches the tree structure
+        normed = normalizer(batch)     # same tree structure, normalized leaves
+        original = normalizer.unnormalize(normed)
     """
 
-    def __init__(self, dim: int):
+    def __init__(self, spec: int | torch.Tensor | dict):
         super().__init__()
-        self.register_buffer("mean", torch.zeros(dim))
-        self.register_buffer("std", torch.ones(dim))
-        self.register_buffer("is_fit", torch.tensor(False))
 
-    def fit(self, data: torch.Tensor):
-        # Flatten batches and sequence horizons (if any) to calculate stats over feature dimensions
-        data_flat = data.reshape(-1, data.shape[-1])
-        self.register_buffer("mean", data_flat.mean(dim=0))
-        self.register_buffer("std", data_flat.std(dim=0).clamp(min=1e-6))
-        self.is_fit.fill_(True)
+        if not isinstance(spec, dict):
+            if isinstance(spec, int):
+                dim = spec
+            elif isinstance(spec, torch.Tensor):
+                dim = spec.shape[-1] if isinstance(spec, torch.Tensor) else spec
 
-    def normalize(self, x: torch.Tensor) -> torch.Tensor:
-        if not self.is_fit:
-            return x
-        return (x - self.mean) / self.std
+            self.register_buffer("mean", torch.zeros(dim))
+            self.register_buffer("std", torch.ones(dim))
+            self.register_buffer("is_fit", torch.tensor(False))
+        else:
+            self.norms = nn.ModuleDict(
+                {key: ZScoreNormalizer(child_spec) for key, child_spec in spec.items()}
+            )
 
-    def unnormalize(self, x: torch.Tensor) -> torch.Tensor:
-        if not self.is_fit:
-            return x
-        return (x * self.std) + self.mean
+    def fit(self, data: torch.Tensor | dict):
+        if not isinstance(data, dict):
+            data_flat = data.reshape(-1, data.shape[-1])
+            self.mean.copy_(data_flat.mean(dim=0))
+            self.std.copy_(data_flat.std(dim=0).clamp(min=1e-6))
+            self.is_fit.fill_(True)
+        else:
+            for key, norm in self.norms.items():
+                norm.fit(data[key])
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
+        if not isinstance(x, dict):
+            if self.is_fit:
+                return (x - self.mean) / self.std
+            else:
+                return x
+        else:
+            return {key: norm.normalize(x[key]) for key, norm in self.norms.items()}
+
+    def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
+        if not isinstance(x, dict):
+            if self.is_fit:
+                return (x * self.std) + self.mean
+            else:
+                return x
+        else:
+            return {key: norm.unnormalize(x[key]) for key, norm in self.norms.items()}
+
+    def forward(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         return self.normalize(x)

@@ -5,5 +5,6 @@ _target_: policy.algorithms.goal_conditioned_diffusion_policy_mlp.GoalConditione
 
 proprio_dim: 18 # qpos, qvel, including fingers
 task_dim: 30 # TCP, A, B, A-B, TCP-A, TCP-B
+
 state_embedding_dim: 64
 hidden_dims: [128, 128, 128]

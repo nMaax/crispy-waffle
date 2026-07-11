@@ -6,6 +6,7 @@ from .utils import (
     print_dict_tree,
     sum_shapes,
     to_tensor,
+    total_dim,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "print_dict_tree",
     "sum_shapes",
     "to_tensor",
+    "total_dim",
 ]

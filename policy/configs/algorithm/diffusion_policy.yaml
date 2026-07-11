@@ -8,6 +8,8 @@ defaults:
 _target_: policy.algorithms.diffusion_policy.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
 
+normalize: false
+
 obs_horizon: ${datamodule.obs_horizon}
 pred_horizon: ${datamodule.pred_horizon}
 act_horizon: 8 # Can't do math in hydra, otherwise this would be ${datamodule.act_dim}*2

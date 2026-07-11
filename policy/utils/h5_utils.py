@@ -3,6 +3,7 @@ from typing import Any
 
 import h5py
 import numpy as np
+import torch
 
 
 def load_h5_data(data: h5py.Group | h5py.File) -> dict[str, np.ndarray | dict]:
@@ -29,6 +30,13 @@ def extract_h5_shapes(data: h5py.Group | h5py.Dataset) -> dict["str", tuple] | N
         return result
     else:
         return data.shape[-1]
+
+
+def h5_group_to_dict_of_tensors(group) -> dict | torch.Tensor:
+    if isinstance(group, h5py.Group):
+        return {k: h5_group_to_dict_of_tensors(v) for k, v in group.items()}
+    else:
+        return torch.from_numpy(group[:])
 
 
 def peek_trajectory_dimension(

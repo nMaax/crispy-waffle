@@ -6,12 +6,11 @@ import torch.nn.functional as F
 from diffusers import EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
-from policy.algorithms.networks.diffusion_gpt import DiffusionGPT
 from policy.utils import flatten_tensor_from_mapping, get_batch_size
 
 
 class BesoPolicy(DiffusionPolicy):
-    """Trains a (BESO) policy."""
+    """Trains a BESO policy."""
 
     def __init__(
         self,
@@ -32,9 +31,14 @@ class BesoPolicy(DiffusionPolicy):
 
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
+        if "DiffusionGPT" not in self.network_config.get("_target_", None):
+            raise ValueError(
+                f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
+            )
+
         if not isinstance(self.noise_scheduler, EDMEulerScheduler):
             raise ValueError(
-                f"BesoPolicy requires an EDMEulerScheduler (Karras). Found: {type(self.noise_scheduler)}"
+                f"BesoPolicy requires an EDMEulerScheduler (Karras) for inference. Found: {type(self.noise_scheduler)}"
             )
 
     def configure_model(self) -> None:
@@ -43,19 +47,13 @@ class BesoPolicy(DiffusionPolicy):
 
         self.network = hydra_zen.instantiate(self.network_config)
 
-        if not isinstance(self.network, DiffusionGPT):
-            raise ValueError(
-                f"BesoPolicy requires a DiffusionGPT network. Found: {type(self.network)}"
-            )
-
         if self.ema is not None:
             return
 
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self):
-        """Overrides DiffusionPolicy's optimizer to apply Selective Weight Decay for GPTs."""
-
+        """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before configure_optimizers."
@@ -142,8 +140,7 @@ class BesoPolicy(DiffusionPolicy):
         num_inference_steps: int = 20,
         clamp_range: tuple | None = None,
     ):
-        """BESO inference using Karras preconditioning."""
-
+        """BESO inference using Karras preconditioning and EDMEulerScheduler."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -154,13 +151,24 @@ class BesoPolicy(DiffusionPolicy):
                 "Noise Scheduler not initialized. Call configure_model() before getting action."
             )
 
+        if not hasattr(self.noise_scheduler, "init_noise_sigma"):
+            raise ValueError(
+                "Noise Scheduler does not have 'init_noise_sigma' attribute. Ensure you are using EDMEulerScheduler."
+            )
+
+        if not hasattr(self.noise_scheduler, "sigmas"):
+            raise ValueError(
+                "Noise Scheduler does not have 'sigmas' attribute. Ensure you are using EDMEulerScheduler."
+            )
+
         if self.ema is None:
             raise ValueError(
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
         B = get_batch_size(obs_seq)
-        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+
+        if self.normalize:
             obs_seq = self.normalizer.normalize(obs_seq)
         obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
@@ -180,13 +188,13 @@ class BesoPolicy(DiffusionPolicy):
             # Only the CURRENT action (1 token) gets initialized with pure noise
             current_noisy_action = (
                 torch.randn((B, 1, self.act_dim), device=self.device)
-                * self.noise_scheduler.init_noise_sigma
+                * self.noise_scheduler.init_noise_sigma  # type: ignore
             )
 
             for i, t in enumerate(self.noise_scheduler.timesteps):
                 # 't' is the HF transformed timestep (0.25 * log(sigma))
                 # 'raw_sigma' is the actual standard deviation we need for DiffusionGPT
-                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)
+                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)  # type: ignore
 
                 # Assemble the sequence: [Clean History (7), Noisy Current (1)]
                 combined_act_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
@@ -226,6 +234,9 @@ class BesoPolicy(DiffusionPolicy):
 
     def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """BESO Loss formulation using Karras preconditioning."""
+
+        # NOTE: No need to normalize obs_seq here, as it is already normalized in the Diffusion Policy _shared_step()
+
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."

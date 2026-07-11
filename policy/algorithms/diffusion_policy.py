@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import ZScoreNormalizer
-from policy.utils import flatten_tensor_from_mapping, get_batch_size
+from policy.utils import flatten_tensor_from_mapping, get_batch_size, total_dim
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
@@ -36,9 +36,10 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         act_horizon: int = 8,
-        obs_dim: int = 48,
+        obs_dim: dict | int = 48,
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
+        normalize: bool = False,
     ):
         super().__init__()
 
@@ -81,21 +82,21 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
-        self.unet_cond_dim = self.obs_horizon * self.obs_dim
-
-        # Initialize the observation normalizer
+        # Initialize the normalizer
+        self.normalize = normalize
         self.normalizer = ZScoreNormalizer(obs_dim)
 
-    def setup(self, stage: str | None = None) -> None:
-        if stage != "fit" or self.normalizer.is_fit:
-            return
+        # Like in configure models, we supper a UNet, tho this may need to be generalized in the future
+        if isinstance(obs_dim, dict):
+            total_obs_dim = total_dim(obs_dim)
+        else:
+            total_obs_dim = obs_dim
 
-        dm = getattr(self.trainer, "datamodule", None)
-        if dm is None:
-            raise ValueError(
-                "Trainer datamodule is required to fit the normalizer during training."
-            )
-        self._configure_normalizers()
+        self.unet_cond_dim = self.obs_horizon * total_obs_dim
+
+    def setup(self, stage: str | None = None) -> None:
+        if self.normalize and not self.normalizer.is_fit and stage == "fit":
+            self._configure_normalizers()
 
     def _configure_normalizers(self) -> None:
         dm = getattr(self.trainer, "datamodule", None)
@@ -103,24 +104,25 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             raise ValueError(
                 "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
             )
-        base_dm = getattr(dm, "base_datamodule", dm)
 
-        train_set = getattr(base_dm, "train_set", None)
+        train_set = getattr(dm, "train_set", None)
         if train_set is None:
             raise ValueError("Training set is not available in the datamodule.")
 
         all_obs = []
         for traj in train_set.trajectories:
             if train_set.lazy:
+                # TODO: if data is truly lazy, then we should not load it
+                # in local memory, but rather use the h5 file directly. This is a temporary solution.
                 ep_id = traj["episode_id"]
                 h5_traj = train_set.h5_file[f"traj_{ep_id}"]
                 obs_ep = torch.from_numpy(h5_traj["obs"][:])
             else:
                 obs_ep = torch.from_numpy(traj["obs"])
             all_obs.append(obs_ep)
+        all_obs = torch.cat(all_obs, dim=0)
 
-        self.normalizer.fit(torch.cat(all_obs, dim=0))
-
+        self.normalizer.fit(all_obs)
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -178,8 +180,9 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             returns: scalar loss tensor []
         """
         obs_seq = batch["obs_seq"]
-        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+        if self.normalize:
             obs_seq = self.normalizer.normalize(obs_seq)
+
         flatten_obs = flatten_tensor_from_mapping(obs_seq)
         action_seq = batch["act_seq"]
 
@@ -253,8 +256,10 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
 
         B = get_batch_size(obs_seq)
-        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+
+        if self.normalize:
             obs_seq = self.normalizer.normalize(obs_seq)
+
         obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
 
         self.ema.store(self.network.parameters())

@@ -7,6 +7,8 @@ defaults:
 _target_: policy.algorithms.beso_policy.BesoPolicy
 _recursive_: false
 
+normalize: true
+
 obs_horizon: ${datamodule.obs_horizon}
 pred_horizon: ${datamodule.pred_horizon}
 act_horizon: ??

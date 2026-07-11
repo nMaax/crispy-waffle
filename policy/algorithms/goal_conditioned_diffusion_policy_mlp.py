@@ -4,7 +4,9 @@ import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.networks import MLP
-from policy.utils import flatten_tensor_from_mapping, get_batch_size
+from policy.utils import get_batch_size
+
+# TODO: make this work also for dictionary observations (see type: ignore, isinstance() checks and typing in method signatures)
 
 
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
@@ -18,6 +20,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+
+        if not isinstance(self.obs_dim, int):
+            raise ValueError(
+                f"Observation dimensionality must be an integer, indicating non-dictionary will be served. But got {type(self.obs_dim)}."
+            )
 
         if proprio_dim + task_dim != self.obs_dim:
             raise ValueError(
@@ -51,14 +58,23 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
+
         obs_seq = batch["obs_seq"]
         goal = batch["goal"]
-        action_seq = batch["act_seq"]
 
-        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
+        if self.normalize:
             obs_seq = self.normalizer.normalize(obs_seq)
-        if isinstance(goal, torch.Tensor) and goal.shape[-1] == self.obs_dim:
             goal = self.normalizer.normalize(goal)
+
+        if not isinstance(obs_seq, torch.Tensor):
+            raise ValueError(
+                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
+            )
+
+        if not isinstance(goal, torch.Tensor):
+            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
+
+        action_seq = batch["act_seq"]
 
         unet_cond = self._prepare_unet_cond(
             obs_seq, goal
@@ -71,8 +87,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
     def get_action(
         self,
-        obs_seq: torch.Tensor | dict,
-        goal: torch.Tensor | dict,
+        obs_seq: torch.Tensor,
+        goal: torch.Tensor,
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
@@ -84,16 +100,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             goal: [B, obs_dim] (flattened conditioning)
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if isinstance(obs_seq, dict):
-            obs_seq = flatten_tensor_from_mapping(obs_seq)
-
-        if isinstance(goal, dict):
-            goal = flatten_tensor_from_mapping(goal)
-
-        if isinstance(obs_seq, torch.Tensor) and obs_seq.shape[-1] == self.obs_dim:
-            obs_seq = self.normalizer.normalize(obs_seq)
-        if isinstance(goal, torch.Tensor) and goal.shape[-1] == self.obs_dim:
-            goal = self.normalizer.normalize(goal)
 
         unet_cond = self._prepare_unet_cond(
             obs_seq, goal
@@ -109,7 +115,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             B, self.obs_horizon * self.proprio_dim
         )  # B, horizon * proprio_dim
 
-        flatten_obs_seq = obs_seq.reshape(B * self.obs_horizon, self.obs_dim)
+        flatten_obs_seq = obs_seq.reshape(B * self.obs_horizon, self.obs_dim)  # type: ignore
         flatten_obs_embedding = self.state_embedder(flatten_obs_seq[:, self.proprio_dim :])
         state_embeddings = flatten_obs_embedding.reshape(
             B, self.obs_horizon * self.state_embedding_dim

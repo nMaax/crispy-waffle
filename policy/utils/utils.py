@@ -131,6 +131,24 @@ def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
+def stack_dicts(trees: list) -> dict | torch.Tensor:
+    """Recursively stacks a list of nested dictionaries of tensors into a single nested dictionary
+    of tensors."""
+    first = trees[0]
+    if isinstance(first, dict):
+        return {k: stack_dicts([t[k] for t in trees]) for k in first}
+    else:
+        return torch.cat(trees, dim=0)
+
+
+def total_dim(spec: dict | torch.Tensor) -> int:
+    """Recursively sums the last dimension of all leaf tensors in a nested dictionary."""
+    if isinstance(spec, dict):
+        return sum(total_dim(child) for child in spec.values())
+    else:
+        return int(spec.shape[-1])
+
+
 def flatten_tensor_from_mapping(
     data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
 ) -> torch.Tensor:
