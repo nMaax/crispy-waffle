@@ -1,9 +1,9 @@
+import math
 from collections import deque
 
 import hydra_zen
 import torch
 import torch.nn.functional as F
-from diffusers import DDIMScheduler, EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
 from policy.utils import get_batch_size
@@ -24,14 +24,25 @@ class BesoPolicy(DiffusionPolicy):
         *args,
         sigma_data: float = 0.5,
         sigma_churn: float = 0.0,
+        sigma_min: float = 0.005,
+        sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
         **kwargs,
     ):
 
-        super().__init__(*args, **kwargs)
+        # NOTE: we implement our own custom DDIM scheduler on continuous sigmas
+        # so we can ignore the noise_scheduler argument from the base class
+
+        kwargs.pop("noise_scheduler", None)
+        super().__init__(*args, noise_scheduler=None, **kwargs)  # type: ignore
+
+        self.noise_scheduler = None
 
         self.sigma_data = sigma_data
         self.sigma_churn = sigma_churn
+
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
 
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
@@ -39,11 +50,6 @@ class BesoPolicy(DiffusionPolicy):
         if "DiffusionGPT" not in self.network_config.get("_target_", None):
             raise ValueError(
                 f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
-            )
-
-        if not isinstance(self.noise_scheduler, EDMEulerScheduler | DDIMScheduler):
-            raise ValueError(
-                f"BesoPolicy requires an EDMEulerScheduler or DDIMScheduler for inference. Found: {type(self.noise_scheduler)}"
             )
 
     def configure_optimizers(self):
@@ -129,8 +135,6 @@ class BesoPolicy(DiffusionPolicy):
         """BESO Loss formulation using Karras preconditioning and sampling from a continuous
         distribution of noise levels (i.e., do not use Diffusers)."""
 
-        # NOTE: No need to normalize obs_seq here, as it is already normalized in the Diffusion Policy _shared_step()
-
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -185,7 +189,7 @@ class BesoPolicy(DiffusionPolicy):
     def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
-        num_inference_timesteps: int | None,
+        num_inference_timesteps: int | None = None,
         clamp_range: tuple | None = None,
     ):
         """Generic helper containing the actual Karras preconditioned diffusion process loop."""
@@ -194,19 +198,9 @@ class BesoPolicy(DiffusionPolicy):
                 "Network not initialized. Call configure_model() before getting action."
             )
 
-        if self.noise_scheduler is None:
+        if num_inference_timesteps is None:
             raise ValueError(
-                "Noise Scheduler not initialized. Call configure_model() before getting action."
-            )
-
-        if not hasattr(self.noise_scheduler, "init_noise_sigma"):
-            raise ValueError(
-                "Noise Scheduler does not have 'init_noise_sigma' attribute. Ensure you are using EDMEulerScheduler."
-            )
-
-        if not hasattr(self.noise_scheduler, "sigmas"):
-            raise ValueError(
-                "Noise Scheduler does not have 'sigmas' attribute. Ensure you are using EDMEulerScheduler."
+                "num_inference_timesteps must be manually provided for BESO inference."
             )
 
         if self.ema is None:
@@ -226,61 +220,61 @@ class BesoPolicy(DiffusionPolicy):
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
 
-        # NOTE: Since we trained on a continuous distribution of noise levels, num_train_timesteps was not actually used in _compute_loss
-        # as we sampled such noise manually. However now we sample via a discrete-timestep logic, and the Diffusers library is baked with
-        # such in mind; thus every Scheduler posses a num_train_timesteps parameter (for EDM this is 1000 by default)
-        # and, despite the name, we will use it as the number of steps to run.
-        if num_inference_timesteps is None:
-            num_inference_timesteps = int(self.noise_scheduler.config["num_train_timesteps"])
-
-        self.noise_scheduler.set_timesteps(num_inference_timesteps, device=self.device)
+        sigmas = self._get_sigmas_exponential(
+            num_inference_timesteps, self.sigma_min, self.sigma_max
+        )
 
         with torch.no_grad():
-            # Only the CURRENT action (1 token) gets initialized with pure noise
+            # Initialize with our specific self.sigma_max
             current_noisy_action = (
-                torch.randn((B, 1, self.act_dim), device=self.device)
-                * self.noise_scheduler.init_noise_sigma
+                torch.randn((B, 1, self.act_dim), device=self.device) * sigmas[0]
             )
 
-            # Assemble the sequence: [Clean History (7), Noisy Current (1)]
             running_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
 
-            for i, t in enumerate(self.noise_scheduler.timesteps):
-                # 't' is the HF transformed timestep (0.25 * log(sigma))
-                # 'raw_sigma' is the actual standard deviation we need for DiffusionGPT
-                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)
+            # Custom Continuous DDIM Loop
+            for i in range(len(sigmas) - 1):
+                sigma_t = sigmas[i].expand(B)
+                sigma_next = sigmas[i + 1].expand(B)
 
-                # Precondition the full sequence (Diffusers expects 't')
-                scaled_sample = self.noise_scheduler.scale_model_input(running_seq, t)
+                # Get Karras scalings for the current sigma
+                sigma_bd = sigma_t.view(B, 1, 1)
+                c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
 
-                # Get raw network prediction (DiffusionGPT expects 'raw_sigma')
-                model_pred = self.network(
-                    sample=scaled_sample, timestep=raw_sigma, obs=network_cond
-                )
+                # Scale input and predict
+                scaled_sample = running_seq * c_in
+                model_pred = self.network(sample=scaled_sample, timestep=sigma_t, obs=network_cond)
 
                 if self.pred_last_action_only:
-                    # We ONLY extract and step the derivative for the final noisy token
-                    current_noisy_action_pred = model_pred[:, -1:, :]
-                    output = self.noise_scheduler.step(
-                        model_output=current_noisy_action_pred,
-                        timestep=t,
-                        sample=running_seq[:, -1:, :],
-                        s_churn=self.sigma_churn,
-                        return_dict=False,
-                    )
-                    # Update only the final slot in the sequence
-                    running_seq[:, -1:, :] = output[0]
+                    current_pred = model_pred[:, -1:, :]
+                    current_noisy = running_seq[:, -1:, :]
+
+                    # Reverse the Karras preconditioning to get clean x_0
+                    denoised_x0 = current_pred * c_out + current_noisy * c_skip
+
+                    # Continuous DDIM Update Step
+                    t = self._t_fn(sigma_t).view(B, 1, 1)
+                    t_next = self._t_fn(sigma_next).view(B, 1, 1)
+                    h = t_next - t
+
+                    updated_action = (
+                        self._sigma_fn(t_next) / self._sigma_fn(t)
+                    ) * current_noisy - (-h).expm1() * denoised_x0
+                    running_seq[:, -1:, :] = updated_action
+
                 else:
-                    # Step the ENTIRE sequence
-                    # (The clean history its derivative will evaluate to ~0)
-                    output = self.noise_scheduler.step(
-                        model_output=model_pred,
-                        timestep=t,
-                        sample=running_seq,
-                        s_churn=self.sigma_churn,
-                        return_dict=False,
-                    )
-                    running_seq = output[0]
+                    # Reverse Karras preconditioning for the full chunk
+                    denoised_x0 = model_pred * c_out + running_seq * c_skip
+
+                    # Continuous DDIM Update Step for full chunk
+                    t = self._t_fn(sigma_t).view(B, 1, 1)
+                    t_next = self._t_fn(sigma_next).view(B, 1, 1)
+                    h = t_next - t
+
+                    updated_action = (self._sigma_fn(t_next) / self._sigma_fn(t)) * running_seq - (
+                        -h
+                    ).expm1() * denoised_x0
+                    running_seq = updated_action
 
         self.ema.restore(self.network.parameters())
 
@@ -295,3 +289,18 @@ class BesoPolicy(DiffusionPolicy):
         self.action_history.append(denoised_action)
 
         return denoised_action
+
+    def _get_sigmas_exponential(self, n: int, sigma_min: float, sigma_max: float) -> torch.Tensor:
+        """Constructs an exponential noise schedule."""
+        sigmas = torch.linspace(
+            math.log(sigma_max), math.log(sigma_min), n, device=self.device
+        ).exp()
+
+        # Append 0.0 for the final step
+        return torch.cat([sigmas, torch.zeros(1, device=self.device)])
+
+    def _sigma_fn(self, t):
+        return t.neg().exp()
+
+    def _t_fn(self, sigma):
+        return sigma.log().neg()

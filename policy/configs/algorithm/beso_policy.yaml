@@ -1,6 +1,6 @@
 defaults:
   - network: diffusion_gpt
-  - noise_scheduler: edm
+  - noise_scheduler: null
   - ema: default
   - optimizer: AdamW
   - lr_scheduler: cosine_with_warmup
@@ -16,8 +16,12 @@ act_horizon: ??
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
-sigma_data: ${algorithm.noise_scheduler.sigma_data}
-sigma_churn: 1.0 # Adds Langevin stochasticity during sampling, 0.0 means ODE, >0.0 mean SDE
+sigma_data: 0.5
+sigma_churn: 1.0 # Adds Langevin stochasticity during sampling: 0.0 means ODE, >0.0 mean SDE
+
+sigma_min: 0.005
+sigma_max: 1.0
+
 pred_last_action_only: false
 
 network:
