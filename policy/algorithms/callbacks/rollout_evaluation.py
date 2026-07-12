@@ -96,15 +96,6 @@ class RolloutEvaluationCallback(L.Callback):
         )
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str | None) -> None:
-
-        # TODO: Shouldn't this be resolved from the datamodule like the attributes below?
-        if self.adapter_config is not None:
-            self.adapter = hydra_zen.instantiate(self.adapter_config)
-        else:
-            self.adapter = NoOpAdapter()
-
-        rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
-
         datamodule = getattr(trainer, "datamodule", None)
 
         def _resolve_param(
@@ -121,6 +112,18 @@ class RolloutEvaluationCallback(L.Callback):
                 )
             else:
                 return default
+
+        resolved_adapter = _resolve_param(
+            self.adapter_config, "adapter", strict=False, default=None
+        )
+        if isinstance(resolved_adapter, AdapterProtocol):
+            self.adapter = resolved_adapter
+        elif resolved_adapter is not None:
+            self.adapter = hydra_zen.instantiate(resolved_adapter)
+        else:
+            self.adapter = NoOpAdapter()
+
+        rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
         self.env_id = _resolve_param(self.env_id, "env_id")
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
