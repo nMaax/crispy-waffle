@@ -192,7 +192,14 @@ class BesoPolicy(DiffusionPolicy):
         num_inference_timesteps: int | None = None,
         clamp_range: tuple | None = None,
     ):
-        """Generic helper containing the actual Karras preconditioned diffusion process loop."""
+        """Runs the BESO diffusion loop to generate the next action.
+
+        Implemented as a custom continuous DDIM scheduler with Karras preconditioning as in Reuss
+        et al. (2023).
+        """
+
+        # TODO: review with original code
+
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -225,7 +232,6 @@ class BesoPolicy(DiffusionPolicy):
         )
 
         with torch.no_grad():
-            # Initialize with our specific self.sigma_max
             current_noisy_action = (
                 torch.randn((B, 1, self.act_dim), device=self.device) * sigmas[0]
             )
