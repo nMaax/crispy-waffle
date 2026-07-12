@@ -62,10 +62,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq = batch["obs_seq"]
         goal = batch["goal"]
 
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-            goal = self.normalizer.normalize(goal)
-
         if not isinstance(obs_seq, torch.Tensor):
             raise ValueError(
                 f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
@@ -74,12 +70,14 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         if not isinstance(goal, torch.Tensor):
             raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
 
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+            goal = self.normalizer.normalize(goal)
+
         action_seq = batch["act_seq"]
+        network_cond = self._prepare_network_cond(obs_seq, goal)
 
-        network_cond = self._prepare_network_cond(
-            obs_seq, goal
-        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-
+        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
         loss = self._compute_loss(network_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
@@ -87,8 +85,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
     def get_action(
         self,
-        obs_seq: torch.Tensor,
-        goal: torch.Tensor,
+        obs_seq: torch.Tensor | dict,
+        goal: torch.Tensor | dict,
         num_inference_steps: int | None = None,
         clamp_range: tuple | None = None,
     ):
@@ -101,13 +99,26 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
 
-        network_cond = self._prepare_network_cond(
-            obs_seq, goal
-        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        if not isinstance(obs_seq, torch.Tensor):
+            raise ValueError(
+                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
+            )
 
-        return super().get_action(network_cond, num_inference_steps, clamp_range)
+        if not isinstance(goal, torch.Tensor):
+            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
+
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+            goal = self.normalizer.normalize(goal)
+
+        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        network_cond = self._prepare_network_cond(obs_seq, goal)
+
+        return self._run_diffusion_loop(network_cond, num_inference_steps, clamp_range)
 
     def _prepare_network_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+        """Prepares the conditioning for the diffusion model by embedding the observations and
+        goal."""
 
         B = get_batch_size(obs_seq)
 

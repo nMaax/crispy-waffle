@@ -156,7 +156,10 @@ class DiffusionGPT(nn.Module):
         sigma_token = self.sigma_emb(sigma_log.to(torch.float32))  # [B, 1, embed_dim]
 
         # Embed Observations and Actions
-        obs_seq = obs.view(B, self.obs_horizon, -1)
+        if obs.ndim == 3:
+            obs_seq = obs
+        else:
+            obs_seq = obs.view(B, self.obs_horizon, -1)
         obs_tokens = self.obs_emb(obs_seq)  # [B, obs_horizon, embed_dim]
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
 

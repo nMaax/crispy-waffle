@@ -3,14 +3,21 @@ from collections import deque
 import hydra_zen
 import torch
 import torch.nn.functional as F
-from diffusers import EDMEulerScheduler
+from diffusers import DDIMScheduler, EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
-from policy.utils import flatten_tensor_from_mapping, get_batch_size
+from policy.utils import concat_leaf_tensors, get_batch_size
 
 
 class BesoPolicy(DiffusionPolicy):
-    """Trains a BESO policy."""
+    """Trains a BESO diffusion model to predict action sequences from observation histories.
+
+    BESO as in Goal-Conditioned Imitation Learning using Score-based Diffusion Policies, Reuss et al. (2023)
+
+    Reference:
+        - Arxiv: https://arxiv.org/abs/2304.02532
+        - Paper website: https://intuitive-robots.github.io/beso-website/
+    """
 
     def __init__(
         self,
@@ -36,20 +43,18 @@ class BesoPolicy(DiffusionPolicy):
                 f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
             )
 
-        if not isinstance(self.noise_scheduler, EDMEulerScheduler):
+        if not isinstance(self.noise_scheduler, EDMEulerScheduler | DDIMScheduler):
             raise ValueError(
-                f"BesoPolicy requires an EDMEulerScheduler (Karras) for inference. Found: {type(self.noise_scheduler)}"
+                f"BesoPolicy requires an EDMEulerScheduler or DDIMScheduler for inference. Found: {type(self.noise_scheduler)}"
             )
 
     def configure_model(self) -> None:
         if self.network is not None:
             return
-
         self.network = hydra_zen.instantiate(self.network_config)
 
         if self.ema is not None:
             return
-
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self):
@@ -91,8 +96,7 @@ class BesoPolicy(DiffusionPolicy):
         assert len(inter_params) == 0, f"Parameters {inter_params} made it into both sets!"
         assert len(param_dict.keys() - union_params) == 0, "Some parameters were not categorized!"
 
-        # Extract the weight decay value from your Hydra config
-        # hydra_zen partials store their configured kwargs in the `.keywords` dict
+        # Extract the weight decay value from the Hydra config (.keywords dict)
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
         global_weight_decay = optimizer_partial.keywords.get("weight_decay", 1e-4)
 
@@ -108,10 +112,8 @@ class BesoPolicy(DiffusionPolicy):
             },
         ]
 
-        # Instantiate the optimizer using the groups
         optimizer = optimizer_partial(optim_groups)
 
-        # Handle the Learning Rate Scheduler (Standard Lightning logic)
         if self.lr_scheduler_config is not None:
             lr_scheduler_partial = hydra_zen.instantiate(self.lr_scheduler_config)
             lr_scheduler = lr_scheduler_partial(optimizer)
@@ -127,6 +129,11 @@ class BesoPolicy(DiffusionPolicy):
         else:
             return optimizer
 
+    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
+        """Prepares the observation sequence for the BESO network conditioning (keeps sequence
+        format)."""
+        return concat_leaf_tensors(obs_seq, device=self.device)
+
     def reset(self):
         """Clears the action history.
 
@@ -140,7 +147,20 @@ class BesoPolicy(DiffusionPolicy):
         num_inference_steps: int = 20,
         clamp_range: tuple | None = None,
     ):
-        """BESO inference using Karras preconditioning and EDMEulerScheduler."""
+        """BESO inference using Karras preconditioning."""
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+        obs_seq = self._prepare_network_cond(obs_seq)
+
+        return self._run_beso_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
+
+    def _run_beso_diffusion_loop(
+        self,
+        network_cond: torch.Tensor,
+        num_inference_steps: int = 20,
+        clamp_range: tuple | None = None,
+    ):
+        """Generic helper containing the actual Karras preconditioned diffusion process loop."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -166,11 +186,7 @@ class BesoPolicy(DiffusionPolicy):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(obs_seq)
-
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-        obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
+        B = get_batch_size(network_cond)
 
         # If the episode just started, pad the history with zeros
         while len(self.action_history) < self.obs_horizon - 1:
@@ -188,13 +204,13 @@ class BesoPolicy(DiffusionPolicy):
             # Only the CURRENT action (1 token) gets initialized with pure noise
             current_noisy_action = (
                 torch.randn((B, 1, self.act_dim), device=self.device)
-                * self.noise_scheduler.init_noise_sigma  # type: ignore
+                * self.noise_scheduler.init_noise_sigma
             )
 
             for i, t in enumerate(self.noise_scheduler.timesteps):
                 # 't' is the HF transformed timestep (0.25 * log(sigma))
                 # 'raw_sigma' is the actual standard deviation we need for DiffusionGPT
-                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)  # type: ignore
+                raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)
 
                 # Assemble the sequence: [Clean History (7), Noisy Current (1)]
                 combined_act_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
@@ -203,9 +219,11 @@ class BesoPolicy(DiffusionPolicy):
                 scaled_sample = self.noise_scheduler.scale_model_input(combined_act_seq, t)
 
                 # Get raw network prediction (DiffusionGPT expects 'raw_sigma')
-                model_pred = self.network(sample=scaled_sample, timestep=raw_sigma, obs=obs_seq)
+                model_pred = self.network(
+                    sample=scaled_sample, timestep=raw_sigma, obs=network_cond
+                )
 
-                # We ONLY extract and step the derivative for the final noisy token
+                # We only extract and step the derivative for the final noisy token
                 current_noisy_action_pred = model_pred[:, -1:, :]
 
                 # Step the scheduler using the raw predicted action (Diffusers expects 't')

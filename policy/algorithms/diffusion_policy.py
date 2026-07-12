@@ -11,12 +11,12 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import ZScoreNormalizer
-from policy.utils import flatten_tensor_from_mapping, get_batch_size, total_dim
+from policy.utils import flatten_and_concat_leaf_tensors, get_batch_size, get_total_dim
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
 class DiffusionPolicy(L.LightningModule, PolicyProtocol):
-    """Trains a conditional diffusion model to predict action sequences from observation histories.
+    """Trains a diffusion policy to predict action sequences from observation histories.
 
     Diffusion Policy as in Cheng et. al (IJRR)
 
@@ -86,9 +86,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.normalize = normalize
         self.normalizer = ZScoreNormalizer(obs_dim)
 
-        # Like in configure models, we supper a UNet, tho this may need to be generalized in the future
         if isinstance(obs_dim, dict):
-            total_obs_dim = total_dim(obs_dim)
+            total_obs_dim = get_total_dim(obs_dim)
         else:
             total_obs_dim = obs_dim
 
@@ -127,21 +126,16 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
     def configure_model(self) -> None:
         if self.network is not None:
             return
-
-        # We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
+        # TODO: We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
         self.network = hydra_zen.instantiate(
             self.network_config, input_dim=self.act_dim, external_cond_dim=self.network_cond_dim
         )
 
         if self.ema is not None:
             return
-
         self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
     def configure_optimizers(self) -> Optimizer | dict:
-
-        # Optimizers and schedulers could actually be made in one shot, without partial,
-        # however I prefer to follow the template prescription, just for coherence
 
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
         optimizer = optimizer_partial(filter(lambda p: p.requires_grad, self.parameters()))
@@ -168,7 +162,14 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         return self._shared_step(batch, batch_idx, "val")
 
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
-        pass  # We dont test on data, we only run simulation rollouts
+        raise NotImplementedError(
+            "DiffusionPolicy does not support test_step. Use simulation rollouts instead."
+        )
+
+    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
+        """Prepares the observation sequence for the network conditioning."""
+        # TODO: Assuming Unet-like architecture, should generalize in the future
+        return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -180,13 +181,14 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             returns: scalar loss tensor []
         """
         obs_seq = batch["obs_seq"]
+        action_seq = batch["act_seq"]
+
         if self.normalize:
             obs_seq = self.normalizer.normalize(obs_seq)
 
-        flatten_obs = flatten_tensor_from_mapping(obs_seq)
-        action_seq = batch["act_seq"]
+        network_cond = self._prepare_network_cond(obs_seq)
 
-        loss = self._compute_loss(flatten_obs, action_seq)
+        loss = self._compute_loss(network_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
@@ -204,7 +206,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             )
 
         self.ema.to(self.device)
-
         self.ema.step(self.network.parameters())
 
     def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
@@ -240,6 +241,20 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+
+        obs_seq = self._prepare_network_cond(obs_seq)
+
+        return self._run_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
+
+    def _run_diffusion_loop(
+        self,
+        network_cond: torch.Tensor,
+        num_inference_steps: int | None = None,
+        clamp_range: tuple | None = None,
+    ):
+        """Generic helper containing the actual reverse diffusion process loop."""
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -255,12 +270,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(obs_seq)
-
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-
-        obs_seq = flatten_tensor_from_mapping(obs_seq, device=self.device)
+        B = get_batch_size(network_cond)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -281,7 +291,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 model_pred = self.network(
                     sample=latent_model_input,
                     timestep=t,
-                    obs=obs_seq,
+                    obs=network_cond,
                 )
 
                 output = self.noise_scheduler.step(

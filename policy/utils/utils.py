@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from logging import getLogger as get_logger
 from typing import Any
 
@@ -131,6 +131,36 @@ def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
+def get_total_dim(data: Any) -> int:
+    """Recursively sums the last dimension of leaf structures.
+
+    Accepts PyTorch tensors, configuration dictionaries containing a 'shape' key, or raw shape
+    descriptors (tuples, integers).
+    """
+    # Handle actual Tensors (or objects with a .shape attribute)
+    if hasattr(data, "shape"):
+        return int(data.shape[-1])
+
+    # Handle Dictionaries / Mappings
+    if isinstance(data, Mapping):
+        if "shape" in data:
+            # It's a metadata dict describing a shape, e.g., {"shape": (32, 128)}
+            return int(data["shape"][-1])
+        else:
+            # It's a nested container, recurse into values
+            return sum(get_total_dim(v) for v in data.values())
+
+    # Handle explicit shape tuples, e.g., (32, 10, 64)
+    if isinstance(data, Sequence) and not isinstance(data, str):
+        return int(data[-1])
+
+    # Handle raw integer dimension sizes, e.g., 256
+    if isinstance(data, int):
+        return data
+
+    raise TypeError(f"Unsupported type for dimension extraction: {type(data)}")
+
+
 def stack_dicts(trees: list) -> dict | torch.Tensor:
     """Recursively stacks a list of nested dictionaries of tensors into a single nested dictionary
     of tensors."""
@@ -141,41 +171,34 @@ def stack_dicts(trees: list) -> dict | torch.Tensor:
         return torch.cat(trees, dim=0)
 
 
-def total_dim(spec: dict | torch.Tensor) -> int:
-    """Recursively sums the last dimension of all leaf tensors in a nested dictionary."""
-    if isinstance(spec, dict):
-        return sum(total_dim(child) for child in spec.values())
-    else:
-        return int(spec.shape[-1])
-
-
-def flatten_tensor_from_mapping(
-    data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
+def concat_leaf_tensors(
+    data: Mapping[str, Any] | torch.Tensor,
+    dim: int = -1,
+    device: torch.device | None = None,
+    preprocess: Callable[[torch.Tensor], torch.Tensor] | None = None,
 ) -> torch.Tensor:
-    """Recursively flattens a mapping of tensors and concatenates them."""
+    """Recursively concatenates all leaf tensors in a mapping along a specified dimension."""
     if isinstance(data, torch.Tensor):
         if device is not None:
             data = data.to(device)
-        return data.flatten(start_dim=1)
+        if preprocess is not None:
+            data = preprocess(data)
+        return data
 
     tensors: list[torch.Tensor] = []
     for value in data.values():
-        tensors.append(flatten_tensor_from_mapping(value))
+        tensors.append(concat_leaf_tensors(value, dim=dim, device=device, preprocess=preprocess))
 
     if not tensors:
         raise ValueError("data must contain at least one tensor")
 
-    return torch.cat(tensors, dim=1)
+    return torch.cat(tensors, dim=dim)
 
 
-def sum_shapes(d: dict | tuple | int) -> int:
-    """Recursively sums the last dimension of all leaf dicts that contain a 'shape' key."""
-    if isinstance(d, dict):
-        if "shape" in d:
-            return d["shape"][-1]
-        else:
-            return sum(sum_shapes(v) for v in d.values() if isinstance(v, dict | int | tuple))
-    elif isinstance(d, tuple):
-        return d[-1]
-    else:
-        return d
+def flatten_and_concat_leaf_tensors(
+    data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
+) -> torch.Tensor:
+    """Recursively flattens all leaf tensors starting from dimension 1, then concatenates them."""
+    return concat_leaf_tensors(
+        data, dim=1, device=device, preprocess=lambda x: x.flatten(start_dim=1)
+    )

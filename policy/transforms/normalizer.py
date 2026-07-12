@@ -1,3 +1,5 @@
+from typing import overload
+
 import torch
 import torch.nn as nn
 
@@ -47,6 +49,12 @@ class ZScoreNormalizer(nn.Module):
             for key, norm in self.norms.items():
                 norm.fit(data[key])
 
+    @overload
+    def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
+
+    @overload
+    def normalize(self, x: dict) -> dict: ...
+
     def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         if not isinstance(x, dict):
             if self.is_fit:
@@ -56,6 +64,12 @@ class ZScoreNormalizer(nn.Module):
         else:
             return {key: norm.normalize(x[key]) for key, norm in self.norms.items()}
 
+    @overload
+    def unnormalize(self, x: torch.Tensor) -> torch.Tensor: ...
+
+    @overload
+    def unnormalize(self, x: dict) -> dict: ...
+
     def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         if not isinstance(x, dict):
             if self.is_fit:
@@ -64,6 +78,12 @@ class ZScoreNormalizer(nn.Module):
                 return x
         else:
             return {key: norm.unnormalize(x[key]) for key, norm in self.norms.items()}
+
+    @overload
+    def forward(self, x: torch.Tensor) -> torch.Tensor: ...
+
+    @overload
+    def forward(self, x: dict) -> dict: ...
 
     def forward(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         return self.normalize(x)

@@ -1,21 +1,21 @@
 from .utils import (
-    flatten_tensor_from_mapping,
+    concat_leaf_tensors,
+    flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_device,
+    get_total_dim,
     print_config,
     print_dict_tree,
-    sum_shapes,
     to_tensor,
-    total_dim,
 )
 
 __all__ = [
-    "flatten_tensor_from_mapping",
+    "concat_leaf_tensors",
+    "flatten_and_concat_leaf_tensors",
     "get_batch_size",
     "get_device",
     "print_config",
     "print_dict_tree",
-    "sum_shapes",
     "to_tensor",
-    "total_dim",
+    "get_total_dim",
 ]
