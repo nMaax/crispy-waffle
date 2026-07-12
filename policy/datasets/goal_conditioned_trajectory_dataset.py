@@ -4,6 +4,8 @@ import torch
 from policy.datasets.trajectory_dataset import TrajectoryDataset
 from policy.utils import to_tensor
 
+# TODO: this should allow also dictionary observations
+
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
     def __init__(self, *args, her_ratio: float = 0.8, **kwargs):
@@ -56,7 +58,6 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
         else:
             future_obs = traj_meta["obs"][goal_t]
 
-        # TODO: this should allow also dictionaries
         goal = to_tensor(future_obs, dtype=torch.float32)
 
         if self.obs_transform is not None:

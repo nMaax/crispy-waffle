@@ -6,8 +6,8 @@ from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.networks import MLP
 from policy.utils import get_batch_size
 
-# TODO: make this work also for dictionary observations (see type: ignore, isinstance() checks and typing in method signatures)
 # TODO: make this work also for non-unet architectures, like done in DiffusionPolicy
+# TODO: make this work also for dictionary observations (see type: ignore, isinstance() checks and typing in method signatures)
 
 
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
@@ -21,6 +21,11 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+
+        if "ConditionalUnet" not in self.network_config.get("_target_", None):
+            raise ValueError(
+                f"BesoPolicy requires a ConditoinalUnet architecture for the diffusion model, but got {self.network_config.get('_target_')}."
+            )
 
         if not isinstance(self.obs_dim, int):
             raise ValueError(

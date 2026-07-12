@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from diffusers import DDIMScheduler, EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
-from policy.utils import concat_leaf_tensors, get_batch_size, get_total_dim
+from policy.utils import get_batch_size
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -47,8 +47,6 @@ class BesoPolicy(DiffusionPolicy):
             raise ValueError(
                 f"BesoPolicy requires an EDMEulerScheduler or DDIMScheduler for inference. Found: {type(self.noise_scheduler)}"
             )
-
-        self.network_cond_dim = get_total_dim(self.obs_dim)
 
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
@@ -130,7 +128,8 @@ class BesoPolicy(DiffusionPolicy):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
     def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        """BESO Loss formulation using Karras preconditioning."""
+        """BESO Loss formulation using Karras preconditioning and sampling from a continuous
+        distribution of noise levels (i.e., do not use Diffusers)."""
 
         # NOTE: No need to normalize obs_seq here, as it is already normalized in the Diffusion Policy _shared_step()
 
@@ -177,10 +176,10 @@ class BesoPolicy(DiffusionPolicy):
         c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
         return c_skip, c_out, c_in
 
-    def _run_beso_diffusion_loop(
+    def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
-        num_inference_steps: int = 20,
+        num_inference_steps: int | None,
         clamp_range: tuple | None = None,
     ):
         """Generic helper containing the actual Karras preconditioned diffusion process loop."""
@@ -220,6 +219,13 @@ class BesoPolicy(DiffusionPolicy):
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
+
+        # NOTE: Since we trained on a continuous distribution of noise levels, num_train_timesteps was not actually used in _compute_loss
+        # as we sampled such noise manually. However now we sample via a discrete-timestep logic, and the Diffusers library is baked with
+        # such in mind; thus every Scheduler posses a num_train_timesteps parameter (for EDM this is 1000 by default)
+        # and, despite the name, we will use it as the number of steps to run.
+        if num_inference_steps is None:
+            num_inference_steps = int(self.noise_scheduler.config["num_train_timesteps"])
 
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
@@ -272,8 +278,3 @@ class BesoPolicy(DiffusionPolicy):
         self.action_history.append(denoised_action)
 
         return denoised_action
-
-    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
-        """Prepares the observation sequence for the BESO network conditioning (keeps sequence
-        format)."""
-        return concat_leaf_tensors(obs_seq, device=self.device)

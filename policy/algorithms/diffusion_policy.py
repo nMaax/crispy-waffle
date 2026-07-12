@@ -11,7 +11,12 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import ZScoreNormalizer
-from policy.utils import flatten_and_concat_leaf_tensors, get_batch_size, get_total_dim
+from policy.utils import (
+    concat_leaf_tensors,
+    flatten_and_concat_leaf_tensors,
+    get_batch_size,
+    get_total_dim,
+)
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
@@ -40,6 +45,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
         normalize: bool = False,
+        flatten_obs: bool | None = None,
     ):
         super().__init__()
 
@@ -86,8 +92,25 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.normalize = normalize
         self.normalizer = ZScoreNormalizer(obs_dim)
 
-        # TODO: We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
-        self.network_cond_dim = self.obs_horizon * get_total_dim(obs_dim)
+        if flatten_obs is None:
+            # Auto-detect if we are using a Transformer or a Unet
+            network_target = self.network_config.get("_target_").lower()
+            if "gpt" in network_target or "transformer" in network_target:
+                self.flatten_obs = False
+            elif "unet" in network_target:
+                self.flatten_obs = True
+            else:
+                raise ValueError(
+                    f"Cannot auto-detect network type from target: {network_target}. "
+                    "Please specify flatten_obs explicitly."
+                )
+        else:
+            self.flatten_obs = flatten_obs
+
+        if self.flatten_obs:
+            self.network_cond_dim = self.obs_horizon * get_total_dim(obs_dim)
+        else:
+            self.network_cond_dim = get_total_dim(obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
         if self.normalize and not self.normalizer.is_fit and stage == "fit":
@@ -355,5 +378,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
     def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
         """Prepares the observation sequence for the network conditioning."""
-        # TODO: Assuming Unet-like architecture, should generalize in the future
-        return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
+        if self.flatten_obs:
+            return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
+        else:
+            return concat_leaf_tensors(obs_seq, device=self.device)

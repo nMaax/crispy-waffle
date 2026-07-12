@@ -1,5 +1,6 @@
 _target_: diffusers.EDMEulerScheduler
-sigma_min: 0.001
-sigma_max: 80.0
+num_train_timesteps: 3 # This rather serves as the num_inference_timesteps
+sigma_min: 0.005 # or 0.05 for simpler tasks
+sigma_max: 1.0
 sigma_data: 0.5
 prediction_type: "epsilon"
