@@ -23,19 +23,17 @@ class BesoPolicy(DiffusionPolicy):
         self,
         *args,
         sigma_data: float = 0.5,
-        sigma_mean: float = -1.2,
-        sigma_std: float = 1.2,
         sigma_churn: float = 0.0,
+        pred_last_action_only: bool = False,
         **kwargs,
     ):
 
         super().__init__(*args, **kwargs)
 
         self.sigma_data = sigma_data
-        self.sigma_mean = sigma_mean
-        self.sigma_std = sigma_std
         self.sigma_churn = sigma_churn
 
+        self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         if "DiffusionGPT" not in self.network_config.get("_target_", None):
@@ -146,7 +144,8 @@ class BesoPolicy(DiffusionPolicy):
 
         # Add noise
         noise = torch.randn_like(act_seq)
-        noise[:, :-1, :] = 0.0
+        if self.pred_last_action_only:
+            noise[:, :-1, :] = 0.0
         noisy_act_seq = act_seq + noise * sigma_bd
 
         # Get Karras scalings
@@ -160,7 +159,10 @@ class BesoPolicy(DiffusionPolicy):
         target = (act_seq - c_skip * noisy_act_seq) / c_out
 
         # Compute MSE loss
-        loss = F.mse_loss(model_output[:, -1:, :], target[:, -1:, :])
+        if self.pred_last_action_only:
+            loss = F.mse_loss(model_output[:, -1:, :], target[:, -1:, :])
+        else:
+            loss = F.mse_loss(model_output, target)
 
         return loss
 
@@ -240,39 +242,50 @@ class BesoPolicy(DiffusionPolicy):
                 * self.noise_scheduler.init_noise_sigma
             )
 
+            # Assemble the sequence: [Clean History (7), Noisy Current (1)]
+            running_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
+
             for i, t in enumerate(self.noise_scheduler.timesteps):
                 # 't' is the HF transformed timestep (0.25 * log(sigma))
                 # 'raw_sigma' is the actual standard deviation we need for DiffusionGPT
                 raw_sigma = self.noise_scheduler.sigmas[i].to(self.device).expand(B)
 
-                # Assemble the sequence: [Clean History (7), Noisy Current (1)]
-                combined_act_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
-
                 # Precondition the full sequence (Diffusers expects 't')
-                scaled_sample = self.noise_scheduler.scale_model_input(combined_act_seq, t)
+                scaled_sample = self.noise_scheduler.scale_model_input(running_seq, t)
 
                 # Get raw network prediction (DiffusionGPT expects 'raw_sigma')
                 model_pred = self.network(
                     sample=scaled_sample, timestep=raw_sigma, obs=network_cond
                 )
 
-                # We only extract and step the derivative for the final noisy token
-                current_noisy_action_pred = model_pred[:, -1:, :]
-
-                # Step the scheduler using the raw predicted action (Diffusers expects 't')
-                output = self.noise_scheduler.step(
-                    model_output=current_noisy_action_pred,
-                    timestep=t,
-                    sample=current_noisy_action,
-                    s_churn=self.sigma_churn,
-                    return_dict=False,
-                )
-                current_noisy_action = output[0]
+                if self.pred_last_action_only:
+                    # We ONLY extract and step the derivative for the final noisy token
+                    current_noisy_action_pred = model_pred[:, -1:, :]
+                    output = self.noise_scheduler.step(
+                        model_output=current_noisy_action_pred,
+                        timestep=t,
+                        sample=running_seq[:, -1:, :],
+                        s_churn=self.sigma_churn,
+                        return_dict=False,
+                    )
+                    # Update only the final slot in the sequence
+                    running_seq[:, -1:, :] = output[0]
+                else:
+                    # Step the ENTIRE sequence
+                    # (The clean history its derivative will evaluate to ~0)
+                    output = self.noise_scheduler.step(
+                        model_output=model_pred,
+                        timestep=t,
+                        sample=running_seq,
+                        s_churn=self.sigma_churn,
+                        return_dict=False,
+                    )
+                    running_seq = output[0]
 
         self.ema.restore(self.network.parameters())
 
         # Extract the actions to execute
-        denoised_action = current_noisy_action
+        denoised_action = running_seq[:, -1:, :]
 
         if clamp_range is not None:
             low, high = clamp_range
