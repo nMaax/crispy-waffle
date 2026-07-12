@@ -179,7 +179,7 @@ class BesoPolicy(DiffusionPolicy):
     def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
-        num_inference_steps: int | None,
+        num_inference_timesteps: int | None,
         clamp_range: tuple | None = None,
     ):
         """Generic helper containing the actual Karras preconditioned diffusion process loop."""
@@ -224,10 +224,10 @@ class BesoPolicy(DiffusionPolicy):
         # as we sampled such noise manually. However now we sample via a discrete-timestep logic, and the Diffusers library is baked with
         # such in mind; thus every Scheduler posses a num_train_timesteps parameter (for EDM this is 1000 by default)
         # and, despite the name, we will use it as the number of steps to run.
-        if num_inference_steps is None:
-            num_inference_steps = int(self.noise_scheduler.config["num_train_timesteps"])
+        if num_inference_timesteps is None:
+            num_inference_timesteps = int(self.noise_scheduler.config["num_train_timesteps"])
 
-        self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
+        self.noise_scheduler.set_timesteps(num_inference_timesteps, device=self.device)
 
         with torch.no_grad():
             # Only the CURRENT action (1 token) gets initialized with pure noise

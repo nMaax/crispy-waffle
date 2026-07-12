@@ -8,6 +8,7 @@ ckpt_path: ???
 trainer:
   callbacks:
     rollout_evaluation:
+      num_inference_timesteps: 3
       num_episodes: 100
       env_id: "StackCube-v1"
       obs_mode: "state"

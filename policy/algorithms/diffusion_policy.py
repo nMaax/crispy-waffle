@@ -155,7 +155,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
     def get_action(
         self,
         obs_seq: torch.Tensor | dict,
-        num_inference_steps: int | None = None,
+        num_inference_timesteps: int | None = None,
         clamp_range: tuple | None = None,
     ):
         """Runs the reverse diffusion process to predict an action sequence from the current
@@ -170,7 +170,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         obs_seq = self._prepare_network_cond(obs_seq)
 
-        return self._run_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
+        return self._run_diffusion_loop(obs_seq, num_inference_timesteps, clamp_range)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "train")

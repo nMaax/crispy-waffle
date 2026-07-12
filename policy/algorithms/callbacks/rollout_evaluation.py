@@ -40,6 +40,7 @@ class RolloutEvaluationCallback(L.Callback):
     def __init__(
         self,
         adapter: HydraConfigFor[AdapterProtocol] | None = None,
+        num_inference_timesteps: int | None = None,
         num_episodes: int = 20,
         max_episode_steps: int | None = None,
         num_envs: int | None = None,
@@ -63,6 +64,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.adapter_config = adapter
         self.adapter: AdapterProtocol | None = None
 
+        self.num_inference_timesteps = num_inference_timesteps
         self.num_episodes = num_episodes
 
         self.num_envs = num_envs
@@ -312,6 +314,8 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
+        # TODO: Should generalize this goal vs. non-goal data preparation and action sampling
+
         if isinstance(
             pl_module,
             GoalConditionedDiffusionPolicyMLP,
@@ -333,9 +337,15 @@ class RolloutEvaluationCallback(L.Callback):
                     pl_module,
                     GoalConditionedDiffusionPolicyMLP,
                 ):
-                    action_seq = pl_module.get_action(adapted_obs, goal_state)
+                    action_seq = pl_module.get_action(
+                        adapted_obs,
+                        goal_state,
+                        num_inference_timesteps=self.num_inference_timesteps,
+                    )
                 else:
-                    action_seq = pl_module.get_action(adapted_obs)
+                    action_seq = pl_module.get_action(
+                        adapted_obs, num_inference_timesteps=self.num_inference_timesteps
+                    )
 
             # Execute the action chunk
             for i in range(pl_module.act_horizon):

@@ -69,7 +69,9 @@ class PolicyProtocol(Protocol):
     device: torch.device
     """Device on which the policy parameters live."""
 
-    def get_action(self, obs_seq: torch.Tensor | Mapping[str, Any] | None) -> torch.Tensor:
+    def get_action(
+        self, obs_seq: torch.Tensor | Mapping[str, Any] | None, num_inference_timesteps: int | None
+    ) -> torch.Tensor:
         """Return a sequence of actions given a (batched) observations window.
 
         Args:

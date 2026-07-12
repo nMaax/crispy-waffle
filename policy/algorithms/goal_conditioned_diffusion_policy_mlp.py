@@ -58,7 +58,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         self,
         obs_seq: torch.Tensor | dict,
         goal: torch.Tensor | dict,
-        num_inference_steps: int | None = None,
+        num_inference_timesteps: int | None = None,
         clamp_range: tuple | None = None,
     ):
         """Runs the reverse diffusion process to predict an action sequence from the current
@@ -85,7 +85,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
         network_cond = self._prepare_network_cond(obs_seq, goal)
 
-        return self._run_diffusion_loop(network_cond, num_inference_steps, clamp_range)
+        return self._run_diffusion_loop(network_cond, num_inference_timesteps, clamp_range)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
