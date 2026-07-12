@@ -21,6 +21,7 @@ from policy.utils import (
 )
 from policy.utils.h5_utils import load_h5_data
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
+from policy.utils.utils import stack_dicts
 
 
 class DiffusionPolicy(L.LightningModule, PolicyProtocol):
@@ -298,6 +299,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             raise ValueError("Training set is not available in the datamodule.")
 
         if train_set.lazy:
+
             def trajectory_obs_generator():
                 for traj in train_set.trajectories:
                     ep_id = traj["episode_id"]
@@ -311,8 +313,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
             self.normalizer.fit_incremental(trajectory_obs_generator())
         else:
-            from policy.utils.utils import stack_dicts
-
             all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
             stacked_obs = stack_dicts(all_obs)
             self.normalizer.fit(stacked_obs)

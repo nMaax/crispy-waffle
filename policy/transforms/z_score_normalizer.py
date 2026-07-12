@@ -31,10 +31,10 @@ class ZScoreNormalizer(nn.Module):
         super().__init__()
 
         if not isinstance(spec, dict):
-            if isinstance(spec, int):
+            if isinstance(spec, torch.Tensor):
+                dim = spec.shape[-1]
+            else:
                 dim = spec
-            elif isinstance(spec, torch.Tensor):
-                dim = spec.shape[-1] if isinstance(spec, torch.Tensor) else spec
 
             self.register_buffer("mean", torch.zeros(dim))
             self.register_buffer("std", torch.ones(dim))
