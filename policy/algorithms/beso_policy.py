@@ -50,17 +50,6 @@ class BesoPolicy(DiffusionPolicy):
 
         self.network_cond_dim = get_total_dim(self.obs_dim)
 
-    def configure_model(self) -> None:
-        if self.network is not None:
-            return
-        self.network = hydra_zen.instantiate(
-            self.network_config, external_cond_dim=self.network_cond_dim
-        )
-
-        if self.ema is not None:
-            return
-        self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
-
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
         if self.network is None:
@@ -132,19 +121,6 @@ class BesoPolicy(DiffusionPolicy):
             }
         else:
             return optimizer
-
-    def get_action(
-        self,
-        obs_seq: torch.Tensor | dict,
-        num_inference_steps: int = 20,
-        clamp_range: tuple | None = None,
-    ):
-        """BESO inference using Karras preconditioning."""
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-        obs_seq = self._prepare_network_cond(obs_seq)
-
-        return self._run_beso_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
 
     def reset(self):
         """Clears the action history.
