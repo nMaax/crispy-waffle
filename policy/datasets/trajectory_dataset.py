@@ -13,6 +13,10 @@ from torch.utils.data import Dataset
 from policy.utils import print_dict_tree, to_tensor
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
 
+# TODO: should add a flag that forces data to be returned as dictionaries
+# by inferring pre-made dictionary structures, so that I can use `state`
+# observations as they were `state_dict`
+
 
 class TrajectoryDataset(Dataset):
     """Loads ManiSkill demonstrations from HDF5 files and yields raw state-action temporal
