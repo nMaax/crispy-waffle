@@ -8,7 +8,13 @@ from typing import Any, NewType, TypeGuard
 from hydra_zen.typing import Builds
 from typing_extensions import TypeVar
 
-from .protocols import AdapterProtocol, DataModule, DiffusionSchedulerProtocol, PolicyProtocol
+from .protocols import (
+    AdapterProtocol,
+    DataModule,
+    DiffusionNetworkProtocol,
+    DiffusionSchedulerProtocol,
+    PolicyProtocol,
+)
 
 # These are used to show which dim is which.
 C = NewType("C", int)
@@ -50,4 +56,5 @@ __all__ = [
     "DiffusionSchedulerProtocol",
     "AdapterProtocol",
     "PolicyProtocol",
+    "DiffusionNetworkProtocol",
 ]

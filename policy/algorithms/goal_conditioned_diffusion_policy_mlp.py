@@ -7,6 +7,7 @@ from policy.algorithms.networks import MLP
 from policy.utils import get_batch_size
 
 # TODO: make this work also for dictionary observations (see type: ignore, isinstance() checks and typing in method signatures)
+# TODO: make this work also for non-unet architectures, like done in DiffusionPolicy
 
 
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):

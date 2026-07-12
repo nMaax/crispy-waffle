@@ -86,12 +86,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.normalize = normalize
         self.normalizer = ZScoreNormalizer(obs_dim)
 
-        if isinstance(obs_dim, dict):
-            total_obs_dim = get_total_dim(obs_dim)
-        else:
-            total_obs_dim = obs_dim
-
-        self.network_cond_dim = self.obs_horizon * total_obs_dim
+        # TODO: We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
+        self.network_cond_dim = self.obs_horizon * get_total_dim(obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
         if self.normalize and not self.normalizer.is_fit and stage == "fit":
@@ -100,9 +96,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
     def configure_model(self) -> None:
         if self.network is not None:
             return
-        # TODO: We suppose to flatten the conditioning tensor (like in FiLM + Unet), tho this could need to be generalized in the future
         self.network = hydra_zen.instantiate(
-            self.network_config, input_dim=self.act_dim, external_cond_dim=self.network_cond_dim
+            self.network_config, external_cond_dim=self.network_cond_dim
         )
 
         if self.ema is not None:

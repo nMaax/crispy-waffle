@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
+
 
 class CausalSelfAttention(nn.Module):
     """A vanilla multi-head masked self-attention layer, adapted from BESO."""
@@ -68,15 +70,15 @@ class Block(nn.Module):
         return x
 
 
-class DiffusionGPT(nn.Module):
+class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
     """GPT architecture adapted from BESO for Action Sequence generation."""
 
     def __init__(
         self,
-        obs_dim: int,
         act_dim: int,
+        external_cond_dim: int,
         embed_dim: int = 256,
-        obs_horizon: int = 8,
+        external_cond_horizon: int = 8,
         pred_horizon: int = 8,
         n_layers: int = 4,
         n_heads: int = 8,
@@ -86,25 +88,25 @@ class DiffusionGPT(nn.Module):
     ):
         super().__init__()
 
-        if obs_horizon != pred_horizon:
+        if external_cond_horizon != pred_horizon:
             raise ValueError(
                 "Observation horizon and act horizon must be equal for DiffusionGPT. (For now)"
             )
 
         # Dimension and horizons
-        self.obs_dim = obs_dim
+        self.obs_dim = external_cond_dim
         self.act_dim = act_dim
         self.embed_dim = embed_dim
 
-        self.obs_horizon = obs_horizon
+        self.obs_horizon = external_cond_horizon
         self.pred_horizon = pred_horizon
 
         # Maximum sequence length: 1 (sigma) + obs_horizon + pred_horizon (i.e,, 2*obs_horizon + 1)
-        self.block_size = 1 + obs_horizon + pred_horizon
-        self.seq_len = 1 + obs_horizon
+        self.block_size = 1 + external_cond_horizon + pred_horizon
+        self.seq_len = 1 + external_cond_horizon
 
         # Encoders
-        self.obs_emb = nn.Linear(obs_dim, embed_dim)
+        self.obs_emb = nn.Linear(external_cond_dim, embed_dim)
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 

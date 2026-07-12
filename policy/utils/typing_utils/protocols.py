@@ -83,6 +83,29 @@ class PolicyProtocol(Protocol):
 
 
 @runtime_checkable
+class DiffusionNetworkProtocol(Protocol):
+    """Protocol defining the expected interface for diffusion policy networks (e.g. UNet, GPT)."""
+
+    def forward(
+        self,
+        sample: torch.Tensor,
+        timestep: torch.Tensor | float | int,
+        obs: torch.Tensor,
+    ) -> torch.Tensor:
+        """Predicts the noise or target action sequence.
+
+        Args:
+            sample: Tensor of shape (B, pred_horizon, act_dim) or (B, seq_len, act_dim)
+            timestep: Tensor of shape (B,) or scalar representing the timestep/noise level
+            obs: Tensor representing the observation conditioning (either sequence or flattened)
+
+        Returns:
+            Tensor of same shape as sample (predicted noise or target action sequence)
+        """
+        ...
+
+
+@runtime_checkable
 class DiffusionSchedulerProtocol(Protocol):
     """Protocol defining the expected interface for diffusion noise schedulers."""
 

@@ -17,6 +17,9 @@ act_horizon: 8 # Can't do math in hydra, otherwise this would be ${datamodule.ac
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
+network:
+  act_dim: ${..act_dim}
+
 optimizer:
   lr: 1e-4
   weight_decay: 1e-5

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from diffusers import DDIMScheduler, EDMEulerScheduler
 
 from policy.algorithms import DiffusionPolicy
-from policy.utils import concat_leaf_tensors, get_batch_size
+from policy.utils import concat_leaf_tensors, get_batch_size, get_total_dim
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -48,10 +48,14 @@ class BesoPolicy(DiffusionPolicy):
                 f"BesoPolicy requires an EDMEulerScheduler or DDIMScheduler for inference. Found: {type(self.noise_scheduler)}"
             )
 
+        self.network_cond_dim = get_total_dim(self.obs_dim)
+
     def configure_model(self) -> None:
         if self.network is not None:
             return
-        self.network = hydra_zen.instantiate(self.network_config)
+        self.network = hydra_zen.instantiate(
+            self.network_config, external_cond_dim=self.network_cond_dim
+        )
 
         if self.ema is not None:
             return

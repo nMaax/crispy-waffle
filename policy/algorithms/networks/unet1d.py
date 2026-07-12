@@ -19,6 +19,8 @@ import math
 import torch
 import torch.nn as nn
 
+from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
+
 
 class SinusoidalPosEmb(nn.Module):
     """Positional embedding for diffusion (time) step k.
@@ -156,10 +158,10 @@ class ConditionalResidualBlock1D(nn.Module):
         return out
 
 
-class ConditionalUnet1D(nn.Module):
+class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
     def __init__(
         self,
-        input_dim,
+        act_dim,
         external_cond_dim,
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
@@ -172,7 +174,7 @@ class ConditionalUnet1D(nn.Module):
         """
 
         super().__init__()
-        all_dims = [input_dim] + list(down_dims)
+        all_dims = [act_dim] + list(down_dims)
         start_dim = down_dims[0]
 
         dsed = diffusion_step_embed_dim
@@ -257,7 +259,7 @@ class ConditionalUnet1D(nn.Module):
 
         final_conv = nn.Sequential(
             Conv1dBlock(start_dim, start_dim, kernel_size=kernel_size),
-            nn.Conv1d(start_dim, input_dim, 1),
+            nn.Conv1d(start_dim, act_dim, 1),
         )
 
         self.diffusion_step_encoder = diffusion_step_encoder
