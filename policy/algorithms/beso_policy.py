@@ -141,7 +141,7 @@ class BesoPolicy(DiffusionPolicy):
         B = obs_seq.shape[0]
 
         # Sample continuous noise levels
-        sigmas = self._sample_lognormal_sigmas(B)
+        sigmas = self._sample_noise_distribution(B)
         sigma_bd = sigmas.view(B, 1, 1)
 
         # Add noise
@@ -164,10 +164,14 @@ class BesoPolicy(DiffusionPolicy):
 
         return loss
 
-    def _sample_lognormal_sigmas(self, batch_size: int) -> torch.Tensor:
-        """Draws training sigmas from a log-normal distribution as per Karras et al."""
-        rnd_normal = torch.randn(batch_size, device=self.device)
-        return (rnd_normal * self.sigma_std + self.sigma_mean).exp()
+    def _sample_noise_distribution(self, batch_size: int) -> torch.Tensor:
+        """Draws training sigmas from a log-logistic distribution (alpha=0.5, beta=0.5).
+
+        As recommended by Reuss et al. (2023) for BESO action diffusion.
+        """
+        u = torch.rand(batch_size, device=self.device)
+        # Log-Logistic inverse CDF: sigma = alpha * (u / (1 - u)) ^ (1/beta)
+        return 0.5 * ((u / (1.0 - u)) ** 2)
 
     def _get_karras_scalings(self, sigma: torch.Tensor):
         """Computes the Karras preconditioning factors."""
