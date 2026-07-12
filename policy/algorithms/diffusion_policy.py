@@ -97,32 +97,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         if self.normalize and not self.normalizer.is_fit and stage == "fit":
             self._configure_normalizers()
 
-    def _configure_normalizers(self) -> None:
-        dm = getattr(self.trainer, "datamodule", None)
-        if dm is None:
-            raise ValueError(
-                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
-            )
-
-        train_set = getattr(dm, "train_set", None)
-        if train_set is None:
-            raise ValueError("Training set is not available in the datamodule.")
-
-        all_obs = []
-        for traj in train_set.trajectories:
-            if train_set.lazy:
-                # TODO: if data is truly lazy, then we should not load it
-                # in local memory, but rather use the h5 file directly. This is a temporary solution.
-                ep_id = traj["episode_id"]
-                h5_traj = train_set.h5_file[f"traj_{ep_id}"]
-                obs_ep = torch.from_numpy(h5_traj["obs"][:])
-            else:
-                obs_ep = torch.from_numpy(traj["obs"])
-            all_obs.append(obs_ep)
-        all_obs = torch.cat(all_obs, dim=0)
-
-        self.normalizer.fit(all_obs)
-
     def configure_model(self) -> None:
         if self.network is not None:
             return
@@ -155,74 +129,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         else:
             return optimizer
 
-    def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-        return self._shared_step(batch, batch_idx, "train")
-
-    def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
-        return self._shared_step(batch, batch_idx, "val")
-
-    def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
-        raise NotImplementedError(
-            "DiffusionPolicy does not support test_step. Use simulation rollouts instead."
-        )
-
-    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
-        """Prepares the observation sequence for the network conditioning."""
-        # TODO: Assuming Unet-like architecture, should generalize in the future
-        return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
-
-    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        """Main step logic, it doesn't differ between training and validation except for the
-        logging.
-
-        Shapes:
-            batch["obs_seq"]: [B, obs_horizon, obs_dim]
-            batch["act_seq"]: [B, pred_horizon, act_dim]
-            returns: scalar loss tensor []
-        """
-        obs_seq = batch["obs_seq"]
-        action_seq = batch["act_seq"]
-
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-
-        network_cond = self._prepare_network_cond(obs_seq)
-
-        loss = self._compute_loss(network_cond, action_seq)
-
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
-        return loss
-
-    def on_train_batch_end(self, outputs: torch.Tensor, batch: dict[str, Any], batch_idx: int):
-        """Automatically step the EMA model after every training batch iteration."""
-        if self.network is None:
-            raise ValueError(
-                "Network not initialized. Call configure_model() before on_train_batch_end."
-            )
-
-        if self.ema is None:
-            raise ValueError(
-                "EMA not initialized. Call configure_model() before on_train_batch_end."
-            )
-
-        self.ema.to(self.device)
-        self.ema.step(self.network.parameters())
-
-    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
-        """Explicitly save the EMA model state since it's not an nn.Module."""
-        super().on_save_checkpoint(checkpoint)
-
-        if self.ema is not None:
-            checkpoint["ema_state_dict"] = self.ema.state_dict()
-
-    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
-        """Explicitly load the EMA model state."""
-        super().on_load_checkpoint(checkpoint)
-
-        self.configure_model()
-        if self.ema is not None and "ema_state_dict" in checkpoint:
-            self.ema.load_state_dict(checkpoint["ema_state_dict"])
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
             "DiffusionPolicy does not support direct forward pass. Use get_action() instead."
@@ -247,6 +153,143 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         obs_seq = self._prepare_network_cond(obs_seq)
 
         return self._run_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
+
+    def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
+        return self._shared_step(batch, batch_idx, "train")
+
+    def on_train_batch_end(self, outputs: torch.Tensor, batch: dict[str, Any], batch_idx: int):
+        """Automatically step the EMA model after every training batch iteration."""
+        if self.network is None:
+            raise ValueError(
+                "Network not initialized. Call configure_model() before on_train_batch_end."
+            )
+
+        if self.ema is None:
+            raise ValueError(
+                "EMA not initialized. Call configure_model() before on_train_batch_end."
+            )
+
+        self.ema.to(self.device)
+        self.ema.step(self.network.parameters())
+
+    def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
+        return self._shared_step(batch, batch_idx, "val")
+
+    def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
+        raise NotImplementedError(
+            "DiffusionPolicy does not support test_step. Use simulation rollouts instead."
+        )
+
+    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Explicitly save the EMA model state since it's not an nn.Module."""
+        super().on_save_checkpoint(checkpoint)
+
+        if self.ema is not None:
+            checkpoint["ema_state_dict"] = self.ema.state_dict()
+
+    def on_load_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Explicitly load the EMA model state."""
+        super().on_load_checkpoint(checkpoint)
+
+        self.configure_model()
+        if self.ema is not None and "ema_state_dict" in checkpoint:
+            self.ema.load_state_dict(checkpoint["ema_state_dict"])
+
+    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
+        """Main step logic, it doesn't differ between training and validation except for the
+        logging.
+
+        Shapes:
+            batch["obs_seq"]: [B, obs_horizon, obs_dim]
+            batch["act_seq"]: [B, pred_horizon, act_dim]
+            returns: scalar loss tensor []
+        """
+        obs_seq = batch["obs_seq"]
+        action_seq = batch["act_seq"]
+
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+
+        network_cond = self._prepare_network_cond(obs_seq)
+
+        loss = self._compute_loss(network_cond, action_seq)
+
+        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
+        return loss
+
+    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+        """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
+
+        Shapes:
+            obs_seq: [B, obs_horizon * obs_dim] (flattened condition sequence)
+            act_seq: [B, pred_horizon, act_dim] (target action chunk)
+            returns: scalar loss tensor []
+        """
+        if self.network is None:
+            raise ValueError(
+                "Network not initialized. Call configure_model() before computing loss."
+            )
+
+        if self.noise_scheduler is None:
+            raise ValueError(
+                "Noise Scheduler not initialized. Call configure_model() before computing loss."
+            )
+
+        B = obs_seq.shape[0]
+
+        noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
+
+        timesteps = torch.randint(
+            0,
+            self.noise_scheduler.config["num_train_timesteps"],
+            (B,),
+            device=self.device,
+            dtype=torch.int32,
+        )
+        timesteps = cast(torch.IntTensor, timesteps)
+
+        noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
+        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq)
+
+        pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
+
+        if pred_type == "epsilon":
+            target = noise
+        elif pred_type == "sample":
+            target = act_seq
+        elif pred_type == "v_prediction":
+            target = self.noise_scheduler.get_velocity(act_seq, noise, timesteps)
+        else:
+            raise ValueError(f"Unsupported prediction_type: {pred_type}")
+
+        loss = F.mse_loss(prediction, target)
+        return loss
+
+    def _configure_normalizers(self) -> None:
+        dm = getattr(self.trainer, "datamodule", None)
+        if dm is None:
+            raise ValueError(
+                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
+            )
+
+        train_set = getattr(dm, "train_set", None)
+        if train_set is None:
+            raise ValueError("Training set is not available in the datamodule.")
+
+        all_obs = []
+        for traj in train_set.trajectories:
+            if train_set.lazy:
+                # TODO: if data is truly lazy, then we should not load it
+                # in local memory, but rather use the h5 file directly. This is a temporary solution.
+                ep_id = traj["episode_id"]
+                h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                obs_ep = torch.from_numpy(h5_traj["obs"][:])
+            else:
+                obs_ep = torch.from_numpy(traj["obs"])
+            all_obs.append(obs_ep)
+        all_obs = torch.cat(all_obs, dim=0)
+
+        self.normalizer.fit(all_obs)
 
     def _run_diffusion_loop(
         self,
@@ -315,50 +358,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         return denoised_act_seq
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
-
-        Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened condition sequence)
-            act_seq: [B, pred_horizon, act_dim] (target action chunk)
-            returns: scalar loss tensor []
-        """
-        if self.network is None:
-            raise ValueError(
-                "Network not initialized. Call configure_model() before computing loss."
-            )
-
-        if self.noise_scheduler is None:
-            raise ValueError(
-                "Noise Scheduler not initialized. Call configure_model() before computing loss."
-            )
-
-        B = obs_seq.shape[0]
-
-        noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
-
-        timesteps = torch.randint(
-            0,
-            self.noise_scheduler.config["num_train_timesteps"],
-            (B,),
-            device=self.device,
-            dtype=torch.int32,
-        )
-        timesteps = cast(torch.IntTensor, timesteps)
-
-        noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq)
-
-        pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
-
-        if pred_type == "epsilon":
-            target = noise
-        elif pred_type == "sample":
-            target = act_seq
-        elif pred_type == "v_prediction":
-            target = self.noise_scheduler.get_velocity(act_seq, noise, timesteps)
-        else:
-            raise ValueError(f"Unsupported prediction_type: {pred_type}")
-
-        loss = F.mse_loss(prediction, target)
-        return loss
+    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
+        """Prepares the observation sequence for the network conditioning."""
+        # TODO: Assuming Unet-like architecture, should generalize in the future
+        return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)

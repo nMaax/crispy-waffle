@@ -129,18 +129,6 @@ class BesoPolicy(DiffusionPolicy):
         else:
             return optimizer
 
-    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
-        """Prepares the observation sequence for the BESO network conditioning (keeps sequence
-        format)."""
-        return concat_leaf_tensors(obs_seq, device=self.device)
-
-    def reset(self):
-        """Clears the action history.
-
-        Call this at the start of every new rollout episode.
-        """
-        self.action_history = deque(maxlen=self.obs_horizon - 1)
-
     def get_action(
         self,
         obs_seq: torch.Tensor | dict,
@@ -153,6 +141,61 @@ class BesoPolicy(DiffusionPolicy):
         obs_seq = self._prepare_network_cond(obs_seq)
 
         return self._run_beso_diffusion_loop(obs_seq, num_inference_steps, clamp_range)
+
+    def reset(self):
+        """Clears the action history.
+
+        Call this at the start of every new rollout episode.
+        """
+        self.action_history = deque(maxlen=self.obs_horizon - 1)
+
+    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+        """BESO Loss formulation using Karras preconditioning."""
+
+        # NOTE: No need to normalize obs_seq here, as it is already normalized in the Diffusion Policy _shared_step()
+
+        if self.network is None:
+            raise ValueError(
+                "Network not initialized. Call configure_model() before getting action."
+            )
+
+        B = obs_seq.shape[0]
+
+        # Sample continuous noise levels
+        sigmas = self._sample_lognormal_sigmas(B)
+        sigma_bd = sigmas.view(B, 1, 1)
+
+        # Add noise
+        noise = torch.randn_like(act_seq)
+        noise[:, :-1, :] = 0.0
+        noisy_act_seq = act_seq + noise * sigma_bd
+
+        # Get Karras scalings
+        c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
+
+        # Predict raw model output (Network is now just DiffusionGPT)
+        scaled_noisy_act = noisy_act_seq * c_in
+        model_output = self.network(sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq)
+
+        # Compute the Karras target (reversing the skip connection)
+        target = (act_seq - c_skip * noisy_act_seq) / c_out
+
+        # Compute MSE loss
+        loss = F.mse_loss(model_output[:, -1:, :], target[:, -1:, :])
+
+        return loss
+
+    def _sample_lognormal_sigmas(self, batch_size: int) -> torch.Tensor:
+        """Draws training sigmas from a log-normal distribution as per Karras et al."""
+        rnd_normal = torch.randn(batch_size, device=self.device)
+        return (rnd_normal * self.sigma_std + self.sigma_mean).exp()
+
+    def _get_karras_scalings(self, sigma: torch.Tensor):
+        """Computes the Karras preconditioning factors."""
+        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
+        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2) ** 0.5
+        c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
+        return c_skip, c_out, c_in
 
     def _run_beso_diffusion_loop(
         self,
@@ -250,50 +293,7 @@ class BesoPolicy(DiffusionPolicy):
 
         return denoised_action
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        """BESO Loss formulation using Karras preconditioning."""
-
-        # NOTE: No need to normalize obs_seq here, as it is already normalized in the Diffusion Policy _shared_step()
-
-        if self.network is None:
-            raise ValueError(
-                "Network not initialized. Call configure_model() before getting action."
-            )
-
-        B = obs_seq.shape[0]
-
-        # Sample continuous noise levels
-        sigmas = self._sample_lognormal_sigmas(B)
-        sigma_bd = sigmas.view(B, 1, 1)
-
-        # Add noise
-        noise = torch.randn_like(act_seq)
-        noise[:, :-1, :] = 0.0
-        noisy_act_seq = act_seq + noise * sigma_bd
-
-        # Get Karras scalings
-        c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
-
-        # Predict raw model output (Network is now just DiffusionGPT)
-        scaled_noisy_act = noisy_act_seq * c_in
-        model_output = self.network(sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq)
-
-        # Compute the Karras target (reversing the skip connection)
-        target = (act_seq - c_skip * noisy_act_seq) / c_out
-
-        # Compute MSE loss
-        loss = F.mse_loss(model_output[:, -1:, :], target[:, -1:, :])
-
-        return loss
-
-    def _sample_lognormal_sigmas(self, batch_size: int) -> torch.Tensor:
-        """Draws training sigmas from a log-normal distribution as per Karras et al."""
-        rnd_normal = torch.randn(batch_size, device=self.device)
-        return (rnd_normal * self.sigma_std + self.sigma_mean).exp()
-
-    def _get_karras_scalings(self, sigma: torch.Tensor):
-        """Computes the Karras preconditioning factors."""
-        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
-        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2) ** 0.5
-        c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
-        return c_skip, c_out, c_in
+    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
+        """Prepares the observation sequence for the BESO network conditioning (keeps sequence
+        format)."""
+        return concat_leaf_tensors(obs_seq, device=self.device)

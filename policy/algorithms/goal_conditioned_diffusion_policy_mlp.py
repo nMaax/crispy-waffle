@@ -48,6 +48,39 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
         )  # (proprioception + embedded observation) for each timestep in the past + the embedded goal (no proprio)
 
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | dict,
+        goal: torch.Tensor | dict,
+        num_inference_steps: int | None = None,
+        clamp_range: tuple | None = None,
+    ):
+        """Runs the reverse diffusion process to predict an action sequence from the current
+        observation.
+
+        Shapes:
+            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
+            goal: [B, obs_dim] (flattened conditioning)
+            returns: [B, act_horizon, act_dim] (denoised actions to execute)
+        """
+
+        if not isinstance(obs_seq, torch.Tensor):
+            raise ValueError(
+                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
+            )
+
+        if not isinstance(goal, torch.Tensor):
+            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
+
+        if self.normalize:
+            obs_seq = self.normalizer.normalize(obs_seq)
+            goal = self.normalizer.normalize(goal)
+
+        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        network_cond = self._prepare_network_cond(obs_seq, goal)
+
+        return self._run_diffusion_loop(network_cond, num_inference_steps, clamp_range)
+
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
         logging.
@@ -82,39 +115,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
-
-    def get_action(
-        self,
-        obs_seq: torch.Tensor | dict,
-        goal: torch.Tensor | dict,
-        num_inference_steps: int | None = None,
-        clamp_range: tuple | None = None,
-    ):
-        """Runs the reverse diffusion process to predict an action sequence from the current
-        observation.
-
-        Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
-            goal: [B, obs_dim] (flattened conditioning)
-            returns: [B, act_horizon, act_dim] (denoised actions to execute)
-        """
-
-        if not isinstance(obs_seq, torch.Tensor):
-            raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
-            )
-
-        if not isinstance(goal, torch.Tensor):
-            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
-
-        if self.normalize:
-            obs_seq = self.normalizer.normalize(obs_seq)
-            goal = self.normalizer.normalize(goal)
-
-        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-        network_cond = self._prepare_network_cond(obs_seq, goal)
-
-        return self._run_diffusion_loop(network_cond, num_inference_steps, clamp_range)
 
     def _prepare_network_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
         """Prepares the conditioning for the diffusion model by embedding the observations and

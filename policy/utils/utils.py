@@ -122,15 +122,6 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     raise ValueError("data must contain at least one tensor")
 
 
-def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
-    """Recursively finds the device from a nested mapping of tensors."""
-    if isinstance(data, torch.Tensor):
-        return data.device
-    for value in data.values():
-        return get_device(value)
-    raise ValueError("data must contain at least one tensor")
-
-
 def get_total_dim(data: Any) -> int:
     """Recursively sums the last dimension of leaf structures.
 
@@ -159,6 +150,15 @@ def get_total_dim(data: Any) -> int:
         return data
 
     raise TypeError(f"Unsupported type for dimension extraction: {type(data)}")
+
+
+def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
+    """Recursively finds the device from a nested mapping of tensors."""
+    if isinstance(data, torch.Tensor):
+        return data.device
+    for value in data.values():
+        return get_device(value)
+    raise ValueError("data must contain at least one tensor")
 
 
 def stack_dicts(trees: list) -> dict | torch.Tensor:
