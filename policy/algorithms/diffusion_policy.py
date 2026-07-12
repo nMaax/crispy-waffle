@@ -4,6 +4,7 @@ from typing import Any, Literal, cast
 import h5py
 import hydra_zen
 import lightning as L
+import omegaconf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,7 +49,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         obs_dim: dict | int = 48,
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
-        normalize: bool = False,
+        normalizer: bool | dict | HydraConfigFor[nn.Module] | None = None,
         flatten_obs: bool | None = None,
     ):
         super().__init__()
@@ -93,8 +94,17 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.obs_dim = obs_dim
 
         # Initialize the normalizer
-        self.normalize = normalize
-        self.normalizer = ZScoreNormalizer(obs_dim)
+        self.normalizer = None
+
+        norm_spec = normalizer
+
+        if omegaconf.OmegaConf.is_config(norm_spec):
+            norm_spec = omegaconf.OmegaConf.to_object(norm_spec)
+
+        if isinstance(norm_spec, bool) and norm_spec:
+            self.normalizer = ZScoreNormalizer(obs_dim)
+        elif isinstance(norm_spec, dict) and "_target_" in norm_spec:
+            self.normalizer = hydra_zen.instantiate(norm_spec, spec=obs_dim)
 
         if flatten_obs is None:
             # Auto-detect if we are using a Transformer or a Unet
@@ -117,7 +127,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             self.network_cond_dim = get_total_dim(obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
-        if self.normalize and not self.normalizer.is_fit and stage == "fit":
+        if self.normalizer is not None and not self.normalizer.is_fit and stage == "fit":
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -169,7 +179,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if self.normalize:
+        if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
 
         obs_seq = self._prepare_network_cond(obs_seq)
@@ -229,7 +239,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
 
-        if self.normalize:
+        if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
 
         network_cond = self._prepare_network_cond(obs_seq)
@@ -288,6 +298,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         return loss
 
     def _configure_normalizers(self) -> None:
+        assert self.normalizer is not None
         dm = getattr(self.trainer, "datamodule", None)
         if dm is None:
             raise ValueError(

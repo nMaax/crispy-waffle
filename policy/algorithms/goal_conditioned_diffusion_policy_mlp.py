@@ -78,7 +78,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         if not isinstance(goal, torch.Tensor):
             raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
 
-        if self.normalize:
+        if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
             goal = self.normalizer.normalize(goal)
 
@@ -109,7 +109,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         if not isinstance(goal, torch.Tensor):
             raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
 
-        if self.normalize:
+        if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
             goal = self.normalizer.normalize(goal)
 
