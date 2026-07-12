@@ -1,6 +1,7 @@
 import functools
 from typing import Any, Literal, cast
 
+import h5py
 import hydra_zen
 import lightning as L
 import torch
@@ -16,7 +17,9 @@ from policy.utils import (
     flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_total_dim,
+    to_tensor,
 )
+from policy.utils.h5_utils import load_h5_data
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
 
@@ -294,20 +297,25 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         if train_set is None:
             raise ValueError("Training set is not available in the datamodule.")
 
-        all_obs = []
-        for traj in train_set.trajectories:
-            if train_set.lazy:
-                # TODO: if data is truly lazy, then we should not load it
-                # in local memory, but rather use the h5 file directly. This is a temporary solution.
-                ep_id = traj["episode_id"]
-                h5_traj = train_set.h5_file[f"traj_{ep_id}"]
-                obs_ep = torch.from_numpy(h5_traj["obs"][:])
-            else:
-                obs_ep = torch.from_numpy(traj["obs"])
-            all_obs.append(obs_ep)
-        all_obs = torch.cat(all_obs, dim=0)
+        if train_set.lazy:
+            def trajectory_obs_generator():
+                for traj in train_set.trajectories:
+                    ep_id = traj["episode_id"]
+                    h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                    obs_node = h5_traj["obs"]
+                    if isinstance(obs_node, h5py.Group):
+                        obs_ep = load_h5_data(obs_node)
+                    else:
+                        obs_ep = obs_node[:]
+                    yield to_tensor(obs_ep)
 
-        self.normalizer.fit(all_obs)
+            self.normalizer.fit_incremental(trajectory_obs_generator())
+        else:
+            from policy.utils.utils import stack_dicts
+
+            all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
+            stacked_obs = stack_dicts(all_obs)
+            self.normalizer.fit(stacked_obs)
 
     def _run_diffusion_loop(
         self,

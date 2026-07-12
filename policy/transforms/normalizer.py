@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import overload
 
 import torch
@@ -22,6 +23,10 @@ class ZScoreNormalizer(nn.Module):
         original = normalizer.unnormalize(normed)
     """
 
+    _n: int
+    _running_mean: torch.Tensor | None
+    _running_M2: torch.Tensor | None
+
     def __init__(self, spec: int | torch.Tensor | dict):
         super().__init__()
 
@@ -40,6 +45,7 @@ class ZScoreNormalizer(nn.Module):
             )
 
     def fit(self, data: torch.Tensor | dict):
+        """Fits the normalizer to the data, computing mean and std."""
         if not isinstance(data, dict):
             data_flat = data.reshape(-1, data.shape[-1])
             self.mean.copy_(data_flat.mean(dim=0))
@@ -49,6 +55,80 @@ class ZScoreNormalizer(nn.Module):
             for key, norm in self.norms.items():
                 norm.fit(data[key])
 
+    def fit_incremental(self, data_iterator: Iterable[torch.Tensor | dict]) -> None:
+        """Fits the normalizer incrementally using an iterator of data (e.g. trajectories).
+
+        This avoids loading the entire dataset into memory.
+        """
+        self._init_running_stats()
+        for item in data_iterator:
+            self._update_running_stats(item)
+        self._finalize_running_stats()
+
+    def _init_running_stats(self) -> None:
+        if not hasattr(self, "norms"):
+            self._n = 0
+            self._running_mean = None
+            self._running_M2 = None
+        else:
+            for norm in self.norms.values():
+                norm._init_running_stats()
+
+    def _update_running_stats(self, data: torch.Tensor | dict) -> None:
+        if not hasattr(self, "norms"):
+            if not isinstance(data, torch.Tensor):
+                data = torch.as_tensor(data)
+            x_flat = data.reshape(-1, data.shape[-1]).to(torch.float64)
+            n_B = x_flat.shape[0]
+            if n_B == 0:
+                return
+
+            mean_B = x_flat.mean(dim=0)
+            M2_B = torch.sum((x_flat - mean_B) ** 2, dim=0)
+
+            if self._n == 0:
+                self._n = n_B
+                self._running_mean = mean_B
+                self._running_M2 = M2_B
+            else:
+                n_X = self._n + n_B
+                delta = mean_B - self._running_mean
+                self._running_mean = self._running_mean + delta * (n_B / n_X)
+                self._running_M2 = self._running_M2 + M2_B + (delta**2) * (self._n * n_B / n_X)
+                self._n = n_X
+        else:
+            assert isinstance(data, dict), "Expected dict data for nested normalizer"
+            for key, norm in self.norms.items():
+                norm._update_running_stats(data[key])
+
+    def _finalize_running_stats(self) -> None:
+        if not hasattr(self, "norms"):
+            if self._n > 1:
+                assert self._running_mean is not None
+                assert self._running_M2 is not None
+                mean = self._running_mean.to(self.mean.dtype)
+                var = self._running_M2 / (self._n - 1)
+                std = torch.sqrt(var).to(self.std.dtype).clamp(min=1e-6)
+                self.mean.copy_(mean.to(self.mean.device))
+                self.std.copy_(std.to(self.std.device))
+                self.is_fit.fill_(True)
+            elif self._n == 1:
+                assert self._running_mean is not None
+                mean = self._running_mean.to(self.mean.dtype)
+                self.mean.copy_(mean.to(self.mean.device))
+                self.std.fill_(1.0)
+                self.is_fit.fill_(True)
+
+            if hasattr(self, "_n"):
+                del self._n
+            if hasattr(self, "_running_mean"):
+                del self._running_mean
+            if hasattr(self, "_running_M2"):
+                del self._running_M2
+        else:
+            for norm in self.norms.values():
+                norm._finalize_running_stats()
+
     @overload
     def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
 
@@ -56,6 +136,7 @@ class ZScoreNormalizer(nn.Module):
     def normalize(self, x: dict) -> dict: ...
 
     def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
+        """Normalizes the input tensor or dict of tensors using the fitted mean and std."""
         if not isinstance(x, dict):
             if self.is_fit:
                 return (x - self.mean) / self.std
@@ -71,6 +152,7 @@ class ZScoreNormalizer(nn.Module):
     def unnormalize(self, x: dict) -> dict: ...
 
     def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
+        """Unnormalizes the input tensor or dict of tensors using the fitted mean and std."""
         if not isinstance(x, dict):
             if self.is_fit:
                 return (x * self.std) + self.mean
@@ -86,4 +168,6 @@ class ZScoreNormalizer(nn.Module):
     def forward(self, x: dict) -> dict: ...
 
     def forward(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
+        """Forward pass for the normalizer, which normalizes the input tensor or dict of
+        tensors."""
         return self.normalize(x)
