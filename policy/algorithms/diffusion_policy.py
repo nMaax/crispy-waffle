@@ -12,7 +12,7 @@ from diffusers.training_utils import EMAModel
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.transforms import ZScoreNormalizer
+from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.utils import (
     concat_leaf_tensors,
     flatten_and_concat_leaf_tensors,
@@ -94,7 +94,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.obs_dim = obs_dim
 
         # Initialize the normalizer
-        self.normalizer = None
+        self.normalizer: ZScoreNormalizer | MinMaxNormalizer | None = None
 
         norm_spec = normalizer
 
