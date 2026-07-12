@@ -17,9 +17,8 @@ obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
 sigma_data: ${algorithm.noise_scheduler.sigma_data}
-sigma_mean: -1.2
-sigma_std: 1.2
 sigma_churn: 1.0 # Adds Langevin stochasticity during sampling, 0.0 means ODE, >0.0 mean SDE
+pred_last_action_only: false
 
 network:
   act_dim: ${..act_dim}
