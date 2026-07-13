@@ -16,11 +16,16 @@ act_horizon: ??
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
-sigma_data: 0.5
-sigma_churn: 1.0 # Adds Langevin stochasticity during sampling: 0.0 means ODE, >0.0 mean SDE
+# Training: Log-logistic parameters
+alpha: 0.5
+beta: 0.5
 
-sigma_min: 0.005
+# Inference: DDIM
 sigma_max: 1.0
+sigma_min: 0.005
+
+# Training and Inference: Karras scaling
+sigma_data: 0.5
 
 pred_last_action_only: false
 

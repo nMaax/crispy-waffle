@@ -22,8 +22,9 @@ class BesoPolicy(DiffusionPolicy):
     def __init__(
         self,
         *args,
+        alpha: float = 0.5,
+        beta: float = 0.5,
         sigma_data: float = 0.5,
-        sigma_churn: float = 0.0,
         sigma_min: float = 0.005,
         sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
@@ -38,11 +39,16 @@ class BesoPolicy(DiffusionPolicy):
 
         self.noise_scheduler = None
 
-        self.sigma_data = sigma_data
-        self.sigma_churn = sigma_churn
+        # Training
+        self.alpha = alpha
+        self.beta = beta
 
+        # Inference
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
+
+        # Training and Inference
+        self.sigma_data = sigma_data
 
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
@@ -143,7 +149,7 @@ class BesoPolicy(DiffusionPolicy):
         B = obs_seq.shape[0]
 
         # Sample continuous noise levels
-        sigmas = self._sample_noise_distribution(B)
+        sigmas = self._sample_noise_distribution(B, alpha=self.alpha, beta=self.beta)
         sigma_bd = sigmas.view(B, 1, 1)
 
         # Add noise
@@ -170,14 +176,16 @@ class BesoPolicy(DiffusionPolicy):
 
         return loss
 
-    def _sample_noise_distribution(self, batch_size: int) -> torch.Tensor:
+    def _sample_noise_distribution(
+        self, batch_size: int, alpha: float = 0.5, beta: float = 0.5
+    ) -> torch.Tensor:
         """Draws training sigmas from a log-logistic distribution (alpha=0.5, beta=0.5).
 
         As recommended by Reuss et al. (2023) for BESO action diffusion.
         """
         u = torch.rand(batch_size, device=self.device)
         # Log-Logistic inverse CDF: sigma = alpha * (u / (1 - u)) ^ (1/beta)
-        return 0.5 * ((u / (1.0 - u)) ** 2)
+        return alpha * ((u / (1.0 - u)) ** (1 / beta))
 
     def _get_karras_scalings(self, sigma: torch.Tensor):
         """Computes the Karras preconditioning factors."""
