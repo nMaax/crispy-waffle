@@ -5,6 +5,7 @@ defaults:
   - optimizer: AdamW
   - lr_scheduler: cosine_with_warmup
   - normalizer: null
+  - normalizer@action_normalizer: null
 
 _target_: policy.algorithms.diffusion_policy.DiffusionPolicy
 _recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
@@ -25,5 +26,3 @@ optimizer:
 
 lr_scheduler:
   num_training_steps: ${trainer.max_steps}
-
-action_normalizer: null

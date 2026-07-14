@@ -5,6 +5,7 @@ defaults:
   - optimizer: AdamW
   - lr_scheduler: cosine_with_warmup
   - normalizer: z_score
+  - normalizer@action_normalizer: min_max
 
 _target_: policy.algorithms.beso_policy.BesoPolicy
 _recursive_: false
@@ -41,5 +42,3 @@ optimizer:
 
 lr_scheduler:
   num_training_steps: ${trainer.max_steps}
-
-action_normalizer: null
