@@ -20,11 +20,11 @@ act_dim: ${datamodule.act_dim}
 alpha: 0.5
 beta: 0.5
 
-# Inference: DDIM
+# Inference: Continuous-DDIM
 sigma_max: 1.0
 sigma_min: 0.005
 
-# Training and Inference: Karras scaling
+# Karras scaling
 sigma_data: 0.5
 
 pred_last_action_only: false

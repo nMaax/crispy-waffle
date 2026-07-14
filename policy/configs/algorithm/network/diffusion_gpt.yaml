@@ -1,6 +1,6 @@
 _target_: policy.algorithms.networks.diffusion_gpt.DiffusionGPT
-embed_dim: 256 # 240 to 360
-n_layers: 4 # 4 to 5
-n_heads: 8 # 6 to 12
+embed_dim: 300 # 240 to 360
+n_layers: 5 # 4 to 5
+n_heads: 10 # 6 to 12
 resid_pdrop: 0.05 # 0.05 for simple tasks, 0.0 for complex tasks
-attn_pdrop: 0.1 # 0.05 for simple tasks, 0.3 for complex tasks
+attn_pdrop: 0.2 # 0.05 for simple tasks, 0.3 for complex tasks

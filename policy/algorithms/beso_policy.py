@@ -176,24 +176,6 @@ class BesoPolicy(DiffusionPolicy):
 
         return loss
 
-    def _sample_noise_distribution(
-        self, batch_size: int, alpha: float = 0.5, beta: float = 0.5
-    ) -> torch.Tensor:
-        """Draws training sigmas from a log-logistic distribution (alpha=0.5, beta=0.5).
-
-        As recommended by Reuss et al. (2023) for BESO action diffusion.
-        """
-        u = torch.rand(batch_size, device=self.device)
-        # Log-Logistic inverse CDF: sigma = alpha * (u / (1 - u)) ^ (1/beta)
-        return alpha * ((u / (1.0 - u)) ** (1 / beta))
-
-    def _get_karras_scalings(self, sigma: torch.Tensor):
-        """Computes the Karras preconditioning factors."""
-        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
-        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2) ** 0.5
-        c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
-        return c_skip, c_out, c_in
-
     def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
@@ -225,11 +207,12 @@ class BesoPolicy(DiffusionPolicy):
 
         B = get_batch_size(network_cond)
 
-        # If the episode just started, pad the history with zeros
+        # If the episode just started, pad the action history with zeros
+        # being our data in [-1, 1], all zeros mean ... TODO
         while len(self.action_history) < self.obs_horizon - 1:
             self.action_history.append(torch.zeros((B, 1, self.act_dim), device=self.device))
 
-        # Combine the deque into a single [B, 7, act_dim] tensor
+        # Combine the deque into a single [B, obs_horizon-1, act_dim] tensor
         clean_past_actions = torch.cat(list(self.action_history), dim=1)
 
         self.ema.store(self.network.parameters())
@@ -262,32 +245,26 @@ class BesoPolicy(DiffusionPolicy):
                 if self.pred_last_action_only:
                     current_pred = model_pred[:, -1:, :]
                     current_noisy = running_seq[:, -1:, :]
-
-                    # Reverse the Karras preconditioning to get clean x_0
-                    denoised_x0 = current_pred * c_out + current_noisy * c_skip
-
-                    # Continuous DDIM Update Step
-                    t = self._t_fn(sigma_t).view(B, 1, 1)
-                    t_next = self._t_fn(sigma_next).view(B, 1, 1)
-                    h = t_next - t
-
-                    updated_action = (
-                        self._sigma_fn(t_next) / self._sigma_fn(t)
-                    ) * current_noisy - (-h).expm1() * denoised_x0
-                    running_seq[:, -1:, :] = updated_action
-
                 else:
-                    # Reverse Karras preconditioning for the full chunk
-                    denoised_x0 = model_pred * c_out + running_seq * c_skip
+                    current_pred = model_pred
+                    current_noisy = running_seq
 
-                    # Continuous DDIM Update Step for full chunk
-                    t = self._t_fn(sigma_t).view(B, 1, 1)
-                    t_next = self._t_fn(sigma_next).view(B, 1, 1)
-                    h = t_next - t
+                # Reverse Karras preconditioning
+                denoised_x0 = current_pred * c_out + current_noisy * c_skip
 
-                    updated_action = (self._sigma_fn(t_next) / self._sigma_fn(t)) * running_seq - (
-                        -h
-                    ).expm1() * denoised_x0
+                # Continuous-DDIM step
+                t = self._t_fn(sigma_t).view(B, 1, 1)
+                t_next = self._t_fn(sigma_next).view(B, 1, 1)
+
+                h = t_next - t
+                sigma_ratio = self._sigma_fn(t_next) / self._sigma_fn(t)
+
+                updated_action = sigma_ratio * current_noisy - (-h).expm1() * denoised_x0
+
+                # Update the running sequence with the new action
+                if self.pred_last_action_only:
+                    running_seq[:, -1:, :] = updated_action
+                else:
                     running_seq = updated_action
 
         self.ema.restore(self.network.parameters())
@@ -304,6 +281,24 @@ class BesoPolicy(DiffusionPolicy):
 
         return denoised_action
 
+    def _get_karras_scalings(self, sigma: torch.Tensor):
+        """Computes the Karras preconditioning factors."""
+        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
+        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2) ** 0.5
+        c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
+        return c_skip, c_out, c_in
+
+    def _sample_noise_distribution(
+        self, batch_size: int, alpha: float = 0.5, beta: float = 0.5
+    ) -> torch.Tensor:
+        """Draws training sigmas from a log-logistic distribution (alpha=0.5, beta=0.5).
+
+        As recommended by Reuss et al. (2023) for BESO action diffusion.
+        """
+        u = torch.rand(batch_size, device=self.device)
+        # Log-Logistic inverse CDF: sigma = alpha * (u / (1 - u)) ^ (1/beta)
+        return alpha * ((u / (1.0 - u)) ** (1 / beta))
+
     def _get_sigmas_exponential(self, n: int, sigma_min: float, sigma_max: float) -> torch.Tensor:
         """Constructs an exponential noise schedule."""
         sigmas = torch.linspace(
@@ -313,8 +308,8 @@ class BesoPolicy(DiffusionPolicy):
         # Append 0.0 for the final step
         return torch.cat([sigmas, torch.zeros(1, device=self.device)])
 
-    def _sigma_fn(self, t):
-        return t.neg().exp()
-
     def _t_fn(self, sigma):
         return sigma.log().neg()
+
+    def _sigma_fn(self, t):
+        return t.neg().exp()
