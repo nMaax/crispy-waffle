@@ -120,6 +120,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             assert isinstance(goal, torch.Tensor)
 
         action_seq = batch["act_seq"]
+        if self.action_normalizer is not None:
+            action_seq = self.action_normalizer.normalize(action_seq)
         network_cond = self._prepare_network_cond(obs_seq, goal)
 
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim

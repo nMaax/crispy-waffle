@@ -50,6 +50,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
         normalizer: bool | dict | HydraConfigFor[nn.Module] | None = None,
+        action_normalizer: bool | dict | HydraConfigFor[nn.Module] | None = None,
         flatten_obs: bool | None = None,
     ):
         super().__init__()
@@ -106,6 +107,19 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         elif isinstance(norm_spec, dict) and "_target_" in norm_spec:
             self.normalizer = hydra_zen.instantiate(norm_spec, spec=obs_dim)
 
+        # Initialize the action normalizer
+        self.action_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = None
+
+        act_norm_spec = action_normalizer
+
+        if omegaconf.OmegaConf.is_config(act_norm_spec):
+            act_norm_spec = omegaconf.OmegaConf.to_object(act_norm_spec)
+
+        if isinstance(act_norm_spec, bool) and act_norm_spec:
+            self.action_normalizer = ZScoreNormalizer(act_dim)
+        elif isinstance(act_norm_spec, dict) and "_target_" in act_norm_spec:
+            self.action_normalizer = hydra_zen.instantiate(act_norm_spec, spec=act_dim)
+
         if flatten_obs is None:
             # Auto-detect if we are using a Transformer or a Unet
             network_target = self.network_config.get("_target_").lower()
@@ -127,7 +141,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             self.network_cond_dim = get_total_dim(obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
-        if self.normalizer is not None and not self.normalizer.is_fit and stage == "fit":
+        if stage == "fit" and self.normalizer and self.action_normalizer:
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -242,6 +256,9 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
 
+        if self.action_normalizer is not None:
+            action_seq = self.action_normalizer.normalize(action_seq)
+
         network_cond = self._prepare_network_cond(obs_seq)
 
         loss = self._compute_loss(network_cond, action_seq)
@@ -298,7 +315,10 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         return loss
 
     def _configure_normalizers(self) -> None:
-        assert self.normalizer is not None
+
+        if self.normalizer.is_fit and self.action_normalizer.is_fit:
+            return
+
         dm = getattr(self.trainer, "datamodule", None)
         if dm is None:
             raise ValueError(
@@ -310,23 +330,45 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             raise ValueError("Training set is not available in the datamodule.")
 
         if train_set.lazy:
+            if not self.normalizer.is_fit:
 
-            def trajectory_obs_generator():
-                for traj in train_set.trajectories:
-                    ep_id = traj["episode_id"]
-                    h5_traj = train_set.h5_file[f"traj_{ep_id}"]
-                    obs_node = h5_traj["obs"]
-                    if isinstance(obs_node, h5py.Group):
-                        obs_ep = load_h5_data(obs_node)
-                    else:
-                        obs_ep = obs_node[:]
-                    yield to_tensor(obs_ep)
+                def trajectory_obs_generator():
+                    for traj in train_set.trajectories:
+                        ep_id = traj["episode_id"]
+                        h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                        obs_node = h5_traj["obs"]
+                        if isinstance(obs_node, h5py.Group):
+                            obs_ep = load_h5_data(obs_node)
+                        else:
+                            obs_ep = obs_node[:]
+                        yield to_tensor(obs_ep)
 
-            self.normalizer.fit_incremental(trajectory_obs_generator())
+                self.normalizer.fit_incremental(trajectory_obs_generator())
+
+            if not self.action_normalizer.is_fit:
+
+                def trajectory_act_generator():
+                    for traj in train_set.trajectories:
+                        ep_id = traj["episode_id"]
+                        h5_traj = train_set.h5_file[f"traj_{ep_id}"]
+                        act_node = h5_traj["actions"]
+                        if isinstance(act_node, h5py.Group):
+                            act_ep = load_h5_data(act_node)
+                        else:
+                            act_ep = act_node[:]
+                        yield to_tensor(act_ep)
+
+                self.action_normalizer.fit_incremental(trajectory_act_generator())
         else:
-            all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
-            stacked_obs = stack_dicts(all_obs)
-            self.normalizer.fit(stacked_obs)
+            if not self.normalizer.is_fit:
+                all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
+                stacked_obs = stack_dicts(all_obs)
+                self.normalizer.fit(stacked_obs)
+
+            if not self.action_normalizer.is_fit:
+                all_act = [to_tensor(traj["actions"]) for traj in train_set.trajectories]
+                stacked_act = stack_dicts(all_act)
+                self.action_normalizer.fit(stacked_act)
 
     def _run_diffusion_loop(
         self,
@@ -389,6 +431,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         end = start + self.act_horizon
 
         denoised_act_seq = noisy_act_seq[:, start:end]
+        if self.action_normalizer is not None:
+            denoised_act_seq = self.action_normalizer.unnormalize(denoised_act_seq)
         if clamp_range is not None:
             low, high = clamp_range
             denoised_act_seq = torch.clamp(denoised_act_seq, low, high)

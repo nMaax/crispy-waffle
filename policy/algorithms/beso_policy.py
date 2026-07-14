@@ -8,6 +8,15 @@ import torch.nn.functional as F
 from policy.algorithms import DiffusionPolicy
 from policy.utils import get_batch_size
 
+# TODO: two things are still missing from this implementation:
+#   1. They provided a parameter to set multiple paralellel denoising of the same action, which are
+#       then averaged together (see get_mean variable)
+#   2. Clipping within diffusion steps: since we are not using Diffusers (which directly provided a clipping option)
+#       at every denoising step, they added such logic on their own. Note that this is NOT the same as clamping the final action
+#       which we already do in the _run_diffusion_loop method. This is a more aggressive clipping that is done at every denoising step.
+#       However implementing this could be trickyh as I need to understand what range of clipping is right, even in function of which
+#       action normalizer we are using.
+
 
 class BesoPolicy(DiffusionPolicy):
     """Trains a BESO diffusion model to predict action sequences from observation histories.
@@ -207,7 +216,10 @@ class BesoPolicy(DiffusionPolicy):
 
         # If the episode just started, pad the action history with zeros
         while len(self.action_history) < self.obs_horizon - 1:
-            self.action_history.append(torch.zeros((B, 1, self.act_dim), device=self.device))
+            zero_action = torch.zeros((B, 1, self.act_dim), device=self.device)
+            if self.action_normalizer is not None:
+                zero_action = self.action_normalizer.normalize(zero_action)
+            self.action_history.append(zero_action)
 
         # Combine the deque into a single [B, obs_horizon-1, act_dim] tensor
         clean_past_actions = torch.cat(list(self.action_history), dim=1)
@@ -276,12 +288,19 @@ class BesoPolicy(DiffusionPolicy):
         # Extract the actions to execute
         denoised_action = running_seq[:, -1:, :]
 
-        if clamp_range is not None:
-            low, high = clamp_range
-            denoised_action = torch.clamp(denoised_action, low, high)
-
-        # Save the executed action to the history queue for the next step
-        self.action_history.append(denoised_action)
+        if self.action_normalizer is not None:
+            physical_action = self.action_normalizer.unnormalize(denoised_action)
+            if clamp_range is not None:
+                low, high = clamp_range
+                physical_action = torch.clamp(physical_action, low, high)
+            executed_action_normalized = self.action_normalizer.normalize(physical_action)
+            self.action_history.append(executed_action_normalized)
+            denoised_action = physical_action
+        else:
+            if clamp_range is not None:
+                low, high = clamp_range
+                denoised_action = torch.clamp(denoised_action, low, high)
+            self.action_history.append(denoised_action)
 
         return denoised_action
 
