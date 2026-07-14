@@ -206,7 +206,6 @@ class BesoPolicy(DiffusionPolicy):
         B = get_batch_size(network_cond)
 
         # If the episode just started, pad the action history with zeros
-        # being our data in [-1, 1], all zeros mean ... TODO
         while len(self.action_history) < self.obs_horizon - 1:
             self.action_history.append(torch.zeros((B, 1, self.act_dim), device=self.device))
 
