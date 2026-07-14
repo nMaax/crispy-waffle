@@ -188,8 +188,6 @@ class BesoPolicy(DiffusionPolicy):
         et al. (2023).
         """
 
-        # TODO: review with original code
-
         if self.network is None:
             raise ValueError(
                 "Network not initialized. Call configure_model() before getting action."
@@ -222,6 +220,12 @@ class BesoPolicy(DiffusionPolicy):
             num_inference_timesteps, self.sigma_min, self.sigma_max
         )
 
+        # NOTE: they provided many custom solvers in the original BESO code
+        # however in the paper they indicated DDIM as their best choice for
+        # (goal-conditioned) action diffusion, so we implemented it here.
+        # Tho, one could implement other solvers as well, e.g., DPM++, Heun, LMS, Ancestral, etc.
+        # see https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/beso_agent.py#L437
+
         with torch.no_grad():
             current_noisy_action = (
                 torch.randn((B, 1, self.act_dim), device=self.device) * sigmas[0]
@@ -250,16 +254,17 @@ class BesoPolicy(DiffusionPolicy):
                     current_noisy = running_seq
 
                 # Reverse Karras preconditioning
-                denoised_x0 = current_pred * c_out + current_noisy * c_skip
+                scaled_pred = current_pred * c_out + current_noisy * c_skip
 
                 # Continuous-DDIM step
+                # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
                 t = self._t_fn(sigma_t).view(B, 1, 1)
                 t_next = self._t_fn(sigma_next).view(B, 1, 1)
 
                 h = t_next - t
                 sigma_ratio = self._sigma_fn(t_next) / self._sigma_fn(t)
 
-                updated_action = sigma_ratio * current_noisy - (-h).expm1() * denoised_x0
+                updated_action = sigma_ratio * current_noisy - (-h).expm1() * scaled_pred
 
                 # Update the running sequence with the new action
                 if self.pred_last_action_only:
