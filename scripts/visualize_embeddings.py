@@ -555,7 +555,7 @@ def main():
         points = target_coords.reshape(-1, 1, 2)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
-        lc = LineCollection(segments, cmap=cmap, norm=norm, linewidths=1.5, alpha=0.85, zorder=3)
+        lc = LineCollection(segments, cmap=cmap, norm=norm, linewidths=1.5, alpha=0.85, zorder=3)  # type: ignore
         lc.set_array(np.arange(L - 1))
 
         # Highlight key frames or semantic stages

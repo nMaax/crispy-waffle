@@ -233,8 +233,8 @@ class BesoPolicy(DiffusionPolicy):
 
         # NOTE: they provided many custom solvers in the original BESO code
         # however in the paper they indicated DDIM as their best choice for
-        # (goal-conditioned) action diffusion, so we implemented it here.
-        # Tho, one could implement other solvers as well, e.g., DPM++, Heun, LMS, Ancestral, etc.
+        # (goal-conditioned) action diffusion, so we only implemented that one here.
+        # Tho, one could add other solvers as well, e.g., DPM++, Heun, LMS, Ancestral, etc.
         # see https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/beso_agent.py#L437
 
         with torch.no_grad():
