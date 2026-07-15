@@ -19,7 +19,7 @@ import lightning
 import rich
 import rich.logging
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from rich.panel import Panel
 
 import policy
@@ -37,6 +37,21 @@ logger = logging.getLogger(__name__)
 torch.set_float32_matmul_precision("high")
 
 # torch.autograd.set_detect_anomaly(True)
+
+
+def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
+    """Finds and returns the seed used in the checkpoint's run from its .hydra/config.yaml."""
+
+    ckpt_path = Path(ckpt_path_str).resolve()
+    for parent in ckpt_path.parents:
+        hydra_config_path = parent / ".hydra" / "config.yaml"
+        if hydra_config_path.exists():
+            try:
+                loaded_config = OmegaConf.load(hydra_config_path)
+                return loaded_config.get("seed", None)  # type: ignore
+            except Exception:
+                pass
+    return None
 
 
 @hydra.main(
@@ -75,6 +90,16 @@ def main(dict_config: DictConfig) -> dict:
         global_log_level="DEBUG" if config.debug else "INFO" if config.verbose else "WARNING",
     )
 
+    if config.ckpt_path is not None:
+        loaded_seed = get_checkpoint_seed(config.ckpt_path)
+        if loaded_seed is not None and loaded_seed != config.seed:
+            raise ValueError(
+                f"Resuming training with seed mismatch! The checkpoint at '{config.ckpt_path}' "
+                f"was generated with seed={loaded_seed}, but the current config has seed={config.seed}.\n"
+                f"To ensure identical train/val data splits and reproducible rollouts, "
+                f"please re-run with the command line override: seed={loaded_seed}"
+            )
+
     # Seed the random number generators, so the weights that are
     # constructed are deterministic and reproducible.
     lightning.seed_everything(seed=config.seed, workers=True)
@@ -93,9 +118,6 @@ def main(dict_config: DictConfig) -> dict:
 
     if getattr(config, "finetuning_ckpt_path", None) is not None:
         logger.info(f"Fine-tuning requested! Loading weights from {config.finetuning_ckpt_path}")
-
-        # Filter out Hydra-specific keys that would cause TypeErrors in the constructor
-        from omegaconf import OmegaConf
 
         algo_dict = (
             OmegaConf.to_container(config.algorithm, resolve=True)
