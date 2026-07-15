@@ -17,7 +17,7 @@ datamodule:
   load_count: 500
 
 trainer:
-  max_steps: 60000 # 40k to 60k
+  max_steps: 250000 # 40k to 60k
   callbacks:
     early_stopping: null
     rollout_evaluation:

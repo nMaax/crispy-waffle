@@ -320,7 +320,7 @@ class BesoPolicy(DiffusionPolicy):
         """
         u = torch.rand(batch_size, device=self.device)
         # Log-Logistic inverse CDF: sigma = alpha * (u / (1 - u)) ^ (1/beta)
-        return alpha * ((u / (1.0 - u)) ** (1 / beta))
+        return torch.clamp(alpha * ((u / (1.0 - u)) ** (1 / beta)), min=1e-5, max=1e5)
 
     def _get_sigmas_exponential(self, n: int, sigma_min: float, sigma_max: float) -> torch.Tensor:
         """Constructs an exponential noise schedule."""

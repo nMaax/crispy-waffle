@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 torch.set_float32_matmul_precision("high")
 
+# torch.autograd.set_detect_anomaly(True)
+
 
 @hydra.main(
     config_path=f"pkg://{PROJECT_NAME}.configs",
