@@ -104,12 +104,19 @@ def main(dict_config: DictConfig) -> dict:
         if algo_dict is None:
             raise ValueError("Algorithm config is None, cannot load checkpoint for fine-tuning.")
 
+        if not isinstance(algo_dict, dict):
+            raise TypeError(
+                f"Algorithm config must resolve to a dictionary, but got {type(algo_dict).__name__}."
+            )
+
         algo_kwargs = {
             k: v for k, v in algo_dict.items() if k not in ["_target_", "_recursive_", "_convert_"]
         }
 
         algorithm = type(algorithm).load_from_checkpoint(
-            config.finetuning_ckpt_path, strict=False, **algo_kwargs
+            config.finetuning_ckpt_path,
+            strict=False,
+            **algo_kwargs,  # type: ignore
         )
 
         config.ckpt_path = None
