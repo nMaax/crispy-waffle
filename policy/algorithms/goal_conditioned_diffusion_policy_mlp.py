@@ -90,6 +90,34 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         return self._run_diffusion_loop(network_cond, num_inference_timesteps, clamp_range)
 
+    @torch.no_grad()
+    def extract_embeddings(
+        self,
+        obs: torch.Tensor,
+        goal: torch.Tensor | None = None,
+    ):
+        """Extracts MLP state embeddings for observations (and optionally a goal).
+
+        Supports arbitrary tensor shapes for obs and goal, as long as their last dimension matches
+        self.obs_dim.
+        """
+        obs = obs.to(self.device)
+        if goal is not None:
+            goal = goal.to(self.device)
+
+        if self.normalizer is not None:
+            obs = self.normalizer.normalize(obs)
+            if goal is not None:
+                goal = self.normalizer.normalize(goal)
+
+        obs_embeddings = self.state_embedder(obs[..., self.proprio_dim :])
+
+        res = {"obs_embeddings": obs_embeddings.cpu()}
+        if goal is not None:
+            res["goal_embedding"] = self.state_embedder(goal[..., self.proprio_dim :]).cpu()
+
+        return res
+
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
         logging.
