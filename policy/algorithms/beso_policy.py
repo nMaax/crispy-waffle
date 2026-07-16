@@ -42,6 +42,7 @@ class BesoPolicy(DiffusionPolicy):
 
         self.noise_scheduler = None
         self.goal_seq_len = goal_seq_len
+        self.goal_conditioned = goal_seq_len > 0
 
         # Training
         self.alpha = alpha
