@@ -166,10 +166,18 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         # Embed Observations and Actions
         if obs.ndim == 3:
             obs_seq = obs
+            cur_obs_horizon = obs.shape[1]
         else:
-            obs_seq = obs.view(B, self.obs_horizon, -1)
-        obs_tokens = self.obs_emb(obs_seq)  # [B, obs_horizon, embed_dim]
+            cur_obs_horizon = obs.shape[1] // self.obs_dim
+            obs_seq = obs.view(B, cur_obs_horizon, -1)
+        obs_tokens = self.obs_emb(obs_seq)  # [B, cur_obs_horizon, embed_dim]
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
+
+        cur_pred_horizon = sample.shape[1]
+        if cur_obs_horizon != cur_pred_horizon:
+            raise ValueError(
+                f"Observation sequence length {cur_obs_horizon} and action sequence length {cur_pred_horizon} must be equal."
+            )
 
         # Apply Positional Embeddings
         # pos_emb covers [1, 1 (sigma) + goal_seq_len + obs_horizon, embed_dim]
@@ -195,14 +203,14 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             goal_tokens = None
             pos_emb_sa = self.pos_emb[:, 1 :, :]
 
-        obs_tokens = self.drop(obs_tokens + pos_emb_sa)
-        act_tokens = self.drop(act_tokens + pos_emb_sa)
+        obs_tokens = self.drop(obs_tokens + pos_emb_sa[:, :cur_obs_horizon, :])
+        act_tokens = self.drop(act_tokens + pos_emb_sa[:, :cur_pred_horizon, :])
 
         # Interleave the Sequence
-        # torch.stack creates [B, obs_horizon, 2, embed_dim]
-        # .view flattens it to [B, obs_horizon * 2, embed_dim] resulting in [s1, a1, s2, a2...]
+        # torch.stack creates [B, cur_obs_horizon, 2, embed_dim]
+        # .view flattens it to [B, cur_obs_horizon * 2, embed_dim] resulting in [s1, a1, s2, a2...]
         sa_seq = torch.stack([obs_tokens, act_tokens], dim=2)
-        sa_seq = sa_seq.view(B, self.obs_horizon * 2, self.embed_dim)
+        sa_seq = sa_seq.view(B, cur_obs_horizon * 2, self.embed_dim)
 
         # Assemble Final Sequence
         if goal_tokens is not None:
@@ -222,8 +230,8 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         else:
             x_sa = x[:, 1 :, :]
 
-        # Reshape back to pairs [B, obs_horizon, 2, embed_dim]
-        x_sa = x_sa.view(B, self.obs_horizon, 2, self.embed_dim)
+        # Reshape back to pairs [B, cur_obs_horizon, 2, embed_dim]
+        x_sa = x_sa.view(B, cur_obs_horizon, 2, self.embed_dim)
         # Extract index 1 from the pairs (which corresponds to the actions)
         act_outputs = x_sa[:, :, 1, :]
 

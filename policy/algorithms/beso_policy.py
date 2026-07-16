@@ -17,8 +17,6 @@ from policy.utils import concat_leaf_tensors, get_batch_size
 #       which we already do in the _run_diffusion_loop method. This is a more aggressive clipping that is done at every denoising step.
 #       However implementing this could be trickyh as I need to understand what range of clipping is right, even in function of which
 #       action normalizer we are using.
-#   3. Since we inherit from DiffusionPolicy we feed a sequence of zeroes in front of the first frames of the trajectory,
-#       BESO instead handles directly a slicing in-place of the inner DIffusionGPT network. I should implement it too.
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -268,15 +266,21 @@ class BesoPolicy(DiffusionPolicy):
 
         B = get_batch_size(network_cond)
 
-        # If the episode just started, pad the action history with zeros
-        while len(self.action_history) < self.obs_horizon - 1:
-            zero_action = torch.zeros((B, 1, self.act_dim), device=self.device)
-            if self.action_normalizer is not None:
-                zero_action = self.action_normalizer.normalize(zero_action)
-            self.action_history.append(zero_action)
+        # Determine the current history length
+        H = len(self.action_history)
+        cur_obs_len = H + 1
 
-        # Combine the deque into a single [B, obs_horizon-1, act_dim] tensor
-        clean_past_actions = torch.cat(list(self.action_history), dim=1)
+        # Combine the deque into a single [B, H, act_dim] tensor
+        if H > 0:
+            clean_past_actions = torch.cat(list(self.action_history), dim=1)
+        else:
+            clean_past_actions = torch.zeros((B, 0, self.act_dim), device=self.device)
+
+        # Slice network_cond to the current observation sequence length
+        if network_cond.ndim == 3:
+            sliced_network_cond = network_cond[:, -cur_obs_len:, :]
+        else:
+            sliced_network_cond = network_cond.view(B, self.obs_horizon, -1)[:, -cur_obs_len:, :]
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -310,7 +314,7 @@ class BesoPolicy(DiffusionPolicy):
                 # Scale input and predict
                 scaled_sample = running_seq * c_in
                 model_pred = self.network(
-                    sample=scaled_sample, timestep=sigma_t, obs=network_cond, goal=goal_cond
+                    sample=scaled_sample, timestep=sigma_t, obs=sliced_network_cond, goal=goal_cond
                 )
 
                 if self.pred_last_action_only:
