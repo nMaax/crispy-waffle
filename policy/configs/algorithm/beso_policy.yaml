@@ -31,6 +31,7 @@ sigma_data: 0.5
 pred_last_action_only: false
 
 goal_seq_len: 0
+num_parallel_samples: 1
 
 network:
   act_dim: ${..act_dim}

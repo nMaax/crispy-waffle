@@ -9,13 +9,10 @@ import torch.nn.functional as F
 from policy.algorithms import DiffusionPolicy
 from policy.utils import concat_leaf_tensors, get_batch_size
 
-# TODO: some things are still missing from this implementation:
-#   1. They provided a parameter to set multiple paralellel denoising of the same action, which are
-#       then averaged together (see get_mean variable)
-#   2. Clipping within diffusion steps: since we are not using Diffusers (which directly provided a clipping option)
+# TODO: Since we are not using Diffusers (which directly provided a clipping option)
 #       at every denoising step, they added such logic on their own. Note that this is NOT the same as clamping the final action
 #       which we already do in the _run_diffusion_loop method. This is a more aggressive clipping that is done at every denoising step.
-#       However implementing this could be trickyh as I need to understand what range of clipping is right, even in function of which
+#       However implementing this could be tricky as I need to understand what range of clipping is right, even in function of which
 #       action normalizer we are using.
 
 
@@ -39,6 +36,7 @@ class BesoPolicy(DiffusionPolicy):
         sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
         goal_seq_len: int = 0,
+        num_parallel_samples: int = 1,
         **kwargs,
     ):
 
@@ -66,6 +64,7 @@ class BesoPolicy(DiffusionPolicy):
 
         self.goal_seq_len = goal_seq_len
         self.goal_conditioned = goal_seq_len > 0
+        self.num_parallel_samples = num_parallel_samples
 
         if "DiffusionGPT" not in self.network_config.get("_target_", None):
             raise ValueError(
@@ -282,6 +281,19 @@ class BesoPolicy(DiffusionPolicy):
         else:
             sliced_network_cond = network_cond.view(B, self.obs_horizon, -1)[:, -cur_obs_len:, :]
 
+        if self.num_parallel_samples > 1:
+            clean_past_actions = clean_past_actions.repeat_interleave(
+                self.num_parallel_samples, dim=0
+            )
+            sliced_network_cond = sliced_network_cond.repeat_interleave(
+                self.num_parallel_samples, dim=0
+            )
+            if goal_cond is not None:
+                goal_cond = goal_cond.repeat_interleave(self.num_parallel_samples, dim=0)
+            B_expanded = B * self.num_parallel_samples
+        else:
+            B_expanded = B
+
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
 
@@ -297,18 +309,18 @@ class BesoPolicy(DiffusionPolicy):
 
         with torch.no_grad():
             current_noisy_action = (
-                torch.randn((B, 1, self.act_dim), device=self.device) * sigmas[0]
+                torch.randn((B_expanded, 1, self.act_dim), device=self.device) * sigmas[0]
             )
 
             running_seq = torch.cat([clean_past_actions, current_noisy_action], dim=1)
 
             # Custom Continuous DDIM Loop
             for i in range(len(sigmas) - 1):
-                sigma_t = sigmas[i].expand(B)
-                sigma_next = sigmas[i + 1].expand(B)
+                sigma_t = sigmas[i].expand(B_expanded)
+                sigma_next = sigmas[i + 1].expand(B_expanded)
 
                 # Get Karras scalings for the current sigma
-                sigma_bd = sigma_t.view(B, 1, 1)
+                sigma_bd = sigma_t.view(B_expanded, 1, 1)
                 c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
 
                 # Scale input and predict
@@ -329,8 +341,8 @@ class BesoPolicy(DiffusionPolicy):
 
                 # Continuous-DDIM step
                 # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
-                t = self._t_fn(sigma_t).view(B, 1, 1)
-                t_next = self._t_fn(sigma_next).view(B, 1, 1)
+                t = self._t_fn(sigma_t).view(B_expanded, 1, 1)
+                t_next = self._t_fn(sigma_next).view(B_expanded, 1, 1)
 
                 h = t_next - t
                 sigma_ratio = self._sigma_fn(t_next) / self._sigma_fn(t)
@@ -347,6 +359,10 @@ class BesoPolicy(DiffusionPolicy):
 
         # Extract the actions to execute
         denoised_action = running_seq[:, -1:, :]
+
+        if self.num_parallel_samples > 1:
+            denoised_action = denoised_action.view(B, self.num_parallel_samples, 1, self.act_dim)
+            denoised_action = denoised_action.mean(dim=1)
 
         if self.action_normalizer is not None:
             physical_action = self.action_normalizer.unnormalize(denoised_action)
