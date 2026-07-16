@@ -231,13 +231,13 @@ class TestDiffusionPolicyLogic:
 
         # obs_horizon = 2 -> start = 1. act_horizon = 8 -> end = 9.
         # Sliced indices should be 1 through 8.
-        out = policy.get_action(obs_seq, clamp_range=None)
+        out = policy.get_action(obs_seq, output_clip_range=None)
 
         assert out.shape == (1, 8, 4)
         assert torch.allclose(out[0, 0, 0], torch.tensor(1.0))  # Index 1
         assert torch.allclose(out[0, -1, 0], torch.tensor(8.0))  # Index 8
 
         # Test Clamping
-        out_clamped = policy.get_action(obs_seq, clamp_range=(3.0, 6.0))
+        out_clamped = policy.get_action(obs_seq, output_clip_range=(3.0, 6.0))
         assert out_clamped.min() >= 3.0
         assert out_clamped.max() <= 6.0

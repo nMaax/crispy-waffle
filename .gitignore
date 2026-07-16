@@ -176,3 +176,4 @@ data
 policy/.schemas
 
 scripts/figures/*
+.context/
