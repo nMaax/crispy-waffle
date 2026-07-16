@@ -116,7 +116,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
             act_norm_spec = omegaconf.OmegaConf.to_object(act_norm_spec)
 
         if isinstance(act_norm_spec, bool) and act_norm_spec:
-            self.action_normalizer = ZScoreNormalizer(act_dim)
+            self.action_normalizer = MinMaxNormalizer(act_dim)
         elif isinstance(act_norm_spec, dict) and "_target_" in act_norm_spec:
             self.action_normalizer = hydra_zen.instantiate(act_norm_spec, spec=act_dim)
 
