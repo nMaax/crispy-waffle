@@ -1,5 +1,4 @@
 import math
-import warnings
 from collections import deque
 from typing import Any
 
@@ -8,7 +7,6 @@ import torch
 import torch.nn.functional as F
 
 from policy.algorithms import DiffusionPolicy
-from policy.transforms import ZScoreNormalizer
 from policy.utils import concat_leaf_tensors, get_batch_size
 
 
@@ -219,7 +217,6 @@ class BesoPolicy(DiffusionPolicy):
         goal: torch.Tensor | dict | None = None,
         num_inference_timesteps: int | None = None,
         output_clip_range: tuple | None = None,
-        in_diffusion_clip_range: tuple | None = None,
     ):
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
@@ -230,7 +227,7 @@ class BesoPolicy(DiffusionPolicy):
         goal_cond = self._prepare_goal(goal) if goal is not None else None
 
         return self._run_diffusion_loop(
-            obs_seq, goal_cond, num_inference_timesteps, output_clip_range, in_diffusion_clip_range
+            obs_seq, goal_cond, num_inference_timesteps, output_clip_range
         )
 
     def _run_diffusion_loop(
@@ -239,22 +236,12 @@ class BesoPolicy(DiffusionPolicy):
         goal_cond: torch.Tensor | None = None,
         num_inference_timesteps: int | None = None,
         output_clip_range: tuple | None = None,
-        in_diffusion_clip_range: tuple | None = None,
     ):
         """Runs the BESO diffusion loop to generate the next action.
 
         Implemented as a custom continuous DDIM scheduler with Karras preconditioning as in Reuss
         et al. (2023).
         """
-
-        if in_diffusion_clip_range is not None and self.action_normalizer is not None:
-            if isinstance(self.action_normalizer, ZScoreNormalizer):
-                warnings.warn(
-                    f"In-loop clipping is enabled (clip_denoised={in_diffusion_clip_range}) with a ZScoreNormalizer. "
-                    "Z-score normalized actions are not bounded, so clipping in the normalized space "
-                    "may be mathematically incorrect/restrictive.",
-                    UserWarning,
-                )
 
         if self.network is None:
             raise ValueError(
@@ -347,13 +334,15 @@ class BesoPolicy(DiffusionPolicy):
                 # Reverse Karras preconditioning
                 scaled_pred = current_pred * c_out + current_noisy * c_skip
 
-                if in_diffusion_clip_range is not None:
-                    low, high = in_diffusion_clip_range
-                    scaled_pred = torch.clamp(
-                        scaled_pred,
-                        low,
-                        high,
-                    )
+                # NOTE: In their BESO impleementation, they inverted the order of normalization
+                # and clipping (clipping to [-1, 1] in the normalized space first, then unnormalizing).
+                # This is sloppy as:
+                # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
+                #    physical environment boundaries.
+                # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
+                #    from the mean, preventing the policy from ever outputting extreme actions.
+                # By unnormalizing first and then clipping in physical space (output_clip_range), we apply
+                # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
 
                 # Continuous-DDIM step
                 # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
@@ -381,6 +370,15 @@ class BesoPolicy(DiffusionPolicy):
             denoised_action = denoised_action.mean(dim=1)
 
         if self.action_normalizer is not None:
+            # NOTE: The original BESO implementation incorrectly inverts the order of normalization and clipping:
+            # it first clips the denoised actions in the normalized space (to [-1, 1]), and only then unnormalizes
+            # them to the physical space. This is mathematically sloppy and highly restrictive:
+            # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
+            #    physical environment boundaries.
+            # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
+            #    from the mean, preventing the policy from ever outputting extreme actions.
+            # By unnormalizing first and then clipping in physical space using output_clip_range, we apply
+            # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
             physical_action = self.action_normalizer.unnormalize(denoised_action)
             if output_clip_range is not None:
                 low, high = output_clip_range
