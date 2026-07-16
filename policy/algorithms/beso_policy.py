@@ -1,4 +1,5 @@
 import math
+import warnings
 from collections import deque
 from typing import Any
 
@@ -7,13 +8,8 @@ import torch
 import torch.nn.functional as F
 
 from policy.algorithms import DiffusionPolicy
+from policy.transforms import ZScoreNormalizer
 from policy.utils import concat_leaf_tensors, get_batch_size
-
-# TODO: Since we are not using Diffusers (which directly provided a clipping option)
-#       at every denoising step, they added such logic on their own. Note that this is NOT the same as clamping the final action
-#       which we already do in the _run_diffusion_loop method. This is a more aggressive clipping that is done at every denoising step.
-#       However implementing this could be tricky as I need to understand what range of clipping is right, even in function of which
-#       action normalizer we are using.
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -29,13 +25,13 @@ class BesoPolicy(DiffusionPolicy):
     def __init__(
         self,
         *args,
+        goal_seq_len: int = 0,
         alpha: float = 0.5,
         beta: float = 0.5,
         sigma_data: float = 0.5,
         sigma_min: float = 0.005,
         sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
-        goal_seq_len: int = 0,
         num_parallel_samples: int = 1,
         **kwargs,
     ):
@@ -47,6 +43,7 @@ class BesoPolicy(DiffusionPolicy):
         super().__init__(*args, noise_scheduler=None, **kwargs)  # type: ignore
 
         self.noise_scheduler = None
+        self.goal_seq_len = goal_seq_len
 
         # Training
         self.alpha = alpha
@@ -62,8 +59,6 @@ class BesoPolicy(DiffusionPolicy):
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
-        self.goal_seq_len = goal_seq_len
-        self.goal_conditioned = goal_seq_len > 0
         self.num_parallel_samples = num_parallel_samples
 
         if "DiffusionGPT" not in self.network_config.get("_target_", None):
@@ -223,7 +218,8 @@ class BesoPolicy(DiffusionPolicy):
         obs_seq: torch.Tensor | dict,
         goal: torch.Tensor | dict | None = None,
         num_inference_timesteps: int | None = None,
-        clamp_range: tuple | None = None,
+        output_clip_range: tuple | None = None,
+        in_diffusion_clip_range: tuple | None = None,
     ):
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
@@ -233,20 +229,32 @@ class BesoPolicy(DiffusionPolicy):
         obs_seq = self._prepare_network_cond(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
 
-        return self._run_diffusion_loop(obs_seq, goal_cond, num_inference_timesteps, clamp_range)
+        return self._run_diffusion_loop(
+            obs_seq, goal_cond, num_inference_timesteps, output_clip_range, in_diffusion_clip_range
+        )
 
     def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
         goal_cond: torch.Tensor | None = None,
         num_inference_timesteps: int | None = None,
-        clamp_range: tuple | None = None,
+        output_clip_range: tuple | None = None,
+        in_diffusion_clip_range: tuple | None = None,
     ):
         """Runs the BESO diffusion loop to generate the next action.
 
         Implemented as a custom continuous DDIM scheduler with Karras preconditioning as in Reuss
         et al. (2023).
         """
+
+        if in_diffusion_clip_range is not None and self.action_normalizer is not None:
+            if isinstance(self.action_normalizer, ZScoreNormalizer):
+                warnings.warn(
+                    f"In-loop clipping is enabled (clip_denoised={in_diffusion_clip_range}) with a ZScoreNormalizer. "
+                    "Z-score normalized actions are not bounded, so clipping in the normalized space "
+                    "may be mathematically incorrect/restrictive.",
+                    UserWarning,
+                )
 
         if self.network is None:
             raise ValueError(
@@ -339,6 +347,14 @@ class BesoPolicy(DiffusionPolicy):
                 # Reverse Karras preconditioning
                 scaled_pred = current_pred * c_out + current_noisy * c_skip
 
+                if in_diffusion_clip_range is not None:
+                    low, high = in_diffusion_clip_range
+                    scaled_pred = torch.clamp(
+                        scaled_pred,
+                        low,
+                        high,
+                    )
+
                 # Continuous-DDIM step
                 # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
                 t = self._t_fn(sigma_t).view(B_expanded, 1, 1)
@@ -366,15 +382,15 @@ class BesoPolicy(DiffusionPolicy):
 
         if self.action_normalizer is not None:
             physical_action = self.action_normalizer.unnormalize(denoised_action)
-            if clamp_range is not None:
-                low, high = clamp_range
+            if output_clip_range is not None:
+                low, high = output_clip_range
                 physical_action = torch.clamp(physical_action, low, high)
             executed_action_normalized = self.action_normalizer.normalize(physical_action)
             self.action_history.append(executed_action_normalized)
             denoised_action = physical_action
         else:
-            if clamp_range is not None:
-                low, high = clamp_range
+            if output_clip_range is not None:
+                low, high = output_clip_range
                 denoised_action = torch.clamp(denoised_action, low, high)
             self.action_history.append(denoised_action)
 

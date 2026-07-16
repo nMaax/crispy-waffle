@@ -59,7 +59,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq: torch.Tensor | dict,
         goal: torch.Tensor | dict,
         num_inference_timesteps: int | None = None,
-        clamp_range: tuple | None = None,
+        output_clip_range: tuple | None = None,
     ):
         """Runs the reverse diffusion process to predict an action sequence from the current
         observation.
@@ -88,7 +88,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
         network_cond = self._prepare_network_cond(obs_seq, goal)
 
-        return self._run_diffusion_loop(network_cond, num_inference_timesteps, clamp_range)
+        return self._run_diffusion_loop(network_cond, num_inference_timesteps, output_clip_range)
 
     @torch.no_grad()
     def extract_embeddings(

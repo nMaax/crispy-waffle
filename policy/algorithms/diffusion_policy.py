@@ -184,7 +184,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self,
         obs_seq: torch.Tensor | dict,
         num_inference_timesteps: int | None = None,
-        clamp_range: tuple | None = None,
+        output_clip_range: tuple | None = None,
     ):
         """Runs the reverse diffusion process to predict an action sequence from the current
         observation.
@@ -198,7 +198,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         obs_seq = self._prepare_network_cond(obs_seq)
 
-        return self._run_diffusion_loop(obs_seq, num_inference_timesteps, clamp_range)
+        return self._run_diffusion_loop(obs_seq, num_inference_timesteps, output_clip_range)
 
     def training_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "train")
@@ -316,6 +316,16 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
     def _configure_normalizers(self) -> None:
 
+        if self.normalizer is None:
+            raise ValueError(
+                "Normalizer is None. Make sure to set the normalizer before training."
+            )
+
+        if self.action_normalizer is None:
+            raise ValueError(
+                "Action normalizer is None. Make sure to set the action normalizer before training."
+            )
+
         if self.normalizer.is_fit and self.action_normalizer.is_fit:
             return
 
@@ -374,7 +384,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self,
         network_cond: torch.Tensor,
         num_inference_steps: int | None = None,
-        clamp_range: tuple | None = None,
+        output_clip_range: tuple | None = None,
     ):
         """Generic helper containing the actual reverse diffusion process loop."""
         if self.network is None:
@@ -433,8 +443,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         denoised_act_seq = noisy_act_seq[:, start:end]
         if self.action_normalizer is not None:
             denoised_act_seq = self.action_normalizer.unnormalize(denoised_act_seq)
-        if clamp_range is not None:
-            low, high = clamp_range
+        if output_clip_range is not None:
+            low, high = output_clip_range
             denoised_act_seq = torch.clamp(denoised_act_seq, low, high)
 
         return denoised_act_seq
