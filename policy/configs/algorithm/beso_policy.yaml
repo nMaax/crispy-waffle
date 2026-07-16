@@ -32,6 +32,8 @@ pred_last_action_only: false
 
 goal_seq_len: 0
 num_parallel_samples: 1
+goal_drop_prob: 0.0
+cfg_lambda: 0.0
 
 network:
   act_dim: ${..act_dim}

@@ -31,6 +31,8 @@ class BesoPolicy(DiffusionPolicy):
         sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
         num_parallel_samples: int = 1,
+        goal_drop_prob: float = 0.0,
+        cfg_lambda: float = 0.0,
         **kwargs,
     ):
 
@@ -47,10 +49,12 @@ class BesoPolicy(DiffusionPolicy):
         # Training
         self.alpha = alpha
         self.beta = beta
+        self.goal_drop_prob = goal_drop_prob
 
         # Inference
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
+        self.cfg_lambda = cfg_lambda
 
         # Training and Inference
         self.sigma_data = sigma_data
@@ -197,6 +201,15 @@ class BesoPolicy(DiffusionPolicy):
 
         # Predict raw model output (Network is now just DiffusionGPT)
         scaled_noisy_act = noisy_act_seq * c_in
+
+        # Goal dropout for Classifier-Free Guidance training
+        if self.training and goal is not None and self.goal_drop_prob > 0.0:
+            # Create a boolean mask of shape [B, 1, ..., 1] matching goal's dimensions
+            mask_shape = [B] + [1] * (goal.ndim - 1)
+            mask = torch.rand(mask_shape, device=self.device) < self.goal_drop_prob
+            # 0 out the goals for the masked batch items
+            goal = torch.where(mask, torch.zeros_like(goal), goal)
+
         model_output = self.network(
             sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq, goal=goal
         )
@@ -321,9 +334,25 @@ class BesoPolicy(DiffusionPolicy):
 
                 # Scale input and predict
                 scaled_sample = running_seq * c_in
-                model_pred = self.network(
+
+                # Conditional Prediction (with the goal)
+                cond_pred = self.network(
                     sample=scaled_sample, timestep=sigma_t, obs=sliced_network_cond, goal=goal_cond
                 )
+
+                # Unconditional Prediction (goal zeroed out)
+                if self.cfg_lambda > 0.0 and goal_cond is not None:
+                    uncond_goal = torch.zeros_like(goal_cond)
+                    uncond_pred = self.network(
+                        sample=scaled_sample,
+                        timestep=sigma_t,
+                        obs=sliced_network_cond,
+                        goal=uncond_goal,
+                    )
+
+                    model_pred = uncond_pred + self.cfg_lambda * (cond_pred - uncond_pred)
+                else:
+                    model_pred = cond_pred
 
                 if self.pred_last_action_only:
                     current_pred = model_pred[:, -1:, :]
