@@ -318,11 +318,9 @@ class RolloutEvaluationCallback(L.Callback):
             obs = self.canonicalizer(obs)
 
         # TODO: Should generalize this goal vs. non-goal data preparation and action sampling
+        is_goal_conditioned = isinstance(pl_module, GoalConditionedDiffusionPolicyMLP) or getattr(pl_module, "goal_conditioned", False)
 
-        if isinstance(
-            pl_module,
-            GoalConditionedDiffusionPolicyMLP,
-        ):
+        if is_goal_conditioned:
             goal_state = self._inner_env.generate_heuristic_goal()
 
             goal_state = to_tensor(goal_state)
@@ -336,10 +334,7 @@ class RolloutEvaluationCallback(L.Callback):
             adapted_obs = self.adapter.apply(obs)
 
             with torch.no_grad():
-                if isinstance(
-                    pl_module,
-                    GoalConditionedDiffusionPolicyMLP,
-                ):
+                if is_goal_conditioned:
                     action_seq = pl_module.get_action(
                         adapted_obs,
                         goal_state,
@@ -370,10 +365,7 @@ class RolloutEvaluationCallback(L.Callback):
                 if self.canonicalizer is not None:
                     obs = self.canonicalizer(obs)
 
-                if isinstance(
-                    pl_module,
-                    GoalConditionedDiffusionPolicyMLP,
-                ):
+                if is_goal_conditioned:
                     goal_state = self._inner_env.generate_heuristic_goal()
 
                     goal_state = to_tensor(goal_state)

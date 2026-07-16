@@ -30,10 +30,13 @@ sigma_data: 0.5
 
 pred_last_action_only: false
 
+goal_seq_len: 0
+
 network:
   act_dim: ${..act_dim}
   external_cond_horizon: ${..obs_horizon}
   pred_horizon: ${..pred_horizon}
+  goal_seq_len: ${..goal_seq_len}
 
 optimizer:
   lr: 1e-4

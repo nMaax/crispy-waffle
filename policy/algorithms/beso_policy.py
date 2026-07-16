@@ -1,14 +1,15 @@
 import math
 from collections import deque
+from typing import Any
 
 import hydra_zen
 import torch
 import torch.nn.functional as F
 
 from policy.algorithms import DiffusionPolicy
-from policy.utils import get_batch_size
+from policy.utils import concat_leaf_tensors, get_batch_size
 
-# TODO: two things are still missing from this implementation:
+# TODO: some things are still missing from this implementation:
 #   1. They provided a parameter to set multiple paralellel denoising of the same action, which are
 #       then averaged together (see get_mean variable)
 #   2. Clipping within diffusion steps: since we are not using Diffusers (which directly provided a clipping option)
@@ -16,6 +17,8 @@ from policy.utils import get_batch_size
 #       which we already do in the _run_diffusion_loop method. This is a more aggressive clipping that is done at every denoising step.
 #       However implementing this could be trickyh as I need to understand what range of clipping is right, even in function of which
 #       action normalizer we are using.
+#   3. Since we inherit from DiffusionPolicy we feed a sequence of zeroes in front of the first frames of the trajectory,
+#       BESO instead handles directly a slicing in-place of the inner DIffusionGPT network. I should implement it too.
 
 
 class BesoPolicy(DiffusionPolicy):
@@ -37,6 +40,7 @@ class BesoPolicy(DiffusionPolicy):
         sigma_min: float = 0.005,
         sigma_max: float = 1.0,
         pred_last_action_only: bool = False,
+        goal_seq_len: int = 0,
         **kwargs,
     ):
 
@@ -61,6 +65,9 @@ class BesoPolicy(DiffusionPolicy):
 
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
+
+        self.goal_seq_len = goal_seq_len
+        self.goal_conditioned = goal_seq_len > 0
 
         if "DiffusionGPT" not in self.network_config.get("_target_", None):
             raise ValueError(
@@ -146,7 +153,34 @@ class BesoPolicy(DiffusionPolicy):
         """
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+    def _prepare_goal(self, goal: dict | torch.Tensor) -> torch.Tensor:
+        """Prepares the goal conditioning for the network."""
+        return concat_leaf_tensors(goal, device=self.device)
+
+    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
+        obs_seq = batch["obs_seq"]
+        action_seq = batch["act_seq"]
+        goal = batch.get("goal", None)
+
+        if self.normalizer is not None:
+            obs_seq = self.normalizer.normalize(obs_seq)
+            if goal is not None:
+                goal = self.normalizer.normalize(goal)
+
+        if self.action_normalizer is not None:
+            action_seq = self.action_normalizer.normalize(action_seq)
+
+        network_cond = self._prepare_network_cond(obs_seq)
+        goal_cond = self._prepare_goal(goal) if goal is not None else None
+
+        loss = self._compute_loss(network_cond, action_seq, goal=goal_cond)
+
+        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
+        return loss
+
+    def _compute_loss(
+        self, obs_seq: torch.Tensor, act_seq: torch.Tensor, goal: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """BESO Loss formulation using Karras preconditioning and sampling from a continuous
         distribution of noise levels (i.e., do not use Diffusers)."""
 
@@ -172,7 +206,9 @@ class BesoPolicy(DiffusionPolicy):
 
         # Predict raw model output (Network is now just DiffusionGPT)
         scaled_noisy_act = noisy_act_seq * c_in
-        model_output = self.network(sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq)
+        model_output = self.network(
+            sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq, goal=goal
+        )
 
         # Compute the Karras target (reversing the skip connection)
         target = (act_seq - c_skip * noisy_act_seq) / c_out
@@ -185,9 +221,27 @@ class BesoPolicy(DiffusionPolicy):
 
         return loss
 
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | dict,
+        goal: torch.Tensor | dict | None = None,
+        num_inference_timesteps: int | None = None,
+        clamp_range: tuple | None = None,
+    ):
+        if self.normalizer is not None:
+            obs_seq = self.normalizer.normalize(obs_seq)
+            if goal is not None:
+                goal = self.normalizer.normalize(goal)
+
+        obs_seq = self._prepare_network_cond(obs_seq)
+        goal_cond = self._prepare_goal(goal) if goal is not None else None
+
+        return self._run_diffusion_loop(obs_seq, goal_cond, num_inference_timesteps, clamp_range)
+
     def _run_diffusion_loop(
         self,
         network_cond: torch.Tensor,
+        goal_cond: torch.Tensor | None = None,
         num_inference_timesteps: int | None = None,
         clamp_range: tuple | None = None,
     ):
@@ -255,7 +309,9 @@ class BesoPolicy(DiffusionPolicy):
 
                 # Scale input and predict
                 scaled_sample = running_seq * c_in
-                model_pred = self.network(sample=scaled_sample, timestep=sigma_t, obs=network_cond)
+                model_pred = self.network(
+                    sample=scaled_sample, timestep=sigma_t, obs=network_cond, goal=goal_cond
+                )
 
                 if self.pred_last_action_only:
                     current_pred = model_pred[:, -1:, :]

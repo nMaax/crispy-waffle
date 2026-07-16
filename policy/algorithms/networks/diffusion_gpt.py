@@ -85,6 +85,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         embed_pdrop: float = 0.1,
         attn_pdrop: float = 0.1,
         resid_pdrop: float = 0.1,
+        goal_seq_len: int = 0,
     ):
         super().__init__()
 
@@ -100,10 +101,14 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
         self.obs_horizon = external_cond_horizon
         self.pred_horizon = pred_horizon
+        self.goal_seq_len = goal_seq_len
 
-        # Maximum sequence length: 1 (sigma) + obs_horizon + pred_horizon (i.e,, 2*obs_horizon + 1)
-        self.block_size = 1 + external_cond_horizon + pred_horizon
-        self.seq_len = 1 + external_cond_horizon
+        # NOTE: Causal mask 'self.mask' is registered as a static buffer.
+        # To support dynamic/arbitrary sequence lengths at runtime, this could be generalized
+        # to generate the mask dynamically at forward time based on the current sequence length.
+        # Maximum sequence length: 1 (sigma) + goal_seq_len + obs_horizon + pred_horizon
+        self.block_size = 1 + goal_seq_len + external_cond_horizon + pred_horizon
+        self.seq_len = 1 + goal_seq_len + external_cond_horizon
 
         # Encoders
         self.obs_emb = nn.Linear(external_cond_dim, embed_dim)
@@ -142,13 +147,14 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             torch.nn.init.normal_(module.pos_emb, mean=0.0, std=0.02)
 
     def forward(
-        self, sample: torch.Tensor, timestep: torch.Tensor, obs: torch.Tensor
+        self, sample: torch.Tensor, timestep: torch.Tensor, obs: torch.Tensor, goal: torch.Tensor | None = None
     ) -> torch.Tensor:
         """
         Args:
             sample: [B, pred_horizon, act_dim] (Noisy actions)
             timestep: [B] (Continuous sigma values in BESO)
             obs: [B, obs_horizon * obs_dim] (Flattened context)
+            goal: [B, goal_seq_len * obs_dim] or [B, goal_seq_len, obs_dim] (Optional goal context)
         """
         B = sample.size(0)
 
@@ -166,11 +172,29 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
 
         # Apply Positional Embeddings
-        # pos_emb is [1, 9, embed_dim].
-        # Index 0 is for sigma, Indices 1 through 8 are for the 8 timesteps.
+        # pos_emb covers [1, 1 (sigma) + goal_seq_len + obs_horizon, embed_dim]
         sigma_token = self.drop(sigma_token + self.pos_emb[:, 0:1, :])
 
-        pos_emb_sa = self.pos_emb[:, 1:, :]  # The 8 timestep embeddings (sa = state+action)
+        if self.goal_seq_len > 0:
+            if goal is None:
+                raise ValueError("goal must be provided for goal-conditioned DiffusionGPT")
+            if goal.ndim == 2:
+                goal_seq = goal.view(B, self.goal_seq_len, -1)
+            else:
+                goal_seq = goal
+
+            if goal_seq.shape[1] != self.goal_seq_len:
+                raise ValueError(
+                    f"Expected goal sequence length {self.goal_seq_len}, but got {goal_seq.shape[1]}"
+                )
+
+            goal_tokens = self.obs_emb(goal_seq)  # [B, goal_seq_len, embed_dim]
+            goal_tokens = self.drop(goal_tokens + self.pos_emb[:, 1 : 1 + self.goal_seq_len, :])
+            pos_emb_sa = self.pos_emb[:, 1 + self.goal_seq_len :, :]
+        else:
+            goal_tokens = None
+            pos_emb_sa = self.pos_emb[:, 1 :, :]
+
         obs_tokens = self.drop(obs_tokens + pos_emb_sa)
         act_tokens = self.drop(act_tokens + pos_emb_sa)
 
@@ -181,16 +205,23 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         sa_seq = sa_seq.view(B, self.obs_horizon * 2, self.embed_dim)
 
         # Assemble Final Sequence
-        x = torch.cat([sigma_token, sa_seq], dim=1)  # [B, block_size, embed_dim]
+        if goal_tokens is not None:
+            x = torch.cat([sigma_token, goal_tokens, sa_seq], dim=1)  # [B, block_size, embed_dim]
+        else:
+            x = torch.cat([sigma_token, sa_seq], dim=1)  # [B, block_size, embed_dim]
 
         # Pass through Transformer
         x = self.blocks(x)
         x = self.ln_f(x)
 
         # Extract Action Tokens
-        # Because we interleaved [sigma, s1, a1, s2, a2...], the actions are now evenly spaced.
-        # First, strip off the sigma token:
-        x_sa = x[:, 1:, :]
+        # Because we interleaved [sigma, goal, s1, a1, s2, a2...], the actions are now evenly spaced.
+        # First, strip off the sigma token and goal tokens:
+        if self.goal_seq_len > 0:
+            x_sa = x[:, 1 + self.goal_seq_len :, :]
+        else:
+            x_sa = x[:, 1 :, :]
+
         # Reshape back to pairs [B, obs_horizon, 2, embed_dim]
         x_sa = x_sa.view(B, self.obs_horizon, 2, self.embed_dim)
         # Extract index 1 from the pairs (which corresponds to the actions)
