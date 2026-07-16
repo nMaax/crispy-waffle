@@ -103,12 +103,14 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         self.pred_horizon = pred_horizon
         self.goal_seq_len = goal_seq_len
 
-        # NOTE: Causal mask 'self.mask' is registered as a static buffer.
-        # To support dynamic/arbitrary sequence lengths at runtime, this could be generalized
-        # to generate the mask dynamically at forward time based on the current sequence length.
-        # Maximum sequence length: 1 (sigma) + goal_seq_len + obs_horizon + pred_horizon
+        # NOTE: Since  obs_horizon  and  pred_horizon  are equal to  obs_seq_len
+        # in this architecture,  obs_horizon + pred_horizon = 2 * obs_seq_len , making the sizes identical.
         self.block_size = 1 + goal_seq_len + external_cond_horizon + pred_horizon
-        self.seq_len = 1 + goal_seq_len + external_cond_horizon
+        # NOTE: Position embedding sequence length aligns with original BESO score_gpts.py:
+        # seq_size = goal_seq_len + obs_seq_len + 1.
+        # Practically they did NOT use positinal embedding for sigma
+        # thus the extra +1 token is defined but unused
+        self.seq_len = goal_seq_len + external_cond_horizon + 1
 
         # Encoders
         self.obs_emb = nn.Linear(external_cond_dim, embed_dim)
@@ -147,7 +149,11 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             torch.nn.init.normal_(module.pos_emb, mean=0.0, std=0.02)
 
     def forward(
-        self, sample: torch.Tensor, timestep: torch.Tensor, obs: torch.Tensor, goal: torch.Tensor | None = None
+        self,
+        sample: torch.Tensor,
+        timestep: torch.Tensor,
+        obs: torch.Tensor,
+        goal: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -180,8 +186,12 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             )
 
         # Apply Positional Embeddings
-        # pos_emb covers [1, 1 (sigma) + goal_seq_len + obs_horizon, embed_dim]
-        sigma_token = self.drop(sigma_token + self.pos_emb[:, 0:1, :])
+        # pos_emb covers [1, goal_seq_len + obs_horizon + 1, embed_dim] (matching original BESO)
+        # NOTE: In the original BESO score_gpts.py, they did not add a positional embedding
+        # to the sigma token (but still they reserved such parameter in the positional embedding vector).
+        # They just concatenated sigma token raw in the context, and used pos_emb[:, 0:goal_len] for the goals.
+        # We align with this choice by not adding positional embeddings to the sigma token as well.
+        sigma_token = self.drop(sigma_token)
 
         if self.goal_seq_len > 0:
             if goal is None:
@@ -197,11 +207,13 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 )
 
             goal_tokens = self.obs_emb(goal_seq)  # [B, goal_seq_len, embed_dim]
-            goal_tokens = self.drop(goal_tokens + self.pos_emb[:, 1 : 1 + self.goal_seq_len, :])
-            pos_emb_sa = self.pos_emb[:, 1 + self.goal_seq_len :, :]
+            goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_seq_len, :])
+            pos_emb_sa = self.pos_emb[
+                :, self.goal_seq_len : cur_obs_horizon + self.goal_seq_len, :
+            ]
         else:
             goal_tokens = None
-            pos_emb_sa = self.pos_emb[:, 1 :, :]
+            pos_emb_sa = self.pos_emb[:, :cur_obs_horizon, :]
 
         obs_tokens = self.drop(obs_tokens + pos_emb_sa[:, :cur_obs_horizon, :])
         act_tokens = self.drop(act_tokens + pos_emb_sa[:, :cur_pred_horizon, :])
@@ -228,7 +240,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         if self.goal_seq_len > 0:
             x_sa = x[:, 1 + self.goal_seq_len :, :]
         else:
-            x_sa = x[:, 1 :, :]
+            x_sa = x[:, 1:, :]
 
         # Reshape back to pairs [B, cur_obs_horizon, 2, embed_dim]
         x_sa = x_sa.view(B, cur_obs_horizon, 2, self.embed_dim)
