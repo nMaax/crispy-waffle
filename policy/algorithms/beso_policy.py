@@ -18,6 +18,13 @@ class BesoPolicy(DiffusionPolicy):
     Reference:
         - Arxiv: https://arxiv.org/abs/2304.02532
         - Paper website: https://intuitive-robots.github.io/beso-website/
+
+    NOTE on observation representations `as_dict=true` v. `as_dict=false`:
+        Running BESO with `as_dict=true` vs `as_dict=false` (when no keys are dropped) processes
+        100% identical data batches, normalized features, and network weights. However, minor
+        initial validation loss variations occur because BESO's continuous noise sampling
+        (sigmas and noise vectors) is drawn after setup-phase PRNG ticks from ModuleDict initialization.
+        For deterministic algorithms (or fixed noise, e.g. GCDP), flat and dict runs produce identical losses.
     """
 
     def __init__(
