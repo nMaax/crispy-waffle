@@ -66,10 +66,10 @@ def print_config(
     rich.print(tree)
 
 
-def print_dict_tree(
+def print_mapping_tree(
     data: Mapping[str, Any], indent: str = "", use_rank_zero_info: bool = False
 ) -> None:
-    """Recursively prints a dictionary as a tree.
+    """Recursively prints a Mapping as a tree.
 
     Prints .shape and .dtype for atomic elements that possess them.
     """
@@ -80,11 +80,11 @@ def print_dict_tree(
         is_last = i == len(items) - 1
         branch = "└── " if is_last else "├── "
 
-        # Branch: If the value is another dictionary, recurse
-        if isinstance(value, dict):
+        # Branch: If the value is another mapping, recurse
+        if isinstance(value, Mapping):
             print_wrapper(f"{indent}{branch}{key}")
             new_indent = indent + ("    " if is_last else "│   ")
-            print_dict_tree(value, new_indent)
+            print_mapping_tree(value, new_indent)
 
         # Leaf: If the value has a shape (and potentially a dtype)
         elif hasattr(value, "shape"):
@@ -98,7 +98,7 @@ def print_dict_tree(
 
 
 def to_tensor(
-    data: Any,
+    data: dict[str, Any] | np.ndarray | torch.Tensor,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> dict[str, Any] | torch.Tensor:
@@ -123,9 +123,8 @@ def recursive_index(data: Any, idx: Any) -> Any:
     return data
 
 
-def slice_by_schema(state: np.ndarray | torch.Tensor, schema: dict) -> dict:
-    """Recursively slices a state array or tensor according to a dictionary schema of index
-    tuples."""
+def slice_by_schema(state: np.ndarray | torch.Tensor, schema: Mapping) -> Mapping:
+    """Recursively slices a state array or tensor according to a Mapping schema of index tuples."""
     result = {}
     for key, val in schema.items():
         if isinstance(val, Mapping):
@@ -152,17 +151,17 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
 def get_total_dim(data: Any) -> int:
     """Recursively sums the last dimension of leaf structures.
 
-    Accepts PyTorch tensors, configuration dictionaries containing a 'shape' key, or raw shape
+    Accepts PyTorch tensors, configuration Mappings containing a 'shape' key, or raw shape
     descriptors (tuples, integers).
     """
     # Handle actual Tensors (or objects with a .shape attribute)
     if hasattr(data, "shape"):
         return int(data.shape[-1])
 
-    # Handle Dictionaries / Mappings
+    # Handle Mappings
     if isinstance(data, Mapping):
         if "shape" in data:
-            # It's a metadata dict describing a shape, e.g., {"shape": (32, 128)}
+            # It's a metadata mapping describing a shape, e.g., {"shape": (32, 128)}
             return int(data["shape"][-1])
         else:
             # It's a nested container, recurse into values

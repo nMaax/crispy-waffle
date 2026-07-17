@@ -10,7 +10,7 @@ from lightning.fabric.utilities.rank_zero import rank_zero_warn
 from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import Dataset
 
-from policy.utils import print_dict_tree, to_tensor
+from policy.utils import print_mapping_tree, to_tensor
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
 
 
@@ -88,7 +88,7 @@ class TrajectoryDataset(Dataset):
             f"from {len(self.trajectories)} episodes. "
             f"{self.lazy=}"
         )
-        print_dict_tree(self.trajectories[0], use_rank_zero_info=True)
+        print_mapping_tree(self.trajectories[0], use_rank_zero_info=True)
 
     def __len__(self):
         return len(self.slices)
