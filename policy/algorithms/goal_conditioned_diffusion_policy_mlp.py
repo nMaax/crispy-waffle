@@ -21,6 +21,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.goal_conditioned = True
 
         if "ConditionalUnet" not in self.network_config.get("_target_", None):
             raise ValueError(

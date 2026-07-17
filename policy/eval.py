@@ -1,10 +1,12 @@
 from pathlib import Path
 
 import hydra
+import lightning
 import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
+import wandb
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
 from policy.utils.hydra_utils import resolve_dictconfig
@@ -19,6 +21,9 @@ def main(dict_config: DictConfig):
         raise ValueError("Checkpoint path must be specified in the config under 'ckpt_path'.")
     ckpt_path = Path(config.ckpt_path)
 
+    # Seed everything for reproducibility during evaluation (env seeding + model stochastic actions)
+    lightning.seed_everything(seed=config.seed, workers=True)
+
     print(f"Loading policy from {ckpt_path}...")
     # Load the model class dynamically from the config
     model_class = hydra.utils.get_class(dict_config.algorithm._target_)
@@ -29,6 +34,9 @@ def main(dict_config: DictConfig):
     dummy_loader = DataLoader(DummyDataset(), batch_size=1)
 
     trainer.test(model=model, dataloaders=dummy_loader)
+
+    if wandb.run:
+        wandb.finish()
 
 
 if __name__ == "__main__":

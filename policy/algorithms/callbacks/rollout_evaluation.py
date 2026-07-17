@@ -19,9 +19,6 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
-from policy.algorithms.goal_conditioned_diffusion_policy_mlp import (
-    GoalConditionedDiffusionPolicyMLP,
-)
 from policy.transforms import PnPCanonicalizer
 from policy.utils import to_tensor
 from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
@@ -212,7 +209,7 @@ class RolloutEvaluationCallback(L.Callback):
         self._run_rollouts(trainer, pl_module, self.num_episodes, "test")
 
     def teardown(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str) -> None:
-        if hasattr(self, "gym_env"):
+        if hasattr(self, "_gym_env"):
             self.env.close()
             rank_zero_info("Rollout environment closed successfully.")
 
@@ -317,8 +314,8 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
-        # TODO: Should generalize this goal vs. non-goal data preparation and action sampling
-        is_goal_conditioned = isinstance(pl_module, GoalConditionedDiffusionPolicyMLP) or getattr(pl_module, "goal_conditioned", False)
+        # TODO: Maybe should generalize this to use Protocols
+        is_goal_conditioned = getattr(pl_module, "goal_conditioned", False)
 
         if is_goal_conditioned:
             goal_state = self._inner_env.generate_heuristic_goal()

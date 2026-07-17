@@ -222,9 +222,8 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         return self._shared_step(batch, batch_idx, "val")
 
     def test_step(self, batch: dict[str, Any], batch_idx: int) -> None:
-        raise NotImplementedError(
-            "DiffusionPolicy does not support test_step. Use simulation rollouts instead."
-        )
+        # Dummy step; actual evaluation is handled in simulation rollouts via RolloutEvaluationCallback
+        pass
 
     def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
         """Explicitly save the EMA model state since it's not an nn.Module."""
