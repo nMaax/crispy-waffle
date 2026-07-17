@@ -14,3 +14,4 @@ val_split: 0.1
 lazy: false
 seed: ${seed} # Seed is passed by config.py
 as_dict: false
+no_proprio_vel: false
