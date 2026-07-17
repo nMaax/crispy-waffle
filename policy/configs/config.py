@@ -66,3 +66,6 @@ class Config:
 
     render: Any | None = None
     """Optional render mode."""
+
+    validate_at_end: bool = False
+    """Whether to run a final validation loop after training completes."""

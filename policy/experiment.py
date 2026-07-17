@@ -94,11 +94,19 @@ def train_and_validate(
         datamodule=datamodule,
     )
 
-    metric_name, error, _metrics = validate_lightning(
-        algorithm,
-        trainer=trainer,
-        datamodule=datamodule,
-    )
+    if (trainer.limit_val_batches == trainer.limit_test_batches == 0) or (
+        trainer.overfit_batches == 1  # type: ignore
+    ):
+        results_type = "train"
+        metrics = get_cached_metrics(trainer)
+    elif config.validate_at_end:
+        results_type = "val"
+        metrics = validate_lightning(algorithm, trainer=trainer, datamodule=datamodule)
+    else:
+        results_type = "val"
+        metrics = get_cached_metrics(trainer)
+
+    metric_name, error = parse_objective_metric(metrics, results_type=results_type)
 
     return metric_name, error
 
@@ -131,36 +139,27 @@ def validate_lightning(
     *,
     trainer: lightning.Trainer,
     datamodule: lightning.LightningDataModule | None = None,
-) -> tuple[str, float | None, dict]:
-    """Validates the algorithm and returns the metrics.
-
-    By default, if validation is to be performed, returns the validation error. Returns the
-    training error when `trainer.overfit_batches != 0` (e.g. when debugging).
-    """
-
+) -> dict:
+    """Validates the algorithm and returns the resulting metrics."""
     datamodule = datamodule or getattr(algorithm, "datamodule", None)
-
-    # When overfitting on a single batch or only training, we return the train error.
-    if (trainer.limit_val_batches == trainer.limit_test_batches == 0) or (
-        trainer.overfit_batches == 1  # type: ignore
-    ):
-        results_type = "train"
-        results = [
-            {
-                **trainer.logged_metrics,
-                **trainer.callback_metrics,
-                **trainer.progress_bar_metrics,
-            }
-        ]
-    else:
-        results_type = "val"
-        results = trainer.validate(model=algorithm, datamodule=datamodule)
-
+    results = trainer.validate(model=algorithm, datamodule=datamodule)
     if results is None:
         rich.print("RUN FAILED!")
-        return "fail", None, {}
+        return {}
+    return dict(results[0])
 
-    metrics = dict(results[0])
+
+def get_cached_metrics(trainer: lightning.Trainer) -> dict:
+    """Extracts all metrics currently tracked in the trainer's memory."""
+    return {
+        **trainer.logged_metrics,
+        **trainer.callback_metrics,
+        **trainer.progress_bar_metrics,
+    }
+
+
+def parse_objective_metric(metrics: dict, results_type: str) -> tuple[str, float | None]:
+    """Parses a metrics dictionary to extract the objective metric name and its error value."""
     for key, value in metrics.items():
         rich.print(f"{results_type} {key}: ", value)
 
@@ -178,7 +177,7 @@ def validate_lightning(
             f"Here are the available metric names:\n"
             f"{list(metrics.keys())}"
         )
-    return metric_name, error, metrics
+    return metric_name, error
 
 
 def instantiate_trainer(trainer_config: dict | DictConfig) -> lightning.Trainer | Any:
