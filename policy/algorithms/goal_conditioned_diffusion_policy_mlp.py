@@ -125,14 +125,19 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         res = {"obs_embeddings": obs_embeddings.cpu()}
         if goal is not None:
-            if isinstance(goal, dict):
-                goal_task_components = [v for k, v in goal.items() if k != "proprio"]
-                goal_task = torch.cat(goal_task_components, dim=-1)
-            else:
-                goal_task = goal[..., self.proprio_dim :]
-            res["goal_embedding"] = self.state_embedder(goal_task).cpu()
+            res["goal_embedding"] = self._prepare_goal(goal).cpu()
 
         return res
+
+    def _prepare_goal(self, goal: torch.Tensor | dict) -> torch.Tensor:
+        """Prepares the goal conditioning for the network by embedding it."""
+        if isinstance(goal, dict):
+            goal_task_components = [v for k, v in goal.items() if k != "proprio"]
+            goal_task_state = torch.cat(goal_task_components, dim=-1)
+        else:
+            goal_task_state = goal[..., self.proprio_dim :]
+
+        return self.state_embedder(goal_task_state)  # B, embedding_dim
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -189,12 +194,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             proprio = obs_seq[..., : self.proprio_dim]
             task_state = obs_seq[..., self.proprio_dim :]
 
-        if isinstance(goal, dict):
-            goal_task_components = [v for k, v in goal.items() if k != "proprio"]
-            goal_task_state = torch.cat(goal_task_components, dim=-1)
-        else:
-            goal_task_state = goal[..., self.proprio_dim :]
-
         proprio_seq = proprio.reshape(
             B, self.obs_horizon * self.proprio_dim
         )  # B, horizon * proprio_dim
@@ -205,7 +204,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             B, self.obs_horizon * self.state_embedding_dim
         )  # B, horizon * embedding_dim
 
-        goal_embedding = self.state_embedder(goal_task_state)  # B, embedding_dim
+        goal_embedding = self._prepare_goal(goal)  # B, embedding_dim
 
         # Concatenate all together
         network_cond = torch.cat(
