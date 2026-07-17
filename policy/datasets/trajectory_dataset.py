@@ -174,6 +174,25 @@ class TrajectoryDataset(Dataset):
             self._h5_file = h5py.File(self.dataset_file, "r")
         return self._h5_file
 
+    def get_trajectory_obs(self, idx: int) -> torch.Tensor | dict:
+        """Returns the full observation sequence for trajectory `idx` with `obs_transform`
+        applied."""
+        traj = self.trajectories[idx]
+        if self.lazy:
+            ep_id = traj["episode_id"]
+            obs_node = self.h5_file[f"traj_{ep_id}"]["obs"]
+            if isinstance(obs_node, h5py.Group):
+                obs = load_h5_data(obs_node)
+            else:
+                obs = obs_node[:]
+        else:
+            obs = traj["obs"]
+
+        obs_tensor = to_tensor(obs)
+        if self.obs_transform is not None:
+            obs_tensor = self.obs_transform(obs_tensor)
+        return obs_tensor
+
     def _ensure_numpy_mask(
         self, mask: list[bool] | np.ndarray | torch.Tensor | None
     ) -> np.ndarray | None:
