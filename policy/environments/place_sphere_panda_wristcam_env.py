@@ -8,6 +8,20 @@ from mani_skill.utils.registration import register_env
 class PlaceSphereWristcamEnv(PlaceSphereEnv):
     """PlaceSphere-v1 but with the "panda_wristcam" robot instead of "panda"."""
 
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "is_grasped": (18, 19),
+            "tcp_pose": (19, 26),
+            "bin_pos": (26, 29),
+            "obj_pose": (29, 36),
+            "tcp_to_obj_pos": (36, 39),
+        },
+    }
+
     def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)

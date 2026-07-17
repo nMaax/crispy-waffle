@@ -9,7 +9,12 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
-from policy.transforms import PnPCanonicalizer, RemoveProprioVel
+from policy.transforms import (
+    DictFlattener,
+    ManiSkillStateDeFlattener,
+    PnPCanonicalizer,
+    RemoveProprioVel,
+)
 
 
 class TrajectoryDataModule(L.LightningDataModule):
@@ -102,20 +107,25 @@ class TrajectoryDataModule(L.LightningDataModule):
 
             transforms = []
 
+            is_flat = self.obs_mode == "state"
+
+            if is_flat and (self.canonicalize or self.no_proprio_vel or self.as_dict):
+                transforms.append(ManiSkillStateDeFlattener(self.env_id))
+
             if self.canonicalize:
-                transforms.append(PnPCanonicalizer(self.env_id, as_dict=self.as_dict))
+                transforms.append(PnPCanonicalizer(self.env_id))
 
             if self.no_proprio_vel:
                 transforms.append(RemoveProprioVel())
 
-            if transforms:
+            if not self.as_dict:
+                if (not is_flat) or (len(transforms) > 0):
+                    transforms.append(DictFlattener())
 
-                def obs_transform(obs):
-                    for t in transforms:
-                        obs = t(obs)
-                    return obs
-            else:
-                obs_transform = None  # type: ignore
+            def obs_transform(obs):
+                for t in transforms:
+                    obs = t(obs)
+                return obs
 
         if stage == "fit" or stage is None:
             if self.train_set is None:

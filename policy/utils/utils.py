@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from logging import getLogger as get_logger
 from typing import Any
 
+import numpy as np
 import rich
 import rich.syntax
 import rich.tree
@@ -121,6 +122,20 @@ def recursive_index(data: Any, idx: Any) -> Any:
         return data[idx]
     return data
 
+
+def slice_by_schema(state: np.ndarray | torch.Tensor, schema: dict) -> dict:
+    """Recursively slices a state array or tensor according to a dictionary schema of index
+    tuples."""
+    result = {}
+    for key, val in schema.items():
+        if isinstance(val, Mapping):
+            result[key] = slice_by_schema(state, val)
+        elif isinstance(val, tuple) and len(val) == 2:
+            start, end = val
+            result[key] = state[..., start:end]
+        else:
+            raise ValueError(f"Invalid schema entry for key '{key}': {val}")
+    return result
 
 
 def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:

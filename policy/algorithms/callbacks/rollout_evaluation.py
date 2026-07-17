@@ -19,7 +19,11 @@ from tqdm import tqdm
 
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
-from policy.transforms import PnPCanonicalizer
+from policy.transforms import (
+    DictFlattener,
+    ManiSkillStateDeFlattener,
+    PnPCanonicalizer,
+)
 from policy.utils import to_tensor
 from policy.utils.typing_utils import (
     AdapterProtocol,
@@ -170,10 +174,22 @@ class RolloutEvaluationCallback(L.Callback):
                 "We will proceed with num_envs=1, however consider setting num_envs > 1 or switching to a CPU replayed data for training."
             )
 
+        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=False)
+        self.rollout_transforms = []
+        is_flat = self.obs_mode == "state"
+
+        # De-flatten to dict if raw input is flat and we need dictionary-based processing
+        if is_flat and (self.canonicalize or self.as_dict):
+            self.rollout_transforms.append(ManiSkillStateDeFlattener(self.env_id))
+
+        # Canonicalize (dict -> dict)
         if self.canonicalize:
-            self.canonicalizer = PnPCanonicalizer(self.env_id)
-        else:
-            self.canonicalizer = None
+            self.rollout_transforms.append(PnPCanonicalizer(self.env_id))
+
+        # Flatten back to tensor if output should be flat and the current state is structured as dict
+        if not self.as_dict:
+            if (not is_flat) or (len(self.rollout_transforms) > 0):
+                self.rollout_transforms.append(DictFlattener())
 
         rank_zero_info(
             f"Rollout Config setup complete:\n"
@@ -315,10 +331,13 @@ class RolloutEvaluationCallback(L.Callback):
         if hasattr(pl_module, "reset"):
             pl_module.reset()
 
-        obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
+        def apply_transforms(x):
+            for t in self.rollout_transforms:
+                x = t(x)
+            return x
 
-        if self.canonicalizer is not None:
-            obs = self.canonicalizer(obs)
+        obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
+        obs = apply_transforms(obs)
 
         is_goal_conditioned = getattr(pl_module, "goal_conditioned", False)
 
@@ -332,9 +351,8 @@ class RolloutEvaluationCallback(L.Callback):
             goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
             goal_state = goal_env.generate_heuristic_goal()
 
-            goal_state = to_tensor(goal_state)
-            if self.canonicalizer is not None:
-                goal_state = self.canonicalizer(goal_state)
+            goal_state = to_tensor(goal_state, device=pl_module.device, dtype=torch.float32)
+            goal_state = apply_transforms(goal_state)
 
         if self.render_mode == "human":
             env.render()
@@ -373,16 +391,16 @@ class RolloutEvaluationCallback(L.Callback):
                     env.render()
 
                 obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
-                if self.canonicalizer is not None:
-                    obs = self.canonicalizer(obs)
+                obs = apply_transforms(obs)
 
                 if is_goal_conditioned:
                     goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
                     goal_state = goal_env.generate_heuristic_goal()
 
-                    goal_state = to_tensor(goal_state)
-                    if self.canonicalizer is not None:
-                        goal_state = self.canonicalizer(goal_state)
+                    goal_state = to_tensor(
+                        goal_state, device=pl_module.device, dtype=torch.float32
+                    )
+                    goal_state = apply_transforms(goal_state)
 
                 truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 

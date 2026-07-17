@@ -5,6 +5,21 @@ from mani_skill.utils.registration import register_env
 
 @register_env("StackCube-v1", max_episode_steps=50, override=True)
 class StackCubeEnv(ManiSkillStackCubeEnv):
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "tcp_pose": (18, 25),
+            "cubeA_pose": (25, 32),
+            "cubeB_pose": (32, 39),
+            "tcp_to_cubeA_pos": (39, 42),
+            "tcp_to_cubeB_pos": (42, 45),
+            "cubeA_to_cubeB_pos": (45, 48),
+        },
+    }
+
     def generate_heuristic_goal(self) -> torch.Tensor | dict:
         """Generates a heuristic goal state based on the current observation.
 

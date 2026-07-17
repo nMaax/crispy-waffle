@@ -14,6 +14,21 @@ from mani_skill.utils.structs.pose import Pose
 class StackCubeWithSphereAndBinEnv(StackCubeEnv):
     """Sanity check environment: uses StackCube-v1 but physically spawns the PlaceSphere-v1 Sphere and Bin."""
 
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "tcp_pose": (18, 25),
+            "cubeA_pose": (25, 32),
+            "cubeB_pose": (32, 39),
+            "tcp_to_cubeA_pos": (39, 42),
+            "tcp_to_cubeB_pos": (42, 45),
+            "cubeA_to_cubeB_pos": (45, 48),
+        },
+    }
+
     SPHERE_RADIUS = 0.02
 
     BIN_INNER_SIDE_HALF_LEN = 0.02

@@ -13,6 +13,21 @@ from .place_sphere_panda_wristcam_env import PlaceSphereWristcamEnv
 class PlaceSphereWristcamWithCubesEnv(PlaceSphereWristcamEnv):
     """Sanity check environment: uses PlaceSphere-v1 but physically spawns the StackCube-v1 Cube A and Cube B."""
 
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "tcp_pose": (18, 25),
+            "cubeA_pose": (25, 32),
+            "cubeB_pose": (32, 39),
+            "tcp_to_cubeA_pos": (39, 42),
+            "tcp_to_cubeB_pos": (42, 45),
+            "cubeA_to_cubeB_pos": (45, 48),
+        },
+    }
+
     CUBE_HALF_SIZE = 0.02
     SPAWN_REGION = ([-0.1, -0.2], [0.1, 0.2])  # [-0.1, 0.1] x [-0.2, 0.2]
 

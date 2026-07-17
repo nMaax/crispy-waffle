@@ -7,6 +7,7 @@ from .utils import (
     print_config,
     print_dict_tree,
     recursive_index,
+    slice_by_schema,
     to_tensor,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "print_config",
     "print_dict_tree",
     "recursive_index",
+    "slice_by_schema",
     "to_tensor",
     "get_total_dim",
 ]

@@ -8,6 +8,21 @@ class StackCubeSwappedEnv(StackCubeEnv):
     """The goal is to pick up the green cube (Cube B) and stack it on top of the red cube (Cube A)
     and let go."""
 
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "tcp_pose": (18, 25),
+            "cubeA_pose": (25, 32),
+            "cubeB_pose": (32, 39),
+            "tcp_to_cubeA_pos": (39, 42),
+            "tcp_to_cubeB_pos": (42, 45),
+            "cubeA_to_cubeB_pos": (45, 48),
+        },
+    }
+
     # NOTE: Stack cube swapped only modifies the success and reward conditions. It doesn't actually swap any cube
     # as it would be pointless. The task would be the same.
 

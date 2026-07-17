@@ -5,8 +5,6 @@ import torch
 from policy.datasets.trajectory_dataset import TrajectoryDataset
 from policy.utils import recursive_index, to_tensor
 
-# TODO: this should allow also dictionary observations
-
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
     def __init__(self, *args, her_ratio: float = 0.8, **kwargs):

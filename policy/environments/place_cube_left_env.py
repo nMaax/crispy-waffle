@@ -7,6 +7,21 @@ from mani_skill.utils.registration import register_env
 class PlaceCubeLeftEnv(StackCubeEnv):
     Y_OFFSET = 0.08
 
+    STATE_SCHEMA = {
+        "agent": {
+            "qpos": (0, 9),
+            "qvel": (9, 18),
+        },
+        "extra": {
+            "tcp_pose": (18, 25),
+            "cubeA_pose": (25, 32),
+            "cubeB_pose": (32, 39),
+            "tcp_to_cubeA_pos": (39, 42),
+            "tcp_to_cubeB_pos": (42, 45),
+            "cubeA_to_cubeB_pos": (45, 48),
+        },
+    }
+
     def evaluate(self):
         pos_A = self.cubeA.pose.p
         pos_B = self.cubeB.pose.p
