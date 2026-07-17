@@ -6,6 +6,7 @@ base_datamodule:
   _target_: policy.datamodules.trajectory_datamodule.TrajectoryDataModule
   dataset_file: ???
   seed: ${seed}
+  as_dict: false
 
 adapter:
   _target_: ???

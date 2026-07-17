@@ -107,7 +107,7 @@ class TrajectoryDataModule(L.LightningDataModule):
 
             transforms = []
 
-            is_flat = self.obs_mode == "state"
+            is_flat = self._is_raw_obs_flat()
 
             if is_flat and (self.canonicalize or self.no_proprio_vel or self.as_dict):
                 transforms.append(ManiSkillStateDeFlattener(self.env_id))
@@ -301,3 +301,13 @@ class TrajectoryDataModule(L.LightningDataModule):
             lazy=self.lazy,
             obs_transform=obs_transform,
         )
+
+    def _is_raw_obs_flat(self) -> bool:
+        """Peeks at the HDF5 file structure to determine if raw observations are flat tensors or
+        dictionaries."""
+        import h5py
+
+        with h5py.File(self.dataset_file, "r") as f:
+            first_key = list(f.keys())[0]
+            obs_node = f[first_key]["obs"]
+            return isinstance(obs_node, h5py.Dataset)

@@ -175,21 +175,6 @@ class RolloutEvaluationCallback(L.Callback):
             )
 
         self.as_dict = _resolve_param(None, "as_dict", strict=False, default=False)
-        self.rollout_transforms = []
-        is_flat = self.obs_mode == "state"
-
-        # De-flatten to dict if raw input is flat and we need dictionary-based processing
-        if is_flat and (self.canonicalize or self.as_dict):
-            self.rollout_transforms.append(ManiSkillStateDeFlattener(self.env_id))
-
-        # Canonicalize (dict -> dict)
-        if self.canonicalize:
-            self.rollout_transforms.append(PnPCanonicalizer(self.env_id))
-
-        # Flatten back to tensor if output should be flat and the current state is structured as dict
-        if not self.as_dict:
-            if (not is_flat) or (len(self.rollout_transforms) > 0):
-                self.rollout_transforms.append(DictFlattener())
 
         rank_zero_info(
             f"Rollout Config setup complete:\n"
@@ -325,14 +310,27 @@ class RolloutEvaluationCallback(L.Callback):
         total_episode_lengths = 0
         episodes_completed = 0
 
-        # Reset will handle seeding subsequent episodes automatically based on this initial seed
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
         if hasattr(pl_module, "reset"):
             pl_module.reset()
 
+        is_flat = not isinstance(env.observation_space, gym.spaces.Dict)
+
+        rollout_transforms = []
+
+        if is_flat and (self.canonicalize or self.as_dict):
+            rollout_transforms.append(ManiSkillStateDeFlattener(self.env_id))
+
+        if self.canonicalize:
+            rollout_transforms.append(PnPCanonicalizer(self.env_id))
+
+        if not self.as_dict:
+            if (not is_flat) or (len(rollout_transforms) > 0):
+                rollout_transforms.append(DictFlattener())
+
         def apply_transforms(x):
-            for t in self.rollout_transforms:
+            for t in rollout_transforms:
                 x = t(x)
             return x
 
