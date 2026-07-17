@@ -111,12 +111,14 @@ class TrajectoryDataset(Dataset):
 
             h5_traj = self.h5_file[f"traj_{episode_id}"]
             if not isinstance(h5_traj, h5py.Group):
-                raise TypeError(f"Expected HDF5 group traj_{episode_id}, got {type(h5_traj)}")
+                raise TypeError(
+                    f"Expected h5py.Group for traj_{episode_id}, got {type(h5_traj)!r}"
+                )
 
             h5_actions = h5_traj["actions"]
             if not isinstance(h5_actions, h5py.Dataset):
                 raise TypeError(
-                    f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(h5_actions)}'
+                    f'Expected h5py.Dataset for traj_{episode_id}["actions"], got {type(h5_actions)!r}'
                 )
 
             h5_L = len(h5_actions)
@@ -132,11 +134,15 @@ class TrajectoryDataset(Dataset):
         # Now traj is a h5 group for sure
         obs_src = traj["obs"]
         if not isinstance(obs_src, h5py.Group | h5py.Dataset | dict | np.ndarray):
-            raise TypeError(f"Expected obs to be a dataset or group, got {type(obs_src)}")
+            raise TypeError(
+                f"Expected obs to be a h5py.Dataset or numpy array, or h5py.Group or dictionary, got {type(obs_src)!r}"
+            )
 
         act_src = traj["actions"]
         if not isinstance(act_src, h5py.Dataset | np.ndarray):
-            raise TypeError(f"Expected actions to be a dataset, got {type(act_src)}")
+            raise TypeError(
+                f"Expected actions to be a h5py.Dataset or numpy array, got {type(act_src)!r}"
+            )
 
         # So we access it and retrieve what needed, with padding
         obs_seq = self._slice_and_pad(
@@ -256,13 +262,13 @@ class TrajectoryDataset(Dataset):
 
                     if not isinstance(traj_group, h5py.Group):
                         raise TypeError(
-                            f"Expected HDF5 group traj_{episode_id}, got {type(traj_group)}"
+                            f"Expected h5py.Group traj_{episode_id}, got {type(traj_group)!r}"
                         )
 
                     traj_actions = traj_group["actions"]
                     if not isinstance(traj_actions, h5py.Dataset):
                         raise TypeError(
-                            f'Expected HDF5 dataset traj_{episode_id}["actions"], got {type(traj_actions)}'
+                            f'Expected h5py.Dataset traj_{episode_id}["actions"], got {type(traj_actions)!r}'
                         )
 
                     h5_L = len(traj_actions)
@@ -361,7 +367,7 @@ class TrajectoryDataset(Dataset):
                 nested_data = data[k]
                 if not isinstance(nested_data, h5py.Group | h5py.Dataset | dict | np.ndarray):
                     raise TypeError(
-                        f"Expected nested HDF5 group or dataset at key '{k}', got {type(nested_data)}"
+                        f"Expected obs to be a h5py.Dataset or numpy array, or h5py.Group or dictionary at key '{k}', got {type(nested_data)!r}"
                     )
                 result[k] = self._slice_and_pad(
                     nested_data,

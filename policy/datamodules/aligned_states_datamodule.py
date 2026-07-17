@@ -37,7 +37,7 @@ class AlignedStatesDataModule(L.LightningDataModule):
             train_set = self.base_datamodule.train_set
             if not isinstance(train_set, TrajectoryDataset):
                 raise ValueError(
-                    f"Expected base_datamodule.train_set to be a ManiSkillDataset, but got {type(train_set)}"
+                    f"Expected base_datamodule.train_set to be a TrajectoryDataset, but got {type(train_set)!r}"
                 )
             self.train_set = AlignedStatesDataset(base_dataset=train_set, adapter=self.adapter)
 
@@ -45,7 +45,7 @@ class AlignedStatesDataModule(L.LightningDataModule):
             val_set = self.base_datamodule.val_set
             if not isinstance(val_set, TrajectoryDataset):
                 raise ValueError(
-                    f"Expected base_datamodule.val_set to be a ManiSkillDataset, but got {type(val_set)}"
+                    f"Expected base_datamodule.val_set to be a TrajectoryDataset, but got {type(val_set)!r}"
                 )
             self.val_set = AlignedStatesDataset(base_dataset=val_set, adapter=self.adapter)
 
@@ -53,7 +53,7 @@ class AlignedStatesDataModule(L.LightningDataModule):
             test_set = self.base_datamodule.test_set
             if not isinstance(test_set, TrajectoryDataset):
                 raise ValueError(
-                    f"Expected base_datamodule.test_set to be a ManiSkillDataset, but got {type(test_set)}"
+                    f"Expected base_datamodule.test_set to be a TrajectoryDataset, but got {type(test_set)!r}"
                 )
             self.test_dataset = AlignedStatesDataset(base_dataset=test_set, adapter=self.adapter)
 

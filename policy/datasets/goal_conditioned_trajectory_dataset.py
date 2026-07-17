@@ -44,13 +44,13 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
             h5_traj = self.h5_file[f"traj_{episode_id}"]
             if not isinstance(h5_traj, h5py.Group):
                 raise ValueError(
-                    f"Expected a group for trajectory {episode_id}, but got {type(h5_traj)}"
+                    f"Expected a h5py.Group for trajectory {episode_id}, but got {type(h5_traj)!r}"
                 )
 
             obs_dataset = h5_traj["obs"]
             if not isinstance(obs_dataset, h5py.Group | h5py.Dataset | dict | np.ndarray):
                 raise ValueError(
-                    f"Expected a dataset or group for observations in trajectory {episode_id}, but got {type(obs_dataset)}"
+                    f"Expected obs to be a h5py.Dataset or numpy array, or h5py.Group or dictionary, in trajectory {episode_id}, but got {type(obs_dataset)!r}"
                 )
 
             future_obs = recursive_index(obs_dataset, goal_t)
