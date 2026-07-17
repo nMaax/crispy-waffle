@@ -190,7 +190,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         observation.
 
         Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
+            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning) or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
         if self.normalizer is not None:
@@ -245,7 +245,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         logging.
 
         Shapes:
-            batch["obs_seq"]: [B, obs_horizon, obs_dim]
+            batch["obs_seq"]: [B, obs_horizon, obs_dim] or dict
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """

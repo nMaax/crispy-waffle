@@ -102,7 +102,7 @@ class TrajectoryDataset(Dataset):
 
         Shapes:
             returns dict with:
-                "obs_seq": [obs_horizon, obs_dim]
+                "obs_seq": [obs_horizon, obs_dim] or dict
                 "act_seq": [pred_horizon, act_dim]
         """
         traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]

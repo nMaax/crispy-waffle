@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 
 import torch
@@ -6,10 +7,8 @@ from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.networks import MLP
 from policy.utils import get_batch_size
 
+
 # TODO: make this work also for non-unet architectures, like done in DiffusionPolicy
-# TODO: make this work also for dictionary observations (see type: ignore, isinstance() checks and typing in method signatures)
-
-
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     def __init__(
         self,
@@ -25,20 +24,34 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         if "ConditionalUnet" not in self.network_config.get("_target_", None):
             raise ValueError(
-                f"BesoPolicy requires a ConditoinalUnet architecture for the diffusion model, but got {self.network_config.get('_target_')}."
+                f"BesoPolicy requires a ConditionalUnet architecture for the diffusion model, but got {self.network_config.get('_target_')}."
             )
 
-        if not isinstance(self.obs_dim, int):
-            raise ValueError(
-                f"Observation dimensionality must be an integer, indicating non-dictionary will be served. But got {type(self.obs_dim)}."
-            )
+        if isinstance(self.obs_dim, Mapping):
+            if "proprio" not in self.obs_dim:
+                raise ValueError("Observation dictionary spec must contain 'proprio' key.")
+            if self.obs_dim["proprio"] != proprio_dim:
+                raise ValueError(
+                    f"Proprioception dimension in spec ({self.obs_dim['proprio']}) does not match proprio_dim ({proprio_dim})."
+                )
 
-        if proprio_dim + task_dim != self.obs_dim:
-            raise ValueError(
-                f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
-                f"do not match observation dimensionality ({self.obs_dim}). "
-                f"{proprio_dim} + {task_dim} != {self.obs_dim}."
-            )
+            calc_task_dim = sum(v for k, v in self.obs_dim.items() if k != "proprio")
+            if calc_task_dim != task_dim:
+                raise ValueError(
+                    f"Task dimension calculated from spec ({calc_task_dim}) does not match task_dim ({task_dim})."
+                )
+        else:
+            if not isinstance(self.obs_dim, int):
+                raise ValueError(
+                    f"Observation dimensionality must be an integer or dict, but got {type(self.obs_dim)}."
+                )
+
+            if proprio_dim + task_dim != self.obs_dim:
+                raise ValueError(
+                    f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
+                    f"do not match observation dimensionality ({self.obs_dim}). "
+                    f"{proprio_dim} + {task_dim} != {self.obs_dim}."
+                )
 
         self.proprio_dim = proprio_dim
         self.task_dim = task_dim
@@ -66,25 +79,22 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         observation.
 
         Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning)
-            goal: [B, obs_dim] (flattened conditioning)
+            obs_seq: [B, obs_horizon * obs_dim] or dict
+            goal: [B, obs_dim] or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
 
-        if not isinstance(obs_seq, torch.Tensor):
+        if not isinstance(obs_seq, torch.Tensor | dict):
             raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
+                f"Expected batch['obs_seq'] to be a torch.Tensor or dict, but got {type(obs_seq)}."
             )
 
-        if not isinstance(goal, torch.Tensor):
-            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
+        if not isinstance(goal, torch.Tensor | dict):
+            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}.")
 
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
-            assert isinstance(obs_seq, torch.Tensor)
-
             goal = self.normalizer.normalize(goal)
-            assert isinstance(goal, torch.Tensor)
 
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
         network_cond = self._prepare_network_cond(obs_seq, goal)
@@ -94,28 +104,42 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     @torch.no_grad()
     def extract_embeddings(
         self,
-        obs: torch.Tensor,
-        goal: torch.Tensor | None = None,
+        obs: torch.Tensor | dict,
+        goal: torch.Tensor | dict | None = None,
     ):
-        """Extracts MLP state embeddings for observations (and optionally a goal).
+        """Extracts MLP state embeddings for observations (and optionally a goal)."""
+        if isinstance(obs, dict):
+            obs = {k: v.to(self.device) for k, v in obs.items()}
+        else:
+            obs = obs.to(self.device)
 
-        Supports arbitrary tensor shapes for obs and goal, as long as their last dimension matches
-        self.obs_dim.
-        """
-        obs = obs.to(self.device)
         if goal is not None:
-            goal = goal.to(self.device)
+            if isinstance(goal, dict):
+                goal = {k: v.to(self.device) for k, v in goal.items()}
+            else:
+                goal = goal.to(self.device)
 
         if self.normalizer is not None:
             obs = self.normalizer.normalize(obs)
             if goal is not None:
                 goal = self.normalizer.normalize(goal)
 
-        obs_embeddings = self.state_embedder(obs[..., self.proprio_dim :])
+        if isinstance(obs, dict):
+            task_components = [v for k, v in obs.items() if k != "proprio"]
+            obs_task = torch.cat(task_components, dim=-1)
+        else:
+            obs_task = obs[..., self.proprio_dim :]
+
+        obs_embeddings = self.state_embedder(obs_task)
 
         res = {"obs_embeddings": obs_embeddings.cpu()}
         if goal is not None:
-            res["goal_embedding"] = self.state_embedder(goal[..., self.proprio_dim :]).cpu()
+            if isinstance(goal, dict):
+                goal_task_components = [v for k, v in goal.items() if k != "proprio"]
+                goal_task = torch.cat(goal_task_components, dim=-1)
+            else:
+                goal_task = goal[..., self.proprio_dim :]
+            res["goal_embedding"] = self.state_embedder(goal_task).cpu()
 
         return res
 
@@ -124,8 +148,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         logging.
 
         Shapes:
-            batch["obs_seq"]: [B, obs_horizon, obs_dim]
-            batch["goal"]: [B, obs_dim]
+            batch["obs_seq"]: [B, obs_horizon, obs_dim] or dict
+            batch["goal"]: [B, obs_dim] or dict
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
@@ -133,20 +157,17 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq = batch["obs_seq"]
         goal = batch["goal"]
 
-        if not isinstance(obs_seq, torch.Tensor):
+        if not isinstance(obs_seq, torch.Tensor | dict):
             raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor, but got {type(obs_seq)}."
+                f"Expected batch['obs_seq'] to be a torch.Tensor or dict, but got {type(obs_seq)}."
             )
 
-        if not isinstance(goal, torch.Tensor):
-            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor, but got {type(goal)}.")
+        if not isinstance(goal, torch.Tensor | dict):
+            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}.")
 
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
-            assert isinstance(obs_seq, torch.Tensor)
-
             goal = self.normalizer.normalize(goal)
-            assert isinstance(goal, torch.Tensor)
 
         action_seq = batch["act_seq"]
         if self.action_normalizer is not None:
@@ -159,23 +180,35 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_network_cond(self, obs_seq: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+    def _prepare_network_cond(self, obs_seq: torch.Tensor | dict, goal: torch.Tensor | dict) -> torch.Tensor:
         """Prepares the conditioning for the diffusion model by embedding the observations and
         goal."""
 
         B = get_batch_size(obs_seq)
 
-        proprio_seq = obs_seq[:, :, : self.proprio_dim].reshape(
-            B, self.obs_horizon * self.proprio_dim
-        )  # B, horizon * proprio_dim
+        if isinstance(obs_seq, dict):
+            proprio = obs_seq["proprio"]
+            task_components = [v for k, v in obs_seq.items() if k != "proprio"]
+            task_state = torch.cat(task_components, dim=-1)
+        else:
+            proprio = obs_seq[..., : self.proprio_dim]
+            task_state = obs_seq[..., self.proprio_dim :]
 
-        flatten_obs_seq = obs_seq.reshape(B * self.obs_horizon, self.obs_dim)  # type: ignore
-        flatten_obs_embedding = self.state_embedder(flatten_obs_seq[:, self.proprio_dim :])
+        if isinstance(goal, dict):
+            goal_task_components = [v for k, v in goal.items() if k != "proprio"]
+            goal_task_state = torch.cat(goal_task_components, dim=-1)
+        else:
+            goal_task_state = goal[..., self.proprio_dim :]
+
+        proprio_seq = proprio.reshape(B, self.obs_horizon * self.proprio_dim)  # B, horizon * proprio_dim
+
+        flatten_task_state = task_state.reshape(B * self.obs_horizon, self.task_dim)
+        flatten_obs_embedding = self.state_embedder(flatten_task_state)
         state_embeddings = flatten_obs_embedding.reshape(
             B, self.obs_horizon * self.state_embedding_dim
         )  # B, horizon * embedding_dim
 
-        goal_embedding = self.state_embedder(goal[..., self.proprio_dim :])  # B, embedding_dim
+        goal_embedding = self.state_embedder(goal_task_state)  # B, embedding_dim
 
         # Concatenate all together
         network_cond = torch.cat(
