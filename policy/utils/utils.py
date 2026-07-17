@@ -98,12 +98,11 @@ def print_mapping_tree(
 
 
 def to_tensor(
-    data: dict[str, Any] | np.ndarray | torch.Tensor,
+    data: Mapping[str, Any] | np.ndarray | torch.Tensor | Sequence[Any],
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
 ) -> dict[str, Any] | torch.Tensor:
-    """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
-    tensors."""
+    """Recursively converts a nested mapping of numpy arrays to a nested dictionary of tensors."""
     if isinstance(data, Mapping):
         return {k: to_tensor(v, device=device, dtype=dtype) for k, v in data.items()}
     else:

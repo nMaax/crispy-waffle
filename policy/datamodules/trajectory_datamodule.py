@@ -38,8 +38,8 @@ class TrajectoryDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
         canonicalize: bool = False,
-        as_dict: bool = False,
         no_proprio_vel: bool = False,
+        as_dict: bool = False,
     ):
         super().__init__()
 
@@ -82,8 +82,8 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.lazy = lazy
         self.seed = seed
         self.canonicalize = canonicalize
-        self.as_dict = as_dict
         self.no_proprio_vel = no_proprio_vel
+        self.as_dict = as_dict
 
         (
             self.env_id,
@@ -309,5 +309,8 @@ class TrajectoryDataModule(L.LightningDataModule):
 
         with h5py.File(self.dataset_file, "r") as f:
             first_key = list(f.keys())[0]
-            obs_node = f[first_key]["obs"]
+            node = f[first_key]
+            if not isinstance(node, h5py.Group):
+                raise TypeError(f"Expected an h5py.Group, got {type(node)!r}")
+            obs_node = node["obs"]
             return isinstance(obs_node, h5py.Dataset)

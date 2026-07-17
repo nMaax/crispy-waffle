@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 import torch
 
 
@@ -21,7 +23,7 @@ class PnPCanonicalizer:
         }
 
     # Should decouple from AdapterProtocol and rather make a TransformProtocol
-    def __call__(self, obs: dict) -> dict:
+    def __call__(self, obs: Mapping) -> dict:
         parser = self._parsers[self.task_id]
         return parser(obs)
 
@@ -29,7 +31,7 @@ class PnPCanonicalizer:
     def _parse_place_cube_left_dict(self, obs: dict) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
 
-    def _parse_stack_cube_dict(self, obs: dict) -> dict[str, torch.Tensor]:
+    def _parse_stack_cube_dict(self, obs: Mapping) -> dict[str, torch.Tensor]:
         agent = obs["agent"]
         extra = obs["extra"]
 
@@ -55,7 +57,7 @@ class PnPCanonicalizer:
     def _parse_stack_cube_restricted_spawn_dict(self, obs: dict) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
 
-    def _parse_place_sphere_dict(self, obs: dict) -> dict[str, torch.Tensor]:
+    def _parse_place_sphere_dict(self, obs: Mapping) -> dict[str, torch.Tensor]:
         agent = obs["agent"]
         extra = obs["extra"]
 

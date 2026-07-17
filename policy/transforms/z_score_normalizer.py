@@ -27,7 +27,7 @@ class ZScoreNormalizer(nn.Module):
     _running_mean: torch.Tensor | None
     _running_M2: torch.Tensor | None
 
-    def __init__(self, spec: int | torch.Tensor | dict):
+    def __init__(self, spec: int | torch.Tensor | Mapping):
         super().__init__()
 
         if not isinstance(spec, Mapping):
@@ -141,10 +141,10 @@ class ZScoreNormalizer(nn.Module):
     def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @overload
-    def normalize(self, x: dict) -> dict: ...
+    def normalize(self, x: Mapping) -> dict: ...
 
-    def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
-        """Normalizes the input tensor or dict of tensors using the fitted mean and std."""
+    def normalize(self, x: torch.Tensor | Mapping) -> torch.Tensor | dict:
+        """Normalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
             if self.is_fit:
                 return (x - self.mean) / self.std

@@ -14,7 +14,9 @@ class MinMaxNormalizer(nn.Module):
     _running_min: torch.Tensor | None
     _running_max: torch.Tensor | None
 
-    def __init__(self, spec: int | torch.Tensor | dict, min_val: float = -1.0, max_val: float = 1.0):
+    def __init__(
+        self, spec: int | torch.Tensor | dict, min_val: float = -1.0, max_val: float = 1.0
+    ):
         super().__init__()
 
         self.min_val = min_val
@@ -115,10 +117,10 @@ class MinMaxNormalizer(nn.Module):
     def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @overload
-    def normalize(self, x: dict) -> dict: ...
+    def normalize(self, x: Mapping) -> dict: ...
 
-    def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
-        """Normalizes the input tensor or dict of tensors using the fitted min and max."""
+    def normalize(self, x: torch.Tensor | Mapping) -> torch.Tensor | dict:
+        """Normalizes the input tensor or mapping of tensors using the fitted min and max."""
         if not isinstance(x, Mapping):
             if self.is_fit:
                 diff = (self.max - self.min).clamp(min=1e-6)

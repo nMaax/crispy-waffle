@@ -180,11 +180,19 @@ class TrajectoryDataset(Dataset):
         traj = self.trajectories[idx]
         if self.lazy:
             ep_id = traj["episode_id"]
-            obs_node = self.h5_file[f"traj_{ep_id}"]["obs"]
+            traj_node = self.h5_file[f"traj_{ep_id}"]
+            if not isinstance(traj_node, h5py.Group):
+                raise TypeError(
+                    f"Expected an h5py.Group at 'traj_{ep_id}', got {type(traj_node)!r}"
+                )
+
+            obs_node = traj_node["obs"]
             if isinstance(obs_node, h5py.Group):
                 obs = load_h5_data(obs_node)
-            else:
+            elif isinstance(obs_node, h5py.Dataset):
                 obs = obs_node[:]
+            else:
+                raise TypeError(f"Unexpected HDF5 node type for 'obs': {type(obs_node)!r}")
         else:
             obs = traj["obs"]
 
