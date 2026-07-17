@@ -83,15 +83,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             goal: [B, obs_dim] or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-
-        if not isinstance(obs_seq, torch.Tensor | dict):
-            raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor or dict, but got {type(obs_seq)}."
-            )
-
-        if not isinstance(goal, torch.Tensor | dict):
-            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}.")
-
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
             goal = self.normalizer.normalize(goal)
@@ -163,7 +154,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             )
 
         if not isinstance(goal, torch.Tensor | dict):
-            raise ValueError(f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}.")
+            raise ValueError(
+                f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}."
+            )
 
         if self.normalizer is not None:
             obs_seq = self.normalizer.normalize(obs_seq)
@@ -180,7 +173,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_network_cond(self, obs_seq: torch.Tensor | dict, goal: torch.Tensor | dict) -> torch.Tensor:
+    def _prepare_network_cond(
+        self, obs_seq: torch.Tensor | dict, goal: torch.Tensor | dict
+    ) -> torch.Tensor:
         """Prepares the conditioning for the diffusion model by embedding the observations and
         goal."""
 
@@ -200,7 +195,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         else:
             goal_task_state = goal[..., self.proprio_dim :]
 
-        proprio_seq = proprio.reshape(B, self.obs_horizon * self.proprio_dim)  # B, horizon * proprio_dim
+        proprio_seq = proprio.reshape(
+            B, self.obs_horizon * self.proprio_dim
+        )  # B, horizon * proprio_dim
 
         flatten_task_state = task_state.reshape(B * self.obs_horizon, self.task_dim)
         flatten_obs_embedding = self.state_embedder(flatten_task_state)

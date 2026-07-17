@@ -3,7 +3,7 @@ import torch
 
 
 class RemoveProprioVel:
-    def __init__(self, qpos_dim: int = 9, qvel_dim: int = 9, fill_with_zeroes: bool = True):
+    def __init__(self, qpos_dim: int = 9, qvel_dim: int = 9, fill_with_zeroes: bool = False):
         """Wrapper utility to mask or remove robot joint velocities (qvel) from ManiSkill state
         observations."""
 
@@ -33,7 +33,7 @@ class RemoveProprioVel:
             return self._process_tensor(obs)
 
     def _process_dict(self, state_dict):
-        # 1. Native state_dict (contains "agent" -> "qpos" / "qvel")
+        #  Native state_dict (contains "agent" -> "qpos" / "qvel")
         if "agent" in state_dict and isinstance(state_dict["agent"], dict):
             agent_dict = state_dict["agent"]
             if "qvel" in agent_dict:
@@ -46,12 +46,12 @@ class RemoveProprioVel:
                     agent_dict.pop("qvel")
             return state_dict
 
-        # 2. Standardized PnP dict (contains "proprio")
+        # Standardized PnP dict (contains "proprio")
         elif "proprio" in state_dict:
             state_dict["proprio"] = self._process_tensor(state_dict["proprio"])
             return state_dict
 
-        # 3. Legacy dict wrapping flat tensor (contains "state")
+        # Legacy dict wrapping flat tensor (contains "state")
         elif "state" in state_dict:
             state_dict["state"] = self._process_tensor(state_dict["state"])
             return state_dict

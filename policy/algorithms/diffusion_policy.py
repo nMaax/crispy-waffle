@@ -94,7 +94,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
-        # Initialize the normalizer
         self.normalizer: ZScoreNormalizer | MinMaxNormalizer | None = None
 
         norm_spec = normalizer
@@ -107,7 +106,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         elif isinstance(norm_spec, dict) and "_target_" in norm_spec:
             self.normalizer = hydra_zen.instantiate(norm_spec, spec=obs_dim)
 
-        # Initialize the action normalizer
         self.action_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = None
 
         act_norm_spec = action_normalizer
