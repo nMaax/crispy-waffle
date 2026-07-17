@@ -1,4 +1,5 @@
 import functools
+from collections.abc import Mapping
 from typing import Any, Literal, cast
 
 import h5py
@@ -46,11 +47,11 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         act_horizon: int = 8,
-        obs_dim: dict | int = 48,
+        obs_dim: Mapping[str, Any] | int = 48,
         act_dim: int = 4,
         prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
-        normalizer: bool | dict | HydraConfigFor[nn.Module] | None = None,
-        action_normalizer: bool | dict | HydraConfigFor[nn.Module] | None = None,
+        normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
+        action_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
         flatten_obs: bool | None = None,
     ):
         super().__init__()
@@ -180,7 +181,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
     def get_action(
         self,
-        obs_seq: torch.Tensor | dict,
+        obs_seq: torch.Tensor | Mapping[str, Any],
         num_inference_timesteps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
@@ -441,7 +442,7 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
 
         return denoised_act_seq
 
-    def _prepare_network_cond(self, obs_seq: dict | torch.Tensor) -> torch.Tensor:
+    def _prepare_network_cond(self, obs_seq: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
         """Prepares the observation sequence for the network conditioning."""
         if self.flatten_obs:
             return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)

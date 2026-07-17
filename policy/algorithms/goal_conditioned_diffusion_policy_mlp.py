@@ -99,13 +99,13 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         goal: torch.Tensor | dict | None = None,
     ):
         """Extracts MLP state embeddings for observations (and optionally a goal)."""
-        if isinstance(obs, dict):
+        if isinstance(obs, Mapping):
             obs = {k: v.to(self.device) for k, v in obs.items()}
         else:
             obs = obs.to(self.device)
 
         if goal is not None:
-            if isinstance(goal, dict):
+            if isinstance(goal, Mapping):
                 goal = {k: v.to(self.device) for k, v in goal.items()}
             else:
                 goal = goal.to(self.device)
@@ -115,7 +115,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             if goal is not None:
                 goal = self.normalizer.normalize(goal)
 
-        if isinstance(obs, dict):
+        if isinstance(obs, Mapping):
             task_components = [v for k, v in obs.items() if k != "proprio"]
             obs_task = torch.cat(task_components, dim=-1)
         else:
@@ -129,9 +129,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         return res
 
-    def _prepare_goal(self, goal: torch.Tensor | dict) -> torch.Tensor:
+    def _prepare_goal(self, goal: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
         """Prepares the goal conditioning for the network by embedding it."""
-        if isinstance(goal, dict):
+        if isinstance(goal, Mapping):
             goal_task_components = [v for k, v in goal.items() if k != "proprio"]
             goal_task_state = torch.cat(goal_task_components, dim=-1)
         else:
@@ -153,14 +153,14 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         obs_seq = batch["obs_seq"]
         goal = batch["goal"]
 
-        if not isinstance(obs_seq, torch.Tensor | dict):
+        if not isinstance(obs_seq, torch.Tensor | Mapping):
             raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor or dict, but got {type(obs_seq)}."
+                f"Expected batch['obs_seq'] to be a torch.Tensor or Mapping, but got {type(obs_seq)}."
             )
 
-        if not isinstance(goal, torch.Tensor | dict):
+        if not isinstance(goal, torch.Tensor | Mapping):
             raise ValueError(
-                f"Expected batch['goal'] to be a torch.Tensor or dict, but got {type(goal)}."
+                f"Expected batch['goal'] to be a torch.Tensor or Mapping, but got {type(goal)}."
             )
 
         if self.normalizer is not None:
@@ -179,14 +179,14 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         return loss
 
     def _prepare_network_cond(
-        self, obs_seq: torch.Tensor | dict, goal: torch.Tensor | dict
+        self, obs_seq: torch.Tensor | Mapping[str, Any], goal: torch.Tensor | Mapping[str, Any]
     ) -> torch.Tensor:
         """Prepares the conditioning for the diffusion model by embedding the observations and
         goal."""
 
         B = get_batch_size(obs_seq)
 
-        if isinstance(obs_seq, dict):
+        if isinstance(obs_seq, Mapping):
             proprio = obs_seq["proprio"]
             task_components = [v for k, v in obs_seq.items() if k != "proprio"]
             task_state = torch.cat(task_components, dim=-1)

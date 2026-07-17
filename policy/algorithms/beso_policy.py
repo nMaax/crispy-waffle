@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from collections.abc import Mapping
 from typing import Any
 
 import hydra_zen
@@ -155,7 +156,7 @@ class BesoPolicy(DiffusionPolicy):
         """
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
-    def _prepare_goal(self, goal: dict | torch.Tensor) -> torch.Tensor:
+    def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
         """Prepares the goal conditioning for the network."""
         return concat_leaf_tensors(goal, device=self.device)
 
@@ -234,8 +235,8 @@ class BesoPolicy(DiffusionPolicy):
 
     def get_action(
         self,
-        obs_seq: torch.Tensor | dict,
-        goal: torch.Tensor | dict | None = None,
+        obs_seq: torch.Tensor | Mapping[str, Any],
+        goal: torch.Tensor | Mapping[str, Any] | None = None,
         num_inference_timesteps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
