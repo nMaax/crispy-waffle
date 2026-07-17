@@ -33,6 +33,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
         canonicalize: bool = False,
+        as_dict: bool = False,
         no_proprio_vel: bool = False,
     ):
         super().__init__()
@@ -76,6 +77,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.lazy = lazy
         self.seed = seed
         self.canonicalize = canonicalize
+        self.as_dict = as_dict
         self.no_proprio_vel = no_proprio_vel
 
         (
@@ -101,7 +103,7 @@ class TrajectoryDataModule(L.LightningDataModule):
             transforms = []
 
             if self.canonicalize:
-                transforms.append(PnPCanonicalizer(self.env_id))
+                transforms.append(PnPCanonicalizer(self.env_id, as_dict=self.as_dict))
 
             if self.no_proprio_vel:
                 transforms.append(RemoveProprioVel())

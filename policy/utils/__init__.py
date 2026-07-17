@@ -6,6 +6,7 @@ from .utils import (
     get_total_dim,
     print_config,
     print_dict_tree,
+    recursive_index,
     to_tensor,
 )
 
@@ -16,6 +17,7 @@ __all__ = [
     "get_device",
     "print_config",
     "print_dict_tree",
+    "recursive_index",
     "to_tensor",
     "get_total_dim",
 ]

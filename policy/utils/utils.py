@@ -111,6 +111,18 @@ def to_tensor(
     return tensor
 
 
+def recursive_index(data: Any, idx: Any) -> Any:
+    """Recursively indexes/slices leaf tensors inside nested dictionaries or lists."""
+    if isinstance(data, Mapping):
+        return {k: recursive_index(v, idx) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [recursive_index(v, idx) for v in data]
+    elif hasattr(data, "__getitem__") or isinstance(data, torch.Tensor):
+        return data[idx]
+    return data
+
+
+
 def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     """Recursively finds the batch size from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):

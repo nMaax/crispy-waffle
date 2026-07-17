@@ -13,3 +13,4 @@ num_workers: 4
 val_split: 0.1
 lazy: false
 seed: ${seed} # Seed is passed by config.py
+as_dict: false

@@ -1,8 +1,9 @@
 import h5py
+import numpy as np
 import torch
 
 from policy.datasets.trajectory_dataset import TrajectoryDataset
-from policy.utils import to_tensor
+from policy.utils import recursive_index, to_tensor
 
 # TODO: this should allow also dictionary observations
 
@@ -49,14 +50,14 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
                 )
 
             obs_dataset = h5_traj["obs"]
-            if not isinstance(obs_dataset, h5py.Dataset):
+            if not isinstance(obs_dataset, h5py.Group | h5py.Dataset | dict | np.ndarray):
                 raise ValueError(
-                    f"Expected a dataset for observations in trajectory {episode_id}, but got {type(obs_dataset)}"
+                    f"Expected a dataset or group for observations in trajectory {episode_id}, but got {type(obs_dataset)}"
                 )
 
-            future_obs = obs_dataset[goal_t]
+            future_obs = recursive_index(obs_dataset, goal_t)
         else:
-            future_obs = traj_meta["obs"][goal_t]
+            future_obs = recursive_index(traj_meta["obs"], goal_t)
 
         goal = to_tensor(future_obs, dtype=torch.float32)
 
