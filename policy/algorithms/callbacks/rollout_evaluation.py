@@ -21,7 +21,13 @@ import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
 from policy.transforms import PnPCanonicalizer
 from policy.utils import to_tensor
-from policy.utils.typing_utils import AdapterProtocol, HydraConfigFor, PolicyProtocol
+from policy.utils.typing_utils import (
+    AdapterProtocol,
+    GoalConditionedEnvProtocol,
+    GoalConditionedPolicyProtocol,
+    HydraConfigFor,
+    PolicyProtocol,
+)
 
 # WARN: Just a notification by Transformers, however we do not use a higher version (enforced via .toml), so we can ignore this
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
@@ -233,9 +239,9 @@ class RolloutEvaluationCallback(L.Callback):
         if not trainer.is_global_zero:
             return
 
-        if not isinstance(pl_module, PolicyProtocol):
+        if not isinstance(pl_module, PolicyProtocol | GoalConditionedPolicyProtocol):
             raise AttributeError(
-                f"Expected the LightningModule to implement PolicyProtocol, "
+                f"Expected the LightningModule to implement PolicyProtocol or GoalConditionedPolicyProtocol, "
                 f"but got {type(pl_module).__name__}."
             )
 
@@ -314,11 +320,17 @@ class RolloutEvaluationCallback(L.Callback):
         if self.canonicalizer is not None:
             obs = self.canonicalizer(obs)
 
-        # TODO: Maybe should generalize this to use Protocols
         is_goal_conditioned = getattr(pl_module, "goal_conditioned", False)
 
         if is_goal_conditioned:
-            goal_state = self._inner_env.generate_heuristic_goal()
+            if not hasattr(self._inner_env, "generate_heuristic_goal"):
+                raise AttributeError(
+                    f"Expected the inner environment to have a method 'generate_heuristic_goal', "
+                    f"but got {type(self._inner_env).__name__}."
+                )
+
+            goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
+            goal_state = goal_env.generate_heuristic_goal()
 
             goal_state = to_tensor(goal_state)
             if self.canonicalizer is not None:
@@ -332,13 +344,15 @@ class RolloutEvaluationCallback(L.Callback):
 
             with torch.no_grad():
                 if is_goal_conditioned:
-                    action_seq = pl_module.get_action(
+                    goal_policy = cast(GoalConditionedPolicyProtocol, pl_module)
+                    action_seq = goal_policy.get_action(
                         adapted_obs,
                         goal_state,
                         num_inference_timesteps=self.num_inference_timesteps,
                     )
                 else:
-                    action_seq = pl_module.get_action(
+                    base_policy = cast(PolicyProtocol, pl_module)
+                    action_seq = base_policy.get_action(
                         adapted_obs, num_inference_timesteps=self.num_inference_timesteps
                     )
 
@@ -363,7 +377,8 @@ class RolloutEvaluationCallback(L.Callback):
                     obs = self.canonicalizer(obs)
 
                 if is_goal_conditioned:
-                    goal_state = self._inner_env.generate_heuristic_goal()
+                    goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
+                    goal_state = goal_env.generate_heuristic_goal()
 
                     goal_state = to_tensor(goal_state)
                     if self.canonicalizer is not None:

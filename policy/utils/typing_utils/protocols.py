@@ -70,13 +70,46 @@ class PolicyProtocol(Protocol):
     """Device on which the policy parameters live."""
 
     def get_action(
-        self, obs_seq: torch.Tensor | Mapping[str, Any] | None, num_inference_timesteps: int | None
+        self,
+        obs_seq: torch.Tensor | Mapping[str, Any] | None,
+        num_inference_timesteps: int | None = None,
     ) -> torch.Tensor:
         """Return a sequence of actions given a (batched) observations window.
 
         Args:
             obs_seq: Either a float tensor of shape ``(B, obs_horizon, obs_dim)`` or a
                 nested dict of such tensors.
+
+        Returns:
+            Action tensor of shape ``(B, act_horizon, act_dim)``.
+        """
+        ...
+
+
+@runtime_checkable
+class GoalConditionedPolicyProtocol(Protocol):
+    """Protocol for goal-conditioned imitation-learning policies that can be used during rollout
+    evaluation."""
+
+    obs_horizon: int
+    """Number of past observations used to build the observations window."""
+
+    device: torch.device
+    """Device on which the policy parameters live."""
+
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | Mapping[str, Any] | None,
+        goal: torch.Tensor | Mapping[str, Any] | None,
+        num_inference_timesteps: int | None = None,
+    ) -> torch.Tensor:
+        """Return a sequence of actions given a (batched) observations window and a goal.
+
+        Args:
+            obs_seq: Either a float tensor of shape ``(B, obs_horizon, obs_dim)`` or a
+                nested dict of such tensors.
+            goal: Either a float tensor of shape ``(B, obs_dim)`` or a nested dict of such
+                tensors.
 
         Returns:
             Action tensor of shape ``(B, act_horizon, act_dim)``.
@@ -148,4 +181,23 @@ class AdapterProtocol(Protocol):
 
     def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
         """Adapts the given observation to be compatible with the policy's expected input."""
+        ...
+
+
+@runtime_checkable
+class EnvProtocol(Protocol):
+    """Protocol representing a standard environment (e.g., gym.Env)."""
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]: ...
+    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]: ...
+    def render(self) -> Any: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class GoalConditionedEnvProtocol(EnvProtocol, Protocol):
+    """Protocol for goal-conditioned environments that can generate heuristic goals."""
+
+    def generate_heuristic_goal(self) -> torch.Tensor | dict[str, Any]:
+        """Generate a heuristic goal state for the environment."""
         ...

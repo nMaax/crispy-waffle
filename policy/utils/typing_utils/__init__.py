@@ -13,6 +13,9 @@ from .protocols import (
     DataModule,
     DiffusionNetworkProtocol,
     DiffusionSchedulerProtocol,
+    EnvProtocol,
+    GoalConditionedEnvProtocol,
+    GoalConditionedPolicyProtocol,
     PolicyProtocol,
 )
 
@@ -56,5 +59,8 @@ __all__ = [
     "DiffusionSchedulerProtocol",
     "AdapterProtocol",
     "PolicyProtocol",
+    "GoalConditionedPolicyProtocol",
     "DiffusionNetworkProtocol",
+    "GoalConditionedEnvProtocol",
+    "EnvProtocol",
 ]
