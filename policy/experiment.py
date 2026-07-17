@@ -160,8 +160,21 @@ def get_cached_metrics(trainer: lightning.Trainer) -> dict:
 
 def parse_objective_metric(metrics: dict, results_type: str) -> tuple[str, float | None]:
     """Parses a metrics dictionary to extract the objective metric name and its error value."""
-    for key, value in metrics.items():
-        rich.print(f"{results_type} {key}: ", value)
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", justify="right", style="green")
+
+    for key, value in sorted(metrics.items()):
+        # Handle single-element PyTorch tensors
+        if hasattr(value, "item") and hasattr(value, "ndim") and value.ndim == 0:
+            val_str = f"{value.item()}"
+        else:
+            val_str = str(value)
+        table.add_row(key, val_str)
+
+    rich.print(table)
 
     if (success_once_rate := metrics.get(f"{results_type}/success_once_rate")) is not None:
         # Added for Imitation Learning
