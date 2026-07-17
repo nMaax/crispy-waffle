@@ -105,7 +105,7 @@ def to_tensor(
     """Recursively converts a nested dictionary of numpy arrays to a nested dictionary of
     tensors."""
     if isinstance(data, Mapping):
-        return {k: to_tensor(v, device) for k, v in data.items()}
+        return {k: to_tensor(v, device=device, dtype=dtype) for k, v in data.items()}
     else:
         tensor = torch.as_tensor(data, device=device, dtype=dtype)
 
