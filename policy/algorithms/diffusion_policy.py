@@ -348,7 +348,10 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                             obs_ep = load_h5_data(obs_node)
                         else:
                             obs_ep = obs_node[:]
-                        yield to_tensor(obs_ep)
+                        obs = to_tensor(obs_ep)
+                        if train_set.obs_transform is not None:
+                            obs = train_set.obs_transform(obs)
+                        yield obs
 
                 self.normalizer.fit_incremental(trajectory_obs_generator())
 
@@ -368,7 +371,13 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 self.action_normalizer.fit_incremental(trajectory_act_generator())
         else:
             if not self.normalizer.is_fit:
-                all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
+                if train_set.obs_transform is not None:
+                    all_obs = [
+                        train_set.obs_transform(to_tensor(traj["obs"]))
+                        for traj in train_set.trajectories
+                    ]
+                else:
+                    all_obs = [to_tensor(traj["obs"]) for traj in train_set.trajectories]
                 stacked_obs = stack_dicts(all_obs)
                 self.normalizer.fit(stacked_obs)
 

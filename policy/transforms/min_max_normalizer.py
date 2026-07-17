@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import overload
 
 import torch
@@ -20,7 +20,7 @@ class MinMaxNormalizer(nn.Module):
         self.min_val = min_val
         self.max_val = max_val
 
-        if not isinstance(spec, dict):
+        if not isinstance(spec, Mapping):
             if isinstance(spec, torch.Tensor):
                 dim = spec.shape[-1]
             else:
@@ -28,7 +28,7 @@ class MinMaxNormalizer(nn.Module):
 
             self.register_buffer("min", torch.zeros(dim))
             self.register_buffer("max", torch.ones(dim))
-            self.register_buffer("is_fit", torch.tensor(False))
+            self.register_buffer("_is_fit", torch.tensor(False))
         else:
             self.norms = nn.ModuleDict(
                 {
@@ -37,13 +37,21 @@ class MinMaxNormalizer(nn.Module):
                 }
             )
 
+    @property
+    def is_fit(self) -> torch.Tensor:
+        if hasattr(self, "norms"):
+            all_fit = all(bool(norm.is_fit.item()) for norm in self.norms.values())
+            return torch.tensor(all_fit)
+        else:
+            return self._is_fit
+
     def fit(self, data: torch.Tensor | dict):
         """Fits the normalizer to the data, computing min and max."""
-        if not isinstance(data, dict):
+        if not isinstance(data, Mapping):
             data_flat = data.reshape(-1, data.shape[-1])
             self.min.copy_(data_flat.min(dim=0).values)
             self.max.copy_(data_flat.max(dim=0).values)
-            self.is_fit.fill_(True)
+            self._is_fit.fill_(True)
         else:
             for key, norm in self.norms.items():
                 norm.fit(data[key])
@@ -84,7 +92,7 @@ class MinMaxNormalizer(nn.Module):
                 self._running_min = torch.minimum(self._running_min, batch_min.to(torch.float64))
                 self._running_max = torch.maximum(self._running_max, batch_max.to(torch.float64))
         else:
-            assert isinstance(data, dict), "Expected dict data for nested normalizer"
+            assert isinstance(data, Mapping), "Expected dict data for nested normalizer"
             for key, norm in self.norms.items():
                 norm._update_running_stats(data[key])
 
@@ -93,7 +101,7 @@ class MinMaxNormalizer(nn.Module):
             if self._running_min is not None and self._running_max is not None:
                 self.min.copy_(self._running_min.to(self.min.dtype).to(self.min.device))
                 self.max.copy_(self._running_max.to(self.max.dtype).to(self.max.device))
-                self.is_fit.fill_(True)
+                self._is_fit.fill_(True)
 
             if hasattr(self, "_running_min"):
                 del self._running_min
@@ -111,7 +119,7 @@ class MinMaxNormalizer(nn.Module):
 
     def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         """Normalizes the input tensor or dict of tensors using the fitted min and max."""
-        if not isinstance(x, dict):
+        if not isinstance(x, Mapping):
             if self.is_fit:
                 diff = (self.max - self.min).clamp(min=1e-6)
                 return self.min_val + (self.max_val - self.min_val) * (x - self.min) / diff
@@ -128,7 +136,7 @@ class MinMaxNormalizer(nn.Module):
 
     def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         """Unnormalizes the input tensor or dict of tensors using the fitted min and max."""
-        if not isinstance(x, dict):
+        if not isinstance(x, Mapping):
             if self.is_fit:
                 diff = (self.max - self.min).clamp(min=1e-6)
                 return (x - self.min_val) * diff / (self.max_val - self.min_val) + self.min

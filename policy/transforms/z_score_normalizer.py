@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import overload
 
 import torch
@@ -30,7 +30,7 @@ class ZScoreNormalizer(nn.Module):
     def __init__(self, spec: int | torch.Tensor | dict):
         super().__init__()
 
-        if not isinstance(spec, dict):
+        if not isinstance(spec, Mapping):
             if isinstance(spec, torch.Tensor):
                 dim = spec.shape[-1]
             else:
@@ -38,19 +38,27 @@ class ZScoreNormalizer(nn.Module):
 
             self.register_buffer("mean", torch.zeros(dim))
             self.register_buffer("std", torch.ones(dim))
-            self.register_buffer("is_fit", torch.tensor(False))
+            self.register_buffer("_is_fit", torch.tensor(False))
         else:
             self.norms = nn.ModuleDict(
                 {key: ZScoreNormalizer(child_spec) for key, child_spec in spec.items()}
             )
 
+    @property
+    def is_fit(self) -> torch.Tensor:
+        if hasattr(self, "norms"):
+            all_fit = all(bool(norm.is_fit.item()) for norm in self.norms.values())
+            return torch.tensor(all_fit)
+        else:
+            return self._is_fit
+
     def fit(self, data: torch.Tensor | dict):
         """Fits the normalizer to the data, computing mean and std."""
-        if not isinstance(data, dict):
+        if not isinstance(data, Mapping):
             data_flat = data.reshape(-1, data.shape[-1])
             self.mean.copy_(data_flat.mean(dim=0))
             self.std.copy_(data_flat.std(dim=0).clamp(min=1e-6))
-            self.is_fit.fill_(True)
+            self._is_fit.fill_(True)
         else:
             for key, norm in self.norms.items():
                 norm.fit(data[key])
@@ -97,7 +105,7 @@ class ZScoreNormalizer(nn.Module):
                 self._running_M2 = self._running_M2 + M2_B + (delta**2) * (self._n * n_B / n_X)
                 self._n = n_X
         else:
-            assert isinstance(data, dict), "Expected dict data for nested normalizer"
+            assert isinstance(data, Mapping), "Expected dict data for nested normalizer"
             for key, norm in self.norms.items():
                 norm._update_running_stats(data[key])
 
@@ -111,13 +119,13 @@ class ZScoreNormalizer(nn.Module):
                 std = torch.sqrt(var).to(self.std.dtype).clamp(min=1e-6)
                 self.mean.copy_(mean.to(self.mean.device))
                 self.std.copy_(std.to(self.std.device))
-                self.is_fit.fill_(True)
+                self._is_fit.fill_(True)
             elif self._n == 1:
                 assert self._running_mean is not None
                 mean = self._running_mean.to(self.mean.dtype)
                 self.mean.copy_(mean.to(self.mean.device))
                 self.std.fill_(1.0)
-                self.is_fit.fill_(True)
+                self._is_fit.fill_(True)
 
             if hasattr(self, "_n"):
                 del self._n
@@ -137,7 +145,7 @@ class ZScoreNormalizer(nn.Module):
 
     def normalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         """Normalizes the input tensor or dict of tensors using the fitted mean and std."""
-        if not isinstance(x, dict):
+        if not isinstance(x, Mapping):
             if self.is_fit:
                 return (x - self.mean) / self.std
             else:
@@ -153,7 +161,7 @@ class ZScoreNormalizer(nn.Module):
 
     def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
         """Unnormalizes the input tensor or dict of tensors using the fitted mean and std."""
-        if not isinstance(x, dict):
+        if not isinstance(x, Mapping):
             if self.is_fit:
                 return (x * self.std) + self.mean
             else:
