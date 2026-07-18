@@ -1,7 +1,6 @@
 import numpy as np
 import sapien
 import torch
-from mani_skill.envs.tasks.tabletop.stack_cube import StackCubeEnv
 from mani_skill.envs.utils import randomization
 from mani_skill.utils import common
 from mani_skill.utils.building import actors
@@ -9,25 +8,12 @@ from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs import Link, Pose
 
+from .stack_cube_env import StackCubeEnv
+
 
 @register_env("StackCubeWithSphereAndBin-v1", max_episode_steps=50)
 class StackCubeWithSphereAndBinEnv(StackCubeEnv):
     """Sanity check environment: uses StackCube-v1 but physically spawns the PlaceSphere-v1 Sphere and Bin."""
-
-    STATE_SCHEMA = {
-        "agent": {
-            "qpos": (0, 9),
-            "qvel": (9, 18),
-        },
-        "extra": {
-            "tcp_pose": (18, 25),
-            "cubeA_pose": (25, 32),
-            "cubeB_pose": (32, 39),
-            "tcp_to_cubeA_pos": (39, 42),
-            "tcp_to_cubeB_pos": (42, 45),
-            "cubeA_to_cubeB_pos": (45, 48),
-        },
-    }
 
     SPHERE_RADIUS = 0.02
 

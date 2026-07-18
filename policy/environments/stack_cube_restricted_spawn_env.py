@@ -8,6 +8,9 @@ from policy.environments.stack_cube_env import StackCubeEnv
 
 @register_env("StackCubeRestrictedSpawn-v1", max_episode_steps=50, override=True)
 class StackCubeRestrictedSpawnEnv(StackCubeEnv):
+    CUBE_X_RANGE = (-0.08, 0.08)
+    CUBE_Y_RANGE = (-0.08, 0.08)
+
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):
             b = len(env_idx)
@@ -21,7 +24,10 @@ class StackCubeRestrictedSpawnEnv(StackCubeEnv):
             gripper_clearance = 0.025
             radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + gripper_clearance
 
-            region = ([-0.08, -0.08], [0.08, 0.08])
+            region = (
+                [self.CUBE_X_RANGE[0], self.CUBE_Y_RANGE[0]],
+                [self.CUBE_X_RANGE[1], self.CUBE_Y_RANGE[1]],
+            )
 
             sampler = randomization.UniformPlacementSampler(
                 bounds=region, batch_size=b, device=self.device

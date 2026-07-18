@@ -1,27 +1,13 @@
 import torch
-from mani_skill.envs.tasks.tabletop.stack_cube import StackCubeEnv
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.structs import Link
+
+from .stack_cube_env import StackCubeEnv
 
 
 @register_env("PlaceCubeLeft-v1", max_episode_steps=50)
 class PlaceCubeLeftEnv(StackCubeEnv):
     Y_OFFSET = 0.08
-
-    STATE_SCHEMA = {
-        "agent": {
-            "qpos": (0, 9),
-            "qvel": (9, 18),
-        },
-        "extra": {
-            "tcp_pose": (18, 25),
-            "cubeA_pose": (25, 32),
-            "cubeB_pose": (32, 39),
-            "tcp_to_cubeA_pos": (39, 42),
-            "tcp_to_cubeB_pos": (42, 45),
-            "cubeA_to_cubeB_pos": (45, 48),
-        },
-    }
 
     def evaluate(self):
         pos_A = self.cubeA.pose.p
