@@ -97,6 +97,13 @@ def test_nested_mapping_normalizer():
     reconstructed_z = z_norm.unnormalize(normed_z)
     reconstructed_mm = mm_norm.unnormalize(normed_mm)
 
+    assert isinstance(reconstructed_z, dict)
+    assert isinstance(reconstructed_mm, dict)
+    assert isinstance(reconstructed_z["proprio"], torch.Tensor)
+    assert isinstance(reconstructed_mm["proprio"], torch.Tensor)
+    assert isinstance(reconstructed_z["extra"], dict)
+    assert isinstance(reconstructed_z["extra"]["pose"], torch.Tensor)
+
     assert torch.allclose(reconstructed_z["proprio"], batch["proprio"], atol=1e-5)
     assert torch.allclose(
         reconstructed_z["extra"]["pose"], batch["extra"]["pose"], atol=1e-5

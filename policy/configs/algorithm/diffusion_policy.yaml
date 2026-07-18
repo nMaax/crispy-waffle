@@ -1,8 +1,8 @@
 defaults:
   - network: unet1d
-  - noise_scheduler: ddpm
-  - ema: default
   - optimizer: AdamW
+  - ema: default
+  - noise_scheduler: ddpm
   - lr_scheduler: cosine_with_warmup
   - normalizer: null
   - normalizer@action_normalizer: null

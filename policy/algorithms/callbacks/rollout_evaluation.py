@@ -200,7 +200,7 @@ class RolloutEvaluationCallback(L.Callback):
             frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
 
-        self._inner_env = gym_env.unwrapped  # type: ignore
+        self._inner_env = cast(BaseEnv, gym_env.unwrapped)
         self._gym_env = gym_env
         self._frame_stack_env = frame_stack_env
         self._vector_env = vector_env
@@ -360,15 +360,15 @@ class RolloutEvaluationCallback(L.Callback):
 
             with torch.no_grad():
                 if is_goal_conditioned:
-                    goal_policy = cast(GoalConditionedPolicyProtocol, pl_module)
-                    action_seq = goal_policy.get_action(
+                    assert isinstance(pl_module, GoalConditionedPolicyProtocol)
+                    action_seq = pl_module.get_action(
                         adapted_obs,
                         goal_state,
                         num_inference_timesteps=self.num_inference_timesteps,
                     )
                 else:
-                    base_policy = cast(PolicyProtocol, pl_module)
-                    action_seq = base_policy.get_action(
+                    assert isinstance(pl_module, PolicyProtocol)
+                    action_seq = pl_module.get_action(
                         adapted_obs, num_inference_timesteps=self.num_inference_timesteps
                     )
 

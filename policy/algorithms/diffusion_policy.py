@@ -37,9 +37,9 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
     def __init__(
         self,
         network: HydraConfigFor[nn.Module],
-        ema: HydraConfigFor[EMAModel],
-        noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
+        ema: HydraConfigFor[EMAModel],
+        noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol] | None = None,
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
@@ -61,9 +61,12 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         self.ema: EMAModel | None = None
 
         self.noise_scheduler_config = noise_scheduler
-        self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
-            self.noise_scheduler_config, prediction_type=prediction_type
-        )
+        if self.noise_scheduler_config is not None:
+            self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
+                self.noise_scheduler_config, prediction_type=prediction_type
+            )
+        else:
+            self.noise_scheduler = None
 
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None

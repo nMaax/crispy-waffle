@@ -22,8 +22,7 @@ class PnPCanonicalizer:
             "PlaceCubeLeft-v1": self._parse_place_cube_left_dict,
         }
 
-    # Should decouple from AdapterProtocol and rather make a TransformProtocol
-    def __call__(self, obs: Mapping) -> dict:
+    def __call__(self, obs: Mapping) -> dict[str, torch.Tensor]:
         parser = self._parsers[self.task_id]
         return parser(obs)
 

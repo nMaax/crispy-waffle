@@ -48,7 +48,8 @@ def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
         if hydra_config_path.exists():
             try:
                 loaded_config = OmegaConf.load(hydra_config_path)
-                return loaded_config.get("seed", None)  # type: ignore
+                if isinstance(loaded_config, DictConfig):
+                    return loaded_config.get("seed", None)
             except Exception:
                 pass
     return None

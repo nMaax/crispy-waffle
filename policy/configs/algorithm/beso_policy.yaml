@@ -1,8 +1,8 @@
 defaults:
   - network: diffusion_gpt
-  - noise_scheduler: null
-  - ema: default
   - optimizer: AdamW
+  - ema: default
+  - noise_scheduler: null
   - lr_scheduler: cosine_with_warmup
   - normalizer: z_score
   - normalizer@action_normalizer: min_max

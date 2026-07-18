@@ -76,7 +76,7 @@ def train_and_validate(
     if not (
         isinstance(algorithm, lightning.LightningModule) and isinstance(trainer, lightning.Trainer)
     ):
-        _this_fn_name = train_and_validate.__name__  # type: ignore
+        _this_fn_name = getattr(train_and_validate, "__name__", "train_and_validate")
         raise NotImplementedError(
             f"The `{_this_fn_name}` function assumes that the algorithm is a "
             f"lightning.LightningModule and that the trainer is a lightning.Trainer, but got "
@@ -95,7 +95,7 @@ def train_and_validate(
     )
 
     if (trainer.limit_val_batches == trainer.limit_test_batches == 0) or (
-        trainer.overfit_batches == 1  # type: ignore
+        getattr(trainer, "overfit_batches", None) == 1
     ):
         results_type = "train"
         metrics = get_cached_metrics(trainer)

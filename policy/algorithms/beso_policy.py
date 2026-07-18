@@ -48,7 +48,7 @@ class BesoPolicy(DiffusionPolicy):
         # so we can ignore the noise_scheduler argument from the base class
 
         kwargs.pop("noise_scheduler", None)
-        super().__init__(*args, noise_scheduler=None, **kwargs)  # type: ignore
+        super().__init__(*args, noise_scheduler=None, **kwargs)
 
         self.noise_scheduler = None
         self.goal_seq_len = goal_seq_len
