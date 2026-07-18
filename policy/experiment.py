@@ -94,7 +94,7 @@ def train_and_validate(
         datamodule=datamodule,
     )
 
-    if (trainer.limit_val_batches == trainer.limit_test_batches == 0) or (
+    if (trainer.limit_val_batches == 0) or (
         getattr(trainer, "overfit_batches", None) == 1
     ):
         results_type = "train"

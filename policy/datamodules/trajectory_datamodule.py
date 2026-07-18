@@ -123,12 +123,17 @@ class TrajectoryDataModule(L.LightningDataModule):
                 )
 
         if stage in ("fit", "validate") or stage is None:
-            self.val_set = self._create_dataset(
-                episodes=val_episodes,
-                left_mask=left_mask,
-                right_mask=right_mask,
-                obs_transform=obs_transform,
-            )
+            if val_episodes:
+                self.val_set = self._create_dataset(
+                    episodes=val_episodes,
+                    left_mask=left_mask,
+                    right_mask=right_mask,
+                    obs_transform=obs_transform,
+                )
+            else:
+                self.val_set = DummyDataset()
+                if hasattr(self, "trainer") and self.trainer is not None:
+                    self.trainer.limit_val_batches = 0.0
 
         if stage == "test" or stage is None:
             if not hasattr(self, "test_set") or self.test_set is None:
@@ -152,12 +157,13 @@ class TrajectoryDataModule(L.LightningDataModule):
             raise TypeError(
                 "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
             )
+        is_dummy = isinstance(self.val_set, DummyDataset)
         return DataLoader(
             self.val_set,
-            batch_size=self.batch_size,
+            batch_size=1 if is_dummy else self.batch_size,
             shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
+            num_workers=0 if is_dummy else self.num_workers,
+            pin_memory=not is_dummy,
         )
 
     def test_dataloader(self):
