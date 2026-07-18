@@ -14,11 +14,11 @@ from torch.optim.optimizer import Optimizer
 
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.utils import (
+    cat_dicts,
     concat_leaf_tensors,
     flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_total_dim,
-    stack_dicts,
 )
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
 
@@ -353,11 +353,11 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         else:
             if not self.normalizer.is_fit:
                 all_obs = [item["obs_seq"] for item in train_set]
-                self.normalizer.fit(stack_dicts(all_obs))
+                self.normalizer.fit(cat_dicts(all_obs))
 
             if not self.action_normalizer.is_fit:
                 all_act = [item["act_seq"] for item in train_set]
-                self.action_normalizer.fit(stack_dicts(all_act))
+                self.action_normalizer.fit(cat_dicts(all_act))
 
     def _run_diffusion_loop(
         self,

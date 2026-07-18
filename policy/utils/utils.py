@@ -12,7 +12,7 @@ import torch
 from lightning_utilities.core.rank_zero import rank_zero_info
 from omegaconf import DictConfig, OmegaConf
 
-from policy.utils.typing_utils import DimSpec, RawTree, TensorTree
+from policy.utils.typing_utils import DimSpec, RawTree, StateSchema, TensorTree
 
 logger = get_logger(__name__)
 
@@ -123,21 +123,18 @@ def recursive_index(data: Any, idx: Any) -> Any:
 
 
 @overload
-def slice_by_schema(
-    state: torch.Tensor, schema: Mapping[str, Any]
-) -> dict[str, TensorTree]: ...
+def slice_by_schema(state: torch.Tensor, schema: StateSchema) -> TensorTree: ...
 
 
 @overload
-def slice_by_schema(
-    state: np.ndarray, schema: Mapping[str, Any]
-) -> dict[str, RawTree]: ...
+def slice_by_schema(state: np.ndarray, schema: StateSchema) -> RawTree: ...
 
 
 def slice_by_schema(
-    state: np.ndarray | torch.Tensor, schema: Mapping[str, Any]
-) -> dict[str, Any]:
-    """Recursively slices a state array or tensor according to a Mapping schema of index tuples."""
+    state: torch.Tensor | np.ndarray,
+    schema: StateSchema,
+) -> TensorTree | RawTree:
+    """Recursively slices a state array or tensor according to a nested schema of index tuples."""
     result: dict[str, Any] = {}
     for key, val in schema.items():
         if isinstance(val, Mapping):
@@ -150,7 +147,7 @@ def slice_by_schema(
     return result
 
 
-def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
+def get_batch_size(data: TensorTree) -> int:
     """Recursively finds the batch size from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):
         return data.shape[0]
@@ -161,7 +158,7 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     raise ValueError("data must contain at least one tensor")
 
 
-def get_total_dim(data: DimSpec | Any) -> int:
+def get_total_dim(data: DimSpec) -> int:
     """Recursively sums the last dimension of leaf structures.
 
     Accepts PyTorch tensors, configuration Mappings containing a 'shape' key, or raw shape
@@ -193,11 +190,9 @@ def get_total_dim(data: DimSpec | Any) -> int:
     if isinstance(data, int):
         return data
 
-    raise TypeError(f"Unsupported type for dimension extraction: {type(data)}")
-
 
 def get_device(data: TensorTree) -> torch.device:
-    """Recursively finds the device from a nested mapping of tensors."""
+    """Recursively finds the PyTorch device from a leaf tensor or nested tree of tensors."""
     if isinstance(data, torch.Tensor):
         return data.device
     for value in data.values():
@@ -205,8 +200,8 @@ def get_device(data: TensorTree) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
-def stack_dicts(trees: Sequence[TensorTree]) -> TensorTree:
-    """Recursively stacks a sequence of nested dictionaries of tensors into a single nested
+def cat_dicts(trees: Sequence[TensorTree]) -> TensorTree:
+    """Recursively concatenates a sequence of nested dictionaries of tensors into a single nested
     dictionary of tensors."""
     first = trees[0]
     if isinstance(first, Mapping):
@@ -215,7 +210,7 @@ def stack_dicts(trees: Sequence[TensorTree]) -> TensorTree:
             assert isinstance(t, Mapping), f"Expected element to be a Mapping, got {type(t)}"
             for k in first:
                 sub_trees_by_key[k].append(t[k])
-        return {k: stack_dicts(v) for k, v in sub_trees_by_key.items()}
+        return {k: cat_dicts(v) for k, v in sub_trees_by_key.items()}
     else:
         tensor_list: list[torch.Tensor] = []
         for t in trees:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, NewType, TypeAlias, TypeGuard
 
 import numpy as np
@@ -21,36 +21,54 @@ from .protocols import (
     PolicyProtocol,
 )
 
-# These are used to show which dim is which.
+# These are used to show which dim is which in image data
 C = NewType("C", int)
+"""NewType annotation representing a image/feature channel dimension."""
+
 H = NewType("H", int)
+"""NewType annotation representing an image height dimension."""
+
 W = NewType("W", int)
+"""NewType annotation representing an image width dimension."""
 
 
 T = TypeVar("T")
-K = TypeVar("K")
-V = TypeVar("V")
-
 HydraConfigFor = Builds[type[T]]
 """Type annotation to say "a hydra config that returns an object of type T when instantiated"."""
 
 
-NestedMapping = Mapping[K, V | "NestedMapping[K, V]"]
-PyTree = T | Iterable["PyTree[T]"] | Mapping[Any, "PyTree[T]"]
+K = TypeVar("K")
+V = TypeVar("V")
+NestedMapping: TypeAlias = Mapping[K, V | "NestedMapping[K, V]"]
+"""A mapping with keys of type K and values that are either of type V or recursively nested
+mappings."""
 
-TensorTree: TypeAlias = torch.Tensor | Mapping[str, "TensorTree"]
+Leaf = TypeVar("Leaf")
+Tree: TypeAlias = Leaf | NestedMapping[str, Leaf]
+"""A generic tree structure mapping string keys to either leaf values of type Leaf or nested
+subtrees."""
+
+TensorLeaf: TypeAlias = torch.Tensor
+TensorTree: TypeAlias = Tree[TensorLeaf]
 """A tensor, or an arbitrarily nested mapping of tensors."""
 
-RawTree: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any] | Mapping[str, "RawTree"]
+RawLeaf: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any]
+RawTree: TypeAlias = Tree[RawLeaf]
 """A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
 
 DimSpec: TypeAlias = int | torch.Tensor | Mapping[str, "DimSpec"]
 """A dimension specification: an integer, tensor, or nested mapping of dimensions."""
 
+IndexRange: TypeAlias = tuple[int, int]
+"""An index range tuple (start, end) defining a slice along an axis."""
+
+StateSchema: TypeAlias = NestedMapping[str, IndexRange]
+"""A nested mapping schema of string keys to index range tuples."""
+
 
 def is_sequence_of(
-    object: Any, item_type: type[V] | tuple[type[V], ...]
-) -> TypeGuard[Sequence[V]]:
+    object: Any, item_type: type[T] | tuple[type[T], ...]
+) -> TypeGuard[Sequence[T]]:
     """Used to check (and tell the type checker) that `object` is a sequence of items of this
     type."""
     return isinstance(object, Sequence) and all(isinstance(value, item_type) for value in object)
@@ -82,6 +100,10 @@ def get_subtree(tree: Mapping[str, TensorTree], key: str) -> Mapping[str, Tensor
 
 
 __all__ = [
+    "C",
+    "H",
+    "W",
+    "T",
     "DataModule",
     "DiffusionSchedulerProtocol",
     "AdapterProtocol",
@@ -90,9 +112,17 @@ __all__ = [
     "DiffusionNetworkProtocol",
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
+    "HydraConfigFor",
+    "NestedMapping",
+    "Tree",
     "TensorTree",
+    "RawLeaf",
     "RawTree",
     "DimSpec",
+    "IndexRange",
+    "StateSchema",
+    "is_sequence_of",
+    "is_mapping_of",
     "get_tensor",
     "get_subtree",
 ]
