@@ -8,7 +8,6 @@ from policy.algorithms.networks import MLP
 from policy.utils import get_batch_size
 
 
-# TODO: make this work also for non-unet architectures, like done in DiffusionPolicy
 class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     def __init__(
         self,
@@ -21,11 +20,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
     ):
         super().__init__(*args, **kwargs)
         self.goal_conditioned = True
-
-        if "ConditionalUnet" not in self.network_config.get("_target_", None):
-            raise ValueError(
-                f"BesoPolicy requires a ConditionalUnet architecture for the diffusion model, but got {self.network_config.get('_target_')}."
-            )
 
         if isinstance(self.obs_dim, Mapping):
             if "proprio" not in self.obs_dim:
@@ -64,9 +58,14 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             hidden_dims=hidden_dims,
         )
 
-        self.network_cond_dim = (
-            self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
-        )  # (proprioception + embedded observation) for each timestep in the past + the embedded goal (no proprio)
+        if self.flatten_obs:
+            self.network_cond_dim = (
+                self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
+            )  # (proprioception + embedded observation) for each timestep in the past + the embedded goal (no proprio)
+        else:
+            self.network_cond_dim = (
+                proprio_dim + 2 * state_embedding_dim
+            )  # (proprioception + embedded observation + embedded goal) for each timestep in sequence
 
     def get_action(
         self,
@@ -194,21 +193,30 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             proprio = obs_seq[..., : self.proprio_dim]
             task_state = obs_seq[..., self.proprio_dim :]
 
-        proprio_seq = proprio.reshape(
-            B, self.obs_horizon * self.proprio_dim
-        )  # B, horizon * proprio_dim
+        goal_embedding = self._prepare_goal(goal)  # B, embedding_dim
 
         flatten_task_state = task_state.reshape(B * self.obs_horizon, self.task_dim)
         flatten_obs_embedding = self.state_embedder(flatten_task_state)
         state_embeddings = flatten_obs_embedding.reshape(
-            B, self.obs_horizon * self.state_embedding_dim
-        )  # B, horizon * embedding_dim
+            B, self.obs_horizon, self.state_embedding_dim
+        )  # B, horizon, state_embedding_dim
 
-        goal_embedding = self._prepare_goal(goal)  # B, embedding_dim
+        if self.flatten_obs:
+            proprio_seq = proprio.reshape(
+                B, self.obs_horizon * self.proprio_dim
+            )  # B, horizon * proprio_dim
+            flat_state_embeddings = state_embeddings.reshape(
+                B, self.obs_horizon * self.state_embedding_dim
+            )  # B, horizon * embedding_dim
 
-        # Concatenate all together
-        network_cond = torch.cat(
-            [proprio_seq, state_embeddings, goal_embedding], dim=-1
-        )  # B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+            # Concatenate all together: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+            network_cond = torch.cat(
+                [proprio_seq, flat_state_embeddings, goal_embedding], dim=-1
+            )
+        else:
+            # Broadcast goal embedding across horizon: B, horizon, state_embedding_dim
+            goal_seq = goal_embedding.unsqueeze(1).expand(-1, self.obs_horizon, -1)
+            # Concatenate along feature dim for sequence tokens: B, horizon, proprio_dim + 2 * state_embedding_dim
+            network_cond = torch.cat([proprio, state_embeddings, goal_seq], dim=-1)
 
         return network_cond
