@@ -41,9 +41,6 @@ PyTree = T | Iterable["PyTree[T]"] | Mapping[Any, "PyTree[T]"]
 TensorTree: TypeAlias = torch.Tensor | Mapping[str, "TensorTree"]
 """A tensor, or an arbitrarily nested mapping of tensors."""
 
-NestedTensorMapping: TypeAlias = Mapping[str, Mapping[str, torch.Tensor]]
-"""A 2-level nested mapping of tensors, e.g., environment observation state dicts."""
-
 RawTree: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any] | Mapping[str, "RawTree"]
 """A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
 
@@ -68,6 +65,22 @@ def is_mapping_of(object: Any, key_type: type[K], value_type: type[V]) -> TypeGu
     )
 
 
+def get_tensor(tree: Mapping[str, TensorTree], key: str) -> torch.Tensor:
+    """Look up `key`, asserting the result is a leaf tensor (not a further nested mapping)."""
+    value = tree[key]
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"Expected a Tensor at key {key!r}, got {type(value).__name__}.")
+    return value
+
+
+def get_subtree(tree: Mapping[str, TensorTree], key: str) -> Mapping[str, TensorTree]:
+    """Look up `key`, asserting the result is a nested mapping (not a leaf tensor)."""
+    value = tree[key]
+    if not isinstance(value, Mapping):
+        raise TypeError(f"Expected a nested mapping at key {key!r}, got {type(value).__name__}.")
+    return value
+
+
 __all__ = [
     "DataModule",
     "DiffusionSchedulerProtocol",
@@ -78,7 +91,8 @@ __all__ = [
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
     "TensorTree",
-    "NestedTensorMapping",
     "RawTree",
     "DimSpec",
+    "get_tensor",
+    "get_subtree",
 ]

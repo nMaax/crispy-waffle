@@ -10,6 +10,8 @@ if typing.TYPE_CHECKING:
     from torch import nn
     from torch.utils.data import DataLoader
 
+    from policy.utils.typing_utils import TensorTree
+
 P = ParamSpec("P")
 OutT = TypeVar("OutT", covariant=True)
 
@@ -179,7 +181,7 @@ class DiffusionSchedulerProtocol(Protocol):
 class AdapterProtocol(Protocol):
     """Protocol for adapters used during rollouts."""
 
-    def apply(self, obs: torch.Tensor | dict[str, Any]) -> torch.Tensor | dict[str, Any]:
+    def apply(self, obs: TensorTree) -> TensorTree:
         """Adapts the given observation to be compatible with the policy's expected input."""
         ...
 

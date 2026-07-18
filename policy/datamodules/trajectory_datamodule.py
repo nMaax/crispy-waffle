@@ -10,10 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
 from policy.transforms import (
-    DictFlattener,
-    ManiSkillStateDeFlattener,
-    PnPCanonicalizer,
-    RemoveProprioVel,
+    observation_pipeline,
 )
 from policy.utils.h5_utils import peek_trajectory_is_dataset
 
@@ -106,27 +103,14 @@ class TrajectoryDataModule(L.LightningDataModule):
             train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
-            transforms = []
-
             is_flat = self._is_raw_obs_flat()
-
-            if is_flat and (self.canonicalize or self.no_proprio_vel or self.as_dict):
-                transforms.append(ManiSkillStateDeFlattener(self.env_id))
-
-            if self.canonicalize:
-                transforms.append(PnPCanonicalizer(self.env_id))
-
-            if self.no_proprio_vel:
-                transforms.append(RemoveProprioVel())
-
-            if not self.as_dict:
-                if (not is_flat) or (len(transforms) > 0):
-                    transforms.append(DictFlattener())
-
-            def obs_transform(obs):
-                for t in transforms:
-                    obs = t(obs)
-                return obs
+            obs_transform = observation_pipeline(
+                env_id=self.env_id,
+                is_flat=is_flat,
+                canonicalize=self.canonicalize,
+                as_dict=self.as_dict,
+                no_proprio_vel=self.no_proprio_vel,
+            )
 
         if stage == "fit" or stage is None:
             if self.train_set is None:

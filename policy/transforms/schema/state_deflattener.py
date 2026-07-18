@@ -37,6 +37,9 @@ class ManiSkillStateDeFlattener:
         return schema
 
     @overload
+    def __call__(self, obs: TensorTree) -> TensorTree: ...
+
+    @overload
     def __call__(self, obs: torch.Tensor) -> dict[str, TensorTree]: ...
 
     @overload
@@ -48,9 +51,7 @@ class ManiSkillStateDeFlattener:
     @overload
     def __call__(self, obs: Mapping[str, RawTree]) -> Mapping[str, RawTree]: ...
 
-    def __call__(
-        self, obs: np.ndarray | torch.Tensor | Mapping[str, Any]
-    ) -> dict[str, Any] | Mapping[str, Any]:
+    def __call__(self, obs: np.ndarray | torch.Tensor | Mapping[str, Any]) -> Any:
         if isinstance(obs, Mapping):
             return obs
         else:

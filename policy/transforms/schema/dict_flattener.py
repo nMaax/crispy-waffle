@@ -12,6 +12,9 @@ class DictFlattener:
     last dimension."""
 
     @overload
+    def __call__(self, obs: TensorTree) -> torch.Tensor: ...
+
+    @overload
     def __call__(self, obs: torch.Tensor) -> torch.Tensor: ...
 
     @overload
@@ -23,9 +26,7 @@ class DictFlattener:
     @overload
     def __call__(self, obs: Mapping[str, RawTree]) -> torch.Tensor | np.ndarray: ...
 
-    def __call__(
-        self, obs: Mapping[str, Any] | torch.Tensor | np.ndarray
-    ) -> torch.Tensor | np.ndarray:
+    def __call__(self, obs: Mapping[str, Any] | torch.Tensor | np.ndarray) -> Any:
         if not isinstance(obs, Mapping):
             return obs
 
@@ -43,9 +44,7 @@ class DictFlattener:
         else:
             raise TypeError(f"Unsupported leaf type: {type(first)}")
 
-    def _get_leaves(
-        self, data: Mapping[str, Any]
-    ) -> list[torch.Tensor | np.ndarray]:
+    def _get_leaves(self, data: Mapping[str, Any]) -> list[torch.Tensor | np.ndarray]:
         leaves: list[torch.Tensor | np.ndarray] = []
         for value in data.values():
             if isinstance(value, Mapping):

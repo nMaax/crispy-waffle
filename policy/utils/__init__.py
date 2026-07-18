@@ -1,3 +1,4 @@
+from .functional_utils import compose
 from .utils import (
     concat_leaf_tensors,
     flatten_and_concat_leaf_tensors,
@@ -13,6 +14,7 @@ from .utils import (
 )
 
 __all__ = [
+    "compose",
     "concat_leaf_tensors",
     "flatten_and_concat_leaf_tensors",
     "get_batch_size",

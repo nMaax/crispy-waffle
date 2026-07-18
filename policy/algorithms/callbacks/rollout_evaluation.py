@@ -20,9 +20,7 @@ from tqdm import tqdm
 import policy.environments  # noqa: F401
 from policy.adapters.no_op_adapter import NoOpAdapter
 from policy.transforms import (
-    DictFlattener,
-    ManiSkillStateDeFlattener,
-    PnPCanonicalizer,
+    observation_pipeline,
 )
 from policy.utils import to_tensor
 from policy.utils.typing_utils import (
@@ -316,23 +314,12 @@ class RolloutEvaluationCallback(L.Callback):
             pl_module.reset()
 
         is_flat = not isinstance(env.observation_space, gym.spaces.Dict)
-
-        rollout_transforms = []
-
-        if is_flat and (self.canonicalize or self.as_dict):
-            rollout_transforms.append(ManiSkillStateDeFlattener(self.env_id))
-
-        if self.canonicalize:
-            rollout_transforms.append(PnPCanonicalizer(self.env_id))
-
-        if not self.as_dict:
-            if (not is_flat) or (len(rollout_transforms) > 0):
-                rollout_transforms.append(DictFlattener())
-
-        def apply_transforms(x):
-            for t in rollout_transforms:
-                x = t(x)
-            return x
+        apply_transforms = observation_pipeline(
+            env_id=self.env_id,
+            is_flat=is_flat,
+            canonicalize=bool(self.canonicalize),
+            as_dict=bool(self.as_dict),
+        )
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
         obs = apply_transforms(obs)

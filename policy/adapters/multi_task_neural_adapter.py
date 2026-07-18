@@ -3,8 +3,8 @@ from collections.abc import Sequence
 import torch
 
 from policy.algorithms.multi_task_state_aligner import MultiTaskStateAligner
-from policy.transforms import PnPCanonicalizer
-from policy.utils.typing_utils import AdapterProtocol
+from policy.transforms import observation_pipeline
+from policy.utils.typing_utils import AdapterProtocol, TensorTree
 
 
 class MultiTaskNeuralAdapter(AdapterProtocol):
@@ -28,22 +28,19 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
                 raise ValueError("The loaded model does not have a task_mapping attribute.")
 
         self.task_idx = task_mapping[task_name]
-
-        self.pnp_canonicalizer = PnPCanonicalizer(task_name)
-
         self.passthrough_mapping = passthrough_mapping
 
-    def apply(
-        self, obs: torch.Tensor | dict[str, torch.Tensor]
-    ) -> torch.Tensor | dict[str, torch.Tensor]:
-        if isinstance(obs, dict):
-            return self._apply_to_dict(obs)
-        else:
-            return self._apply_to_tensor(obs)
+    def apply(self, obs: TensorTree) -> TensorTree:
+        is_flat = isinstance(obs, torch.Tensor)
+        canonicalize = observation_pipeline(
+            self.task_name, is_flat=is_flat, canonicalize=True, as_dict=False
+        )
+        with torch.no_grad():
+            canonical_obs = canonicalize(obs)
+        assert isinstance(canonical_obs, torch.Tensor)
+        return self._run_model(canonical_obs)
 
-    def _apply_to_tensor(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = self.pnp_canonicalizer(obs)
-
+    def _run_model(self, obs: torch.Tensor) -> torch.Tensor:
         # If obs is unbatched [39], task_idx must be a scalar []
         # If obs is batched [B, 39], task_idx must be [B]
         if obs.dim() == 1:
@@ -70,6 +67,3 @@ class MultiTaskNeuralAdapter(AdapterProtocol):
             result = prediction
 
         return result
-
-    def _apply_to_dict(self, obs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        raise NotImplementedError("LearnedMLPAdapter does not support dict observations yet.")

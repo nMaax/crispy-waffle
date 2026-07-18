@@ -1,10 +1,8 @@
-from collections.abc import Callable
-
 import lightning.pytorch as L
-import torch
 from torch.utils.data import DataLoader
 
 from policy.datasets import AlignedStatesDataset, TrajectoryDataset
+from policy.utils.typing_utils import AdapterProtocol
 
 from .trajectory_datamodule import TrajectoryDataModule
 
@@ -15,7 +13,7 @@ class AlignedStatesDataModule(L.LightningDataModule):
     def __init__(
         self,
         base_datamodule: TrajectoryDataModule,
-        adapter: Callable[[torch.Tensor], torch.Tensor],
+        adapter: AdapterProtocol,
         batch_size: int = 256,
         num_workers: int = 4,
         pin_memory: bool = True,

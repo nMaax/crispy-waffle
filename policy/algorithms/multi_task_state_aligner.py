@@ -8,7 +8,10 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
-from policy.transforms import ZScoreNormalizer
+from policy.transforms import (
+    ZScoreNormalizer,
+    observation_pipeline,
+)
 from policy.utils.typing_utils import HydraConfigFor
 
 
@@ -143,9 +146,17 @@ class MultiTaskStateAligner(L.LightningModule):
                     x_ep = torch.from_numpy(traj["obs"])
 
                 with torch.no_grad():
-                    canonical_x = task_dataset.pnp_canonicalizer(x_ep)
+                    canonicalize = observation_pipeline(
+                        task_dataset.env_id,
+                        is_flat=True,
+                        canonicalize=True,
+                        as_dict=False,
+                    )
+                    canonical_x = canonicalize(x_ep)
                     target_y = task_dataset.base_translator_dataset.adapter.apply(x_ep)
 
+                assert isinstance(canonical_x, torch.Tensor)
+                assert isinstance(target_y, torch.Tensor)
                 all_x.append(canonical_x)
                 all_y.append(target_y)
 
