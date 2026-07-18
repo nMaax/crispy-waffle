@@ -1,71 +1,60 @@
+"""Visualize Goal-Conditioned Diffusion Policy state embeddings using PCA, t-SNE, and UMAP."""
+
 import argparse
 import json
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 from policy.algorithms.goal_conditioned_diffusion_policy_mlp import (
     GoalConditionedDiffusionPolicyMLP,
 )
 
 
-def detect_key_moments(obs):
-    # obs shape: [L, 48]
-    tcp_to_cubeA = obs[:, 39:42]
-    cubeA_pos = obs[:, 25:28]
-    # cubeB_pos = obs[:, 32:35]
-    cubeA_to_cubeB = obs[:, 45:48]
+def detect_key_moments(obs: np.ndarray) -> dict[str, int]:
+    """Detect frame indices for grab, midair, and placement semantic stages."""
+    tcp_to_cube_a = obs[:, 39:42]
+    cube_a_pos = obs[:, 25:28]
+    cube_a_to_cube_b = obs[:, 45:48]
 
-    L = len(obs)
+    seq_len = len(obs)
 
-    # 1. Grab moment
-    # Find when Cube A starts rising
-    z_A = cubeA_pos[:, 2]
-    z_A_init = z_A[0]
-    z_A_diff = z_A - z_A_init
+    z_a = cube_a_pos[:, 2]
+    z_a_init = z_a[0]
+    z_a_diff = z_a - z_a_init
 
-    # Find first frame where z_A rises by more than 5mm
-    lift_frames = np.where(z_A_diff > 0.005)[0]
-    if len(lift_frames) > 0:
-        t_lift = lift_frames[0]
-    else:
-        t_lift = L // 2
+    lift_frames = np.where(z_a_diff > 0.005)[0]
+    t_lift = int(lift_frames[0]) if len(lift_frames) > 0 else seq_len // 2
 
-    # Grab frame is the one with minimal TCP-to-CubeA distance before t_lift
-    dist_tcp_A = np.linalg.norm(tcp_to_cubeA, axis=-1)
-    t_grab = int(np.argmin(dist_tcp_A[:t_lift]))
+    dist_tcp_a = np.linalg.norm(tcp_to_cube_a, axis=-1)
+    t_grab = int(np.argmin(dist_tcp_a[:t_lift]))
 
-    # 2. Placement moment
-    # We want Cube A to be on top of Cube B: cubeA_pos - cubeB_pos ≈ [0, 0, 0.04]
-    # So cubeA_to_cubeB (which is cubeB - cubeA) ≈ [0, 0, -0.04]
     target_rel = np.array([0.0, 0.0, -0.04])
-    place_err = np.linalg.norm(cubeA_to_cubeB - target_rel, axis=-1)
+    place_err = np.linalg.norm(cube_a_to_cube_b - target_rel, axis=-1)
 
-    # Find frames after t_lift where the error is small
-    valid_place_frames = np.where((place_err < 0.02) & (np.arange(L) > t_grab))[0]
+    valid_place_frames = np.where((place_err < 0.02) & (np.arange(seq_len) > t_grab))[0]
     if len(valid_place_frames) > 0:
-        t_place = valid_place_frames[0]
+        t_place = int(valid_place_frames[0])
     else:
-        # Fallback to the minimum place error after t_grab
         t_place = int(t_grab + np.argmin(place_err[t_grab:]))
 
-    # 3. Mid-air moment
-    # Somewhere between grab and place where Cube A is highest
     if t_place > t_grab + 1:
-        t_midair = int(t_grab + np.argmax(z_A[t_grab:t_place]))
+        t_midair = int(t_grab + np.argmax(z_a[t_grab:t_place]))
     else:
         t_midair = (t_grab + t_place) // 2
 
     return {"grab": t_grab, "midair": t_midair, "place": t_place}
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Visualize Goal-Conditioned Diffusion Policy state embeddings using PCA, t-SNE, and UMAP."
     )
@@ -91,7 +80,7 @@ def parse_args():
         "--frames",
         type=str,
         default="0%,25%,50%,75%,100%",
-        help="Comma-separated list of frame indices (e.g. 0,50,-1) or relative percentages (e.g. 0%%,25%%,50%%,75%%,100%%) to highlight.",
+        help="Comma-separated list of frame indices or percentages (e.g., 0%%,25%%,50%%,75%%,100%%).",
     )
     parser.add_argument(
         "--frame_idx", type=int, default=None, help="Deprecated: use --frames instead."
@@ -112,86 +101,81 @@ def parse_args():
         "--save_path",
         type=str,
         default=None,
-        help="Path to save the generated plot. If None, it is dynamically generated to avoid overwriting.",
+        help="Path to save generated plot.",
     )
     parser.add_argument(
         "--equal_aspect",
         action="store_true",
         default=False,
-        help="Ensure equal aspect ratio for the axes to prevent shape distortion (defaults to False).",
+        help="Ensure equal aspect ratio for plot axes.",
     )
     parser.add_argument(
         "--xlim",
         type=str,
         default=None,
-        help="Custom X-axis limits as 'min,max' (e.g. '-10,10'). If not specified, limits are auto-scaled.",
+        help="Custom X-axis limits as 'min,max'.",
     )
     parser.add_argument(
         "--ylim",
         type=str,
         default=None,
-        help="Custom Y-axis limits as 'min,max' (e.g. '-10,10'). If not specified, limits are auto-scaled.",
+        help="Custom Y-axis limits as 'min,max'.",
     )
     parser.add_argument(
         "--show",
         action="store_true",
         default=False,
-        help="Spawn an interactive window to view and explore the plots.",
+        help="Display plot in an interactive window.",
     )
     parser.add_argument(
         "--reducer",
         type=str,
         default="all",
         choices=["all", "pca", "tsne", "umap"],
-        help="Dimensionality reduction method to run and plot (choices: all, pca, tsne, umap; default: all).",
+        help="Dimensionality reduction method (all, pca, tsne, umap).",
     )
     parser.add_argument(
         "--highlight_stages",
         action="store_true",
         default=True,
-        help="Automatically detect and highlight key semantic stages (Grab, Mid-air, Place) of the task.",
+        help="Highlight key semantic stages (Grab, Mid-air, Place).",
     )
     parser.add_argument(
         "--no_highlight_stages",
         action="store_false",
         dest="highlight_stages",
-        help="Disable automatic highlight of key stages and fallback to relative frames.",
+        help="Disable automatic stage highlights.",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     return parser.parse_args()
 
 
-def main():
+def parse_limits(limit_str: str | None, name: str) -> list[float] | None:
+    """Parse comma-separated min,max limits."""
+    if not limit_str:
+        return None
+    try:
+        limits = [float(x) for x in limit_str.split(",")]
+        if len(limits) != 2:
+            raise ValueError
+        return limits
+    except ValueError:
+        print(f"Error: --{name} must be in the format 'min,max'")
+        sys.exit(1)
+
+
+def main() -> None:
     args = parse_args()
 
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    env_id = "UnknownTask"
     status_str = "unknown"
     t_place = -1
 
-    # Parse custom axis limits
-    xlim = None
-    if args.xlim:
-        try:
-            xlim = [float(x) for x in args.xlim.split(",")]
-            if len(xlim) != 2:
-                raise ValueError
-        except ValueError:
-            print("Error: --xlim must be in the format 'min,max'")
-            sys.exit(1)
-
-    ylim = None
-    if args.ylim:
-        try:
-            ylim = [float(y) for y in args.ylim.split(",")]
-            if len(ylim) != 2:
-                raise ValueError
-        except ValueError:
-            print("Error: --ylim must be in the format 'min,max'")
-            sys.exit(1)
+    xlim = parse_limits(args.xlim, "xlim")
+    ylim = parse_limits(args.ylim, "ylim")
 
     ckpt_path = Path(args.ckpt_path)
     if not ckpt_path.exists():
@@ -205,10 +189,14 @@ def main():
 
     print(f"Loading checkpoint from: {ckpt_path}")
     try:
-        ckpt = torch.load(ckpt_path, map_location="cpu")
-        act_dim = ckpt["hyper_parameters"]["act_dim"]
-        network_config = dict(ckpt["hyper_parameters"]["network"])
-        network_config["act_dim"] = act_dim
+        checkpoint_data: dict[str, Any] = torch.load(
+            ckpt_path, map_location="cpu", weights_only=False
+        )
+        hparams = checkpoint_data.get("hyper_parameters", {})
+        act_dim = hparams.get("act_dim")
+        network_config = dict(hparams.get("network", {}))
+        if act_dim is not None:
+            network_config["act_dim"] = act_dim
 
         model = GoalConditionedDiffusionPolicyMLP.load_from_checkpoint(
             ckpt_path,
@@ -220,7 +208,6 @@ def main():
         print(f"Error loading model: {e}")
         sys.exit(1)
 
-    # Look for hydra config next to checkpoint
     hydra_dir = ckpt_path.parent.parent / ".hydra"
     config_file = hydra_dir / "config.yaml"
 
@@ -236,24 +223,17 @@ def main():
             cfg = OmegaConf.load(config_file)
             print(f"Loaded Hydra run config from: {config_file}")
 
-            # Extract parameters with fallback
             if "seed" in cfg:
-                seed = cfg.seed
+                seed = int(cfg.seed)
             if "datamodule" in cfg:
-                val_split = cfg.datamodule.get("val_split", val_split)
-                load_count = cfg.datamodule.get("load_count", load_count)
-                success_only = cfg.datamodule.get("success_only", success_only)
-
-            print(
-                f"Extracted split parameters: seed={seed}, val_split={val_split}, load_count={load_count}, success_only={success_only}"
-            )
+                val_split = float(cfg.datamodule.get("val_split", val_split))
+                load_count = int(cfg.datamodule.get("load_count", load_count))
+                success_only = bool(cfg.datamodule.get("success_only", success_only))
         except Exception as e:
-            print(f"Warning: Could not parse Hydra config. Using CLI defaults. Error: {e}")
+            print(f"Warning: Could not parse Hydra config ({e}). Using CLI defaults.")
 
-    train_ids = []
-    val_ids = []
-
-    # Initialize env_id based on folder path as a smart default
+    train_ids: list[int] = []
+    val_ids: list[int] = []
     env_id = dataset_path.parent.parent.name
 
     json_path = dataset_path.with_suffix(".json")
@@ -261,7 +241,7 @@ def main():
         try:
             with open(json_path) as f:
                 meta = json.load(f)
-                all_episodes = meta["episodes"]
+                all_episodes = meta.get("episodes", [])
                 env_id = meta.get("env_info", {}).get("env_id", env_id)
 
             if success_only:
@@ -283,9 +263,8 @@ def main():
             val_ids = [int(ep["episode_id"]) for ep in val_episodes]
 
             print(
-                f"Deterministic split: {len(train_ids)} train episodes, {len(val_ids)} validation episodes."
+                f"Deterministic split: {len(train_ids)} train episodes, {len(val_ids)} val episodes."
             )
-            print(f"Available Validation Episode IDs (first 15): {sorted(val_ids)[:15]}")
         except Exception as e:
             print(f"Warning: Error during train/val split calculation: {e}")
 
@@ -296,96 +275,74 @@ def main():
                 [k for k in f.keys() if k.startswith("traj_")], key=lambda x: int(x.split("_")[1])
             )
 
-        print(f"Found {len(traj_keys)} episodes in the dataset.")
+        print(f"Found {len(traj_keys)} episodes in dataset.")
 
-        # Check if episode_idx refers to an actual episode_id
         target_key = f"traj_{args.episode_idx}"
-        if target_key in traj_keys:
-            print(f"Selected target episode by ID: {target_key}")
-        else:
-            # Fallback to index in list
+        if target_key not in traj_keys:
             if args.episode_idx >= len(traj_keys) or args.episode_idx < -len(traj_keys):
-                print(
-                    f"Error: episode_idx {args.episode_idx} is out of bounds (0 to {len(traj_keys) - 1})."
-                )
+                print(f"Error: episode_idx {args.episode_idx} is out of bounds.")
                 sys.exit(1)
             target_key = traj_keys[args.episode_idx]
-            print(f"Selected target episode by index in list: {target_key}")
 
-        # Print train/val status of target episode
         target_id = int(target_key.split("_")[1])
         if train_ids or val_ids:
             if target_id in val_ids:
-                status = "VALIDATION (unseen/test)"
                 status_str = "validation"
             elif target_id in train_ids:
-                status = "TRAINING (seen)"
                 status_str = "training"
             else:
-                status = "OUT OF SPLIT (unused/filtered)"
                 status_str = "unused"
-            print(f"Target episode status: {status}")
+            print(f"Target episode status: {status_str.upper()}")
 
         with h5py.File(dataset_path, "r") as f:
-            target_obs = np.array(f[target_key]["obs"])  # type: ignore
+            target_grp = f[target_key]
+            if not isinstance(target_grp, h5py.Group):
+                raise ValueError(f"Expected HDF5 group for {target_key}")
 
-        # Select background keys
-        bg_keys = [k for k in traj_keys if k != target_key]
-        if len(bg_keys) > args.num_background_episodes:
-            bg_keys = random.sample(bg_keys, args.num_background_episodes)
+            target_obs: np.ndarray = np.asarray(target_grp["obs"])
 
-        print(f"Loading {len(bg_keys)} background episodes...")
-        bg_obs_list = []
-        with h5py.File(dataset_path, "r") as f:
+            bg_keys = [k for k in traj_keys if k != target_key]
+            if len(bg_keys) > args.num_background_episodes:
+                bg_keys = random.sample(bg_keys, args.num_background_episodes)
+
+            bg_obs_list: list[np.ndarray] = []
             for k in bg_keys:
-                bg_obs_list.append(np.array(f[k]["obs"]))  # type: ignore
+                bg_grp = f[k]
+                if isinstance(bg_grp, h5py.Group):
+                    bg_obs_list.append(np.asarray(bg_grp["obs"]))
 
     except Exception as e:
         print(f"Error reading dataset: {e}")
         sys.exit(1)
 
-    # Process target episode indices
-    L = len(target_obs)
-
+    seq_len = len(target_obs)
     goal_frame_idx = args.goal_frame_idx
     if goal_frame_idx < 0:
-        goal_frame_idx = L + goal_frame_idx
-    goal_frame_idx = max(0, min(goal_frame_idx, L - 1))
+        goal_frame_idx = seq_len + goal_frame_idx
+    goal_frame_idx = max(0, min(goal_frame_idx, seq_len - 1))
 
-    highlight_frames = []
-    semantic_stages = []
+    highlight_frames: list[tuple[int, str]] = []
+    semantic_stages: list[tuple[int, str, str]] = []
 
     if args.highlight_stages:
-        print("Detecting key semantic stages...")
         moments = detect_key_moments(target_obs)
         t_grab = moments["grab"]
         t_midair = moments["midair"]
         t_place = moments["place"]
 
-        print(f"Detected stages: Grab={t_grab}, Mid-air={t_midair}, Place={t_place}")
         semantic_stages.append((0, "Start", "#94a3b8"))
         semantic_stages.append((t_grab, "Grab", "#06b6d4"))
         semantic_stages.append((t_midair, "Mid-air", "#3b82f6"))
 
-        # Check if placement is very close to the goal (avoid overlaps)
-        if (goal_frame_idx - t_place) >= max(5, int(0.15 * L)):
+        if (goal_frame_idx - t_place) >= max(5, int(0.15 * seq_len)):
             semantic_stages.append((t_place, "Place", "#10b981"))
     else:
-        # If --frames is specified, use it. Otherwise if frame_idx is specified, use that.
         frames_str = args.frames
         if args.frame_idx is not None and not (
             args.frames and args.frames != "0%,25%,50%,75%,100%"
         ):
-            # If user explicitly passed frame_idx, we override the default frames
-            highlight_frames.append(
-                (
-                    max(
-                        0,
-                        min(args.frame_idx if args.frame_idx >= 0 else L + args.frame_idx, L - 1),
-                    ),
-                    f"t={args.frame_idx}",
-                )
-            )
+            idx = args.frame_idx if args.frame_idx >= 0 else seq_len + args.frame_idx
+            highlight_frames.append((max(0, min(idx, seq_len - 1)), f"t={args.frame_idx}"))
         else:
             for f_str in frames_str.split(","):
                 f_str = f_str.strip()
@@ -394,143 +351,115 @@ def main():
                 if f_str.endswith("%"):
                     try:
                         pct = float(f_str[:-1])
-                        idx = int(round((pct / 100.0) * (L - 1)))
-                        idx = max(0, min(idx, L - 1))
-                        highlight_frames.append((idx, f_str))
+                        idx = int(round((pct / 100.0) * (seq_len - 1)))
+                        highlight_frames.append((max(0, min(idx, seq_len - 1)), f_str))
                     except ValueError:
-                        print(f"Warning: Could not parse percentage '{f_str}', skipping.")
+                        pass
                 else:
                     try:
                         idx = int(f_str)
                         if idx < 0:
-                            idx = L + idx
-                        idx = max(0, min(idx, L - 1))
-                        highlight_frames.append((idx, f"t={idx}"))
+                            idx = seq_len + idx
+                        highlight_frames.append((max(0, min(idx, seq_len - 1)), f"t={idx}"))
                     except ValueError:
-                        print(f"Warning: Could not parse frame index '{f_str}', skipping.")
+                        pass
 
-    print(f"Target episode length: {L} frames.")
-    if args.highlight_stages:
-        print("Semantic stages:")
-        for idx, label, color in semantic_stages:
-            print(f"  - {label} -> index {idx}")
-    else:
-        print("Highlighted frames:")
-        for idx, label in highlight_frames:
-            print(f"  - {label} -> index {idx}")
-    print(f"Goal frame index: {goal_frame_idx}")
-
-    # Extract embeddings
-    print("Extracting embeddings...")
+    print(f"Extracting embeddings for episode length {seq_len}...")
     with torch.no_grad():
-        # Target episode
         target_obs_t = torch.tensor(target_obs, dtype=torch.float32)
         target_emb_dict = model.extract_embeddings(target_obs_t)
-        target_embs = target_emb_dict["obs_embeddings"].numpy()  # Shape: [L, state_embedding_dim]
+        target_embs: np.ndarray = target_emb_dict["obs_embeddings"].detach().cpu().numpy()
 
-        # Background episodes
-        bg_embs_list = []
-        for bg_obs in bg_obs_list:
-            bg_obs_t = torch.tensor(bg_obs, dtype=torch.float32)
-            bg_embs_list.append(model.extract_embeddings(bg_obs_t)["obs_embeddings"].numpy())
-        bg_embs = np.concatenate(
-            bg_embs_list, axis=0
-        )  # Shape: [Total_bg_len, state_embedding_dim]
+        bg_embs_list: list[np.ndarray] = [
+            model.extract_embeddings(torch.tensor(obs, dtype=torch.float32))["obs_embeddings"]
+            .detach()
+            .cpu()
+            .numpy()
+            for obs in bg_obs_list
+        ]
+        bg_embs: np.ndarray = (
+            np.concatenate(bg_embs_list, axis=0)
+            if bg_embs_list
+            else np.empty((0, target_embs.shape[1]))
+        )
 
-    print(f"Extracted target embeddings shape: {target_embs.shape}")
-    print(f"Extracted background embeddings shape: {bg_embs.shape}")
-
-    # Prepare data for dimensionality reduction
-    all_embs = np.concatenate([bg_embs, target_embs], axis=0)
+    all_embs: np.ndarray = np.concatenate([bg_embs, target_embs], axis=0)
     split_idx = len(bg_embs)
-
-    # Convert reducer choice to lowercase
     reducer_choice = args.reducer.lower()
+    embeddings_2d_dict: dict[str, np.ndarray] = {}
 
-    # Dimensionality Reduction
-    embeddings_2d_dict = {}
-
-    # PCA
     if reducer_choice in ("all", "pca"):
-        print("Running PCA...")
         try:
             from sklearn.decomposition import PCA
 
             pca = PCA(n_components=2, random_state=args.seed)
-            embeddings_2d_dict["PCA"] = pca.fit_transform(all_embs)
-            print("PCA completed.")
+            embeddings_2d_dict["PCA"] = np.asarray(pca.fit_transform(all_embs))
         except Exception as e:
-            print(f"Failed to run PCA: {e}")
+            print(f"PCA failed: {e}")
 
-    # t-SNE
     if reducer_choice in ("all", "tsne"):
-        print("Running t-SNE...")
         try:
             from sklearn.manifold import TSNE
 
             tsne = TSNE(
-                n_components=2, random_state=args.seed, perplexity=min(30, len(all_embs) // 3)
+                n_components=2,
+                random_state=args.seed,
+                perplexity=min(30, max(1, len(all_embs) // 3)),
             )
-            embeddings_2d_dict["t-SNE"] = tsne.fit_transform(all_embs)
-            print("t-SNE completed.")
+            embeddings_2d_dict["t-SNE"] = np.asarray(tsne.fit_transform(all_embs))
         except Exception as e:
-            print(f"Failed to run t-SNE: {e}")
+            print(f"t-SNE failed: {e}")
 
-    # UMAP
     if reducer_choice in ("all", "umap"):
-        print("Running UMAP...")
         try:
             import umap
 
             reducer = umap.UMAP(
-                n_components=2, random_state=args.seed, n_neighbors=min(15, len(all_embs) // 2)
+                n_components=2,
+                random_state=args.seed,
+                n_neighbors=min(15, max(2, len(all_embs) // 2)),
             )
-            embeddings_2d_dict["UMAP"] = reducer.fit_transform(all_embs)
-            print("UMAP completed.")
+            embeddings_2d_dict["UMAP"] = np.asarray(reducer.fit_transform(all_embs))
         except Exception as e:
-            print(f"Failed to run UMAP (make sure 'umap-learn' is installed): {e}")
-            print("UMAP plot will be skipped.")
+            print(f"UMAP failed: {e}")
 
     if not embeddings_2d_dict:
         print("Error: No dimensionality reduction method succeeded.")
         sys.exit(1)
 
-    # Setup styling (dark mode)
-    plt.rcParams["figure.facecolor"] = "#0f172a"
-    plt.rcParams["axes.facecolor"] = "#1e293b"
-    plt.rcParams["text.color"] = "#f8fafc"
-    plt.rcParams["axes.labelcolor"] = "#94a3b8"
-    plt.rcParams["xtick.color"] = "#64748b"
-    plt.rcParams["ytick.color"] = "#64748b"
-    plt.rcParams["grid.color"] = "#334155"
-    plt.rcParams["grid.alpha"] = 0.5
+    plt.rcParams.update(
+        {
+            "figure.facecolor": "#0f172a",
+            "axes.facecolor": "#1e293b",
+            "text.color": "#f8fafc",
+            "axes.labelcolor": "#94a3b8",
+            "xtick.color": "#64748b",
+            "ytick.color": "#64748b",
+            "grid.color": "#334155",
+            "grid.alpha": 0.5,
+        }
+    )
 
     num_plots = len(embeddings_2d_dict)
-    fig, axes = plt.subplots(1, num_plots, figsize=(6 * num_plots, 6.5), squeeze=False)
-    axes = axes[0]  # flatten to 1D array of axes
+    fig, axes_raw = plt.subplots(1, num_plots, figsize=(6 * num_plots, 6.5), squeeze=False)
+    axes = axes_raw[0]
 
-    # Colormap for time
     cmap = plt.get_cmap("viridis")
-    norm = plt.Normalize(0, L - 1)
+    norm = plt.Normalize(0, seq_len - 1)
 
-    plot_idx = 0
-    for name, coords_2d in embeddings_2d_dict.items():
+    for plot_idx, (name, coords_2d) in enumerate(embeddings_2d_dict.items()):
         ax = axes[plot_idx]
-
         bg_coords = coords_2d[:split_idx]
         target_coords = coords_2d[split_idx:]
 
-        # Plot background points, coloring each background episode subtly and drawing a thin line
         current_idx = 0
         bg_cmap = plt.get_cmap("tab20")
         for bg_i, bg_obs in enumerate(bg_obs_list):
             bg_len = len(bg_obs)
             bg_ep_coords = bg_coords[current_idx : current_idx + bg_len]
             current_idx += bg_len
-
             color = bg_cmap(bg_i % 20)
 
-            # Draw subtle path line
             ax.plot(
                 bg_ep_coords[:, 0],
                 bg_ep_coords[:, 1],
@@ -539,7 +468,6 @@ def main():
                 linewidth=0.5,
                 zorder=1,
             )
-            # Draw scattered points
             ax.scatter(
                 bg_ep_coords[:, 0],
                 bg_ep_coords[:, 1],
@@ -551,14 +479,15 @@ def main():
                 zorder=2,
             )
 
-        # 2. Plot target episode path as a line with time gradient
         points = target_coords.reshape(-1, 1, 2)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
-        lc = LineCollection(segments, cmap=cmap, norm=norm, linewidths=1.5, alpha=0.85, zorder=3)  # type: ignore
-        lc.set_array(np.arange(L - 1))
+        lc = LineCollection(
+            segments.tolist(), cmap=cmap, norm=norm, linewidths=1.5, alpha=0.85, zorder=3
+        )
+        lc.set_array(np.arange(seq_len - 1))
+        ax.add_collection(lc)
 
-        # Highlight key frames or semantic stages
         if args.highlight_stages:
             plotted_stage = False
             for idx, label, color in semantic_stages:
@@ -576,8 +505,6 @@ def main():
                     zorder=6,
                 )
                 plotted_stage = True
-
-                # Annotate stage (slim text with matching color)
                 ax.annotate(
                     label,
                     (target_coords[idx, 0], target_coords[idx, 1]),
@@ -606,8 +533,6 @@ def main():
                     zorder=6,
                 )
                 plotted_keyframe = True
-
-                # Annotate key frame (slim text with no border/box)
                 ax.annotate(
                     label,
                     (target_coords[idx, 0], target_coords[idx, 1]),
@@ -620,7 +545,6 @@ def main():
                     zorder=7,
                 )
 
-        # Highlight goal frame
         ax.scatter(
             target_coords[goal_frame_idx, 0],
             target_coords[goal_frame_idx, 1],
@@ -633,10 +557,9 @@ def main():
             zorder=8,
         )
 
-        # Determine the label for the goal state
         goal_label = f"Goal (Frame {goal_frame_idx})"
         if args.highlight_stages:
-            if (goal_frame_idx - t_place) < max(5, int(0.15 * L)):
+            if (goal_frame_idx - t_place) < max(5, int(0.15 * seq_len)):
                 goal_label = "Place / Goal"
         else:
             for idx, label in highlight_frames:
@@ -644,7 +567,6 @@ def main():
                     goal_label = f"Goal ({label})"
                     break
 
-        # Annotate goal state (slim text with no border/box)
         ax.annotate(
             goal_label,
             (target_coords[goal_frame_idx, 0], target_coords[goal_frame_idx, 1]),
@@ -662,11 +584,9 @@ def main():
         ax.set_xlabel("Dimension 1", fontsize=11, labelpad=8)
         ax.set_ylabel("Dimension 2", fontsize=11, labelpad=8)
 
-        # Apply aspect ratio
         if args.equal_aspect:
             ax.set_aspect("equal", adjustable="box")
 
-        # Set axis limits
         if xlim is not None:
             ax.set_xlim(xlim[0], xlim[1])
         else:
@@ -681,15 +601,9 @@ def main():
             y_pad = (all_y.max() - all_y.min()) * 0.05
             ax.set_ylim(all_y.min() - y_pad, all_y.max() + y_pad)
 
-        plot_idx += 1
-
-    # Create a single legend at the bottom of the figure
     handles, labels = axes[0].get_legend_handles_labels()
-    # Also add the path colormap legend item
-    from matplotlib.lines import Line2D
-
     path_handle = Line2D(
-        [0], [0], color=cmap(0.5), lw=2.5, label="Target Episode Path (Time $\\rightarrow$)"
+        [0], [0], color=cmap(0.5), lw=2.5, label=r"Target Episode Path (Time $\rightarrow$)"
     )
     handles.insert(1, path_handle)
 
@@ -704,7 +618,6 @@ def main():
         fontsize=11,
     )
 
-    # Title and Metadata text
     dataset_name = dataset_path.name
     fig.suptitle(
         f"Goal-Conditioned Diffusion Policy ({env_id}) MLP Latent Embeddings\n"
@@ -715,15 +628,14 @@ def main():
         y=0.96,
     )
 
-    # Adjust layout
     plt.tight_layout(rect=(0, 0.08, 1, 0.88))
 
-    # Determine save path and ensure directory exists
     if args.save_path is None:
-        if args.highlight_stages:
-            slug = "stages"
-        else:
-            slug = args.frames.replace("%", "pct").replace(",", "_").replace(" ", "")
+        slug = (
+            "stages"
+            if args.highlight_stages
+            else args.frames.replace("%", "pct").replace(",", "_").replace(" ", "")
+        )
         save_path = (
             Path("scripts/figures") / f"embeddings_ep{args.episode_idx}_{status_str}_{slug}.png"
         )
@@ -731,12 +643,11 @@ def main():
         save_path = Path(args.save_path)
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
-
     plt.savefig(save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none")
     print(f"Visualization saved successfully to: {save_path.resolve()}")
 
     if args.show:
-        print("Spawning interactive plot window. Close the window to exit...")
+        print("Spawning interactive plot window...")
         plt.show()
 
     plt.close()
