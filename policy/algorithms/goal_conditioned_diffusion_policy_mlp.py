@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -29,7 +29,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
                     f"Proprioception dimension in spec ({self.obs_dim['proprio']}) does not match proprio_dim ({proprio_dim})."
                 )
 
-            calc_task_dim = sum(v for k, v in self.obs_dim.items() if k != "proprio")
+            calc_task_dim = sum(cast(int, v) for k, v in self.obs_dim.items() if k != "proprio")
             if calc_task_dim != task_dim:
                 raise ValueError(
                     f"Task dimension calculated from spec ({calc_task_dim}) does not match task_dim ({task_dim})."
@@ -210,9 +210,7 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             )  # B, horizon * embedding_dim
 
             # Concatenate all together: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-            network_cond = torch.cat(
-                [proprio_seq, flat_state_embeddings, goal_embedding], dim=-1
-            )
+            network_cond = torch.cat([proprio_seq, flat_state_embeddings, goal_embedding], dim=-1)
         else:
             # Broadcast goal embedding across horizon: B, horizon, state_embedding_dim
             goal_seq = goal_embedding.unsqueeze(1).expand(-1, self.obs_horizon, -1)

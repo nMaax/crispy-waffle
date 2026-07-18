@@ -7,11 +7,11 @@ import hydra_zen
 import torch
 import torch.nn.functional as F
 
-from policy.algorithms import DiffusionPolicy
+from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.utils import concat_leaf_tensors, get_batch_size
 
 
-class BesoPolicy(DiffusionPolicy):
+class BesoPolicy(BaseDiffusionAgent):
     """Trains a BESO diffusion model to predict action sequences from observation histories.
 
     BESO as in Goal-Conditioned Imitation Learning using Score-based Diffusion Policies, Reuss et al. (2023)
