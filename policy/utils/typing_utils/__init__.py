@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, NewType, TypeGuard
+from typing import Any, NewType, TypeAlias, TypeGuard
 
+import numpy as np
+import torch
 from hydra_zen.typing import Builds
 from typing_extensions import TypeVar
 
@@ -36,6 +38,15 @@ HydraConfigFor = Builds[type[T]]
 NestedMapping = Mapping[K, V | "NestedMapping[K, V]"]
 PyTree = T | Iterable["PyTree[T]"] | Mapping[Any, "PyTree[T]"]
 
+TensorTree: TypeAlias = torch.Tensor | Mapping[str, "TensorTree"]
+"""A tensor, or an arbitrarily nested mapping of tensors."""
+
+RawTree: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any] | Mapping[str, "RawTree"]
+"""A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
+
+DimSpec: TypeAlias = int | torch.Tensor | Mapping[str, "DimSpec"]
+"""A dimension specification: an integer, tensor, or nested mapping of dimensions."""
+
 
 def is_sequence_of(
     object: Any, item_type: type[V] | tuple[type[V], ...]
@@ -63,4 +74,7 @@ __all__ = [
     "DiffusionNetworkProtocol",
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
+    "TensorTree",
+    "RawTree",
+    "DimSpec",
 ]

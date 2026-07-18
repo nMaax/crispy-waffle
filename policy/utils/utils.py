@@ -12,6 +12,8 @@ import torch
 from lightning_utilities.core.rank_zero import rank_zero_info
 from omegaconf import DictConfig, OmegaConf
 
+from policy.utils.typing_utils import DimSpec, RawTree, TensorTree
+
 logger = get_logger(__name__)
 
 
@@ -98,17 +100,15 @@ def print_mapping_tree(
 
 
 def to_tensor(
-    data: Mapping[str, Any] | np.ndarray | torch.Tensor | Sequence[Any],
+    data: RawTree,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
-) -> dict[str, Any] | torch.Tensor:
-    """Recursively converts a nested mapping of numpy arrays to a nested dictionary of tensors."""
+) -> TensorTree:
+    """Recursively converts a nested raw data tree to a nested dictionary of tensors."""
     if isinstance(data, Mapping):
         return {k: to_tensor(v, device=device, dtype=dtype) for k, v in data.items()}
     else:
-        tensor = torch.as_tensor(data, device=device, dtype=dtype)
-
-    return tensor
+        return torch.as_tensor(data, device=device, dtype=dtype)
 
 
 def recursive_index(data: Any, idx: Any) -> Any:
@@ -147,7 +147,7 @@ def get_batch_size(data: Mapping[str, Any] | torch.Tensor) -> int:
     raise ValueError("data must contain at least one tensor")
 
 
-def get_total_dim(data: Any) -> int:
+def get_total_dim(data: DimSpec | Any) -> int:
     """Recursively sums the last dimension of leaf structures.
 
     Accepts PyTorch tensors, configuration Mappings containing a 'shape' key, or raw shape
@@ -177,7 +177,7 @@ def get_total_dim(data: Any) -> int:
     raise TypeError(f"Unsupported type for dimension extraction: {type(data)}")
 
 
-def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
+def get_device(data: TensorTree) -> torch.device:
     """Recursively finds the device from a nested mapping of tensors."""
     if isinstance(data, torch.Tensor):
         return data.device
@@ -186,18 +186,18 @@ def get_device(data: Mapping[str, Any] | torch.Tensor) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
-def stack_dicts(trees: list) -> dict | torch.Tensor:
-    """Recursively stacks a list of nested dictionaries of tensors into a single nested dictionary
-    of tensors."""
+def stack_dicts(trees: Sequence[TensorTree]) -> TensorTree:
+    """Recursively stacks a sequence of nested dictionaries of tensors into a single nested
+    dictionary of tensors."""
     first = trees[0]
-    if isinstance(first, dict):
+    if isinstance(first, Mapping):
         return {k: stack_dicts([t[k] for t in trees]) for k in first}
     else:
         return torch.cat(trees, dim=0)
 
 
 def concat_leaf_tensors(
-    data: Mapping[str, Any] | torch.Tensor,
+    data: TensorTree,
     dim: int = -1,
     device: torch.device | None = None,
     preprocess: Callable[[torch.Tensor], torch.Tensor] | None = None,
@@ -221,7 +221,7 @@ def concat_leaf_tensors(
 
 
 def flatten_and_concat_leaf_tensors(
-    data: Mapping[str, Any] | torch.Tensor, device: torch.device | None = None
+    data: TensorTree, device: torch.device | None = None
 ) -> torch.Tensor:
     """Recursively flattens all leaf tensors starting from dimension 1, then concatenates them."""
     return concat_leaf_tensors(

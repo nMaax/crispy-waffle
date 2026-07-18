@@ -4,6 +4,8 @@ from typing import overload
 import torch
 import torch.nn as nn
 
+from policy.utils.typing_utils import DimSpec, TensorTree
+
 
 class ZScoreNormalizer(nn.Module):
     """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors.
@@ -27,7 +29,7 @@ class ZScoreNormalizer(nn.Module):
     _running_mean: torch.Tensor | None
     _running_M2: torch.Tensor | None
 
-    def __init__(self, spec: int | torch.Tensor | Mapping):
+    def __init__(self, spec: DimSpec):
         super().__init__()
 
         if not isinstance(spec, Mapping):
@@ -52,25 +54,31 @@ class ZScoreNormalizer(nn.Module):
         else:
             return self._is_fit
 
-    def fit(self, data: torch.Tensor | dict):
-        """Fits the normalizer to the data, computing mean and std."""
+    def fit(self, data: TensorTree):
+        """Fits the normalizer on the provided dataset or batch of data."""
         if not isinstance(data, Mapping):
+            if self.mean.ndim == 0:
+                raise ValueError("Cannot fit normalizer with zero-dimensional target buffer")
+
             data_flat = data.reshape(-1, data.shape[-1])
-            self.mean.copy_(data_flat.mean(dim=0))
-            self.std.copy_(data_flat.std(dim=0).clamp(min=1e-6))
+            mean = data_flat.mean(dim=0)
+            std = data_flat.std(dim=0)
+
+            # Avoid divide-by-zero for constant features by setting std=1
+            std = torch.where(std < 1e-6, torch.ones_like(std), std)
+
+            self.mean.copy_(mean)
+            self.std.copy_(std)
             self._is_fit.fill_(True)
         else:
             for key, norm in self.norms.items():
                 norm.fit(data[key])
 
-    def fit_incremental(self, data_iterator: Iterable[torch.Tensor | dict]) -> None:
-        """Fits the normalizer incrementally using an iterator of data (e.g. trajectories).
-
-        This avoids loading the entire dataset into memory.
-        """
+    def fit_incremental(self, data: Iterable[TensorTree]):
+        """Fits the normalizer incrementally on batches using Welford's algorithm."""
         self._init_running_stats()
-        for item in data_iterator:
-            self._update_running_stats(item)
+        for batch in data:
+            self._update_running_stats(batch)
         self._finalize_running_stats()
 
     def _init_running_stats(self) -> None:
@@ -82,49 +90,55 @@ class ZScoreNormalizer(nn.Module):
             for norm in self.norms.values():
                 norm._init_running_stats()
 
-    def _update_running_stats(self, data: torch.Tensor | dict) -> None:
-        if not hasattr(self, "norms"):
-            if not isinstance(data, torch.Tensor):
-                data = torch.as_tensor(data)
-            x_flat = data.reshape(-1, data.shape[-1]).to(torch.float64)
-            n_B = x_flat.shape[0]
-            if n_B == 0:
+    def _update_running_stats(self, data: TensorTree):
+        if not isinstance(data, Mapping):
+            assert isinstance(data, torch.Tensor), "Expected Tensor data for leaf normalizer"
+            data_flat = data.reshape(-1, data.shape[-1])
+
+            count_batch = data_flat.shape[0]
+            if count_batch == 0:
                 return
 
-            mean_B = x_flat.mean(dim=0)
-            M2_B = torch.sum((x_flat - mean_B) ** 2, dim=0)
+            mean_batch = data_flat.mean(dim=0)
+            M2_batch = ((data_flat - mean_batch) ** 2).sum(dim=0)
 
-            if self._n == 0:
-                self._n = n_B
-                self._running_mean = mean_B
-                self._running_M2 = M2_B
+            if not hasattr(self, "_n") or self._running_mean is None or self._running_M2 is None:
+                self._n = count_batch
+                self._running_mean = mean_batch
+                self._running_M2 = M2_batch
             else:
-                n_X = self._n + n_B
-                delta = mean_B - self._running_mean
-                self._running_mean = self._running_mean + delta * (n_B / n_X)
-                self._running_M2 = self._running_M2 + M2_B + (delta**2) * (self._n * n_B / n_X)
-                self._n = n_X
+                n_old = self._n
+                n_new = n_old + count_batch
+
+                delta = mean_batch - self._running_mean
+                self._running_mean = self._running_mean + delta * (count_batch / n_new)
+
+                self._running_M2 = (
+                    self._running_M2 + M2_batch + (delta**2) * (n_old * count_batch / n_new)
+                )
+                self._n = n_new
         else:
             assert isinstance(data, Mapping), "Expected dict data for nested normalizer"
             for key, norm in self.norms.items():
                 norm._update_running_stats(data[key])
 
-    def _finalize_running_stats(self) -> None:
+    def _finalize_running_stats(self):
         if not hasattr(self, "norms"):
-            if self._n > 1:
-                assert self._running_mean is not None
-                assert self._running_M2 is not None
-                mean = self._running_mean.to(self.mean.dtype)
-                var = self._running_M2 / (self._n - 1)
-                std = torch.sqrt(var).to(self.std.dtype).clamp(min=1e-6)
-                self.mean.copy_(mean.to(self.mean.device))
-                self.std.copy_(std.to(self.std.device))
-                self._is_fit.fill_(True)
-            elif self._n == 1:
-                assert self._running_mean is not None
-                mean = self._running_mean.to(self.mean.dtype)
-                self.mean.copy_(mean.to(self.mean.device))
+            if not hasattr(self, "_n") or self._n == 0 or self._running_mean is None:
+                return
+
+            if self._n == 1:
+                self.mean.copy_(self._running_mean)
                 self.std.fill_(1.0)
+                self._is_fit.fill_(True)
+            elif self._running_M2 is not None:
+                mean = self._running_mean
+                var = self._running_M2 / (self._n - 1)
+                std = torch.sqrt(var)
+                std = torch.where(std < 1e-6, torch.ones_like(std), std)
+
+                self.mean.copy_(mean)
+                self.std.copy_(std)
                 self._is_fit.fill_(True)
 
             if hasattr(self, "_n"):
@@ -141,9 +155,9 @@ class ZScoreNormalizer(nn.Module):
     def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @overload
-    def normalize(self, x: Mapping) -> dict: ...
+    def normalize(self, x: Mapping[str, TensorTree]) -> dict[str, TensorTree]: ...
 
-    def normalize(self, x: torch.Tensor | Mapping) -> torch.Tensor | dict:
+    def normalize(self, x: TensorTree) -> TensorTree:
         """Normalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
             if self.is_fit:
@@ -157,10 +171,10 @@ class ZScoreNormalizer(nn.Module):
     def unnormalize(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @overload
-    def unnormalize(self, x: dict) -> dict: ...
+    def unnormalize(self, x: Mapping[str, TensorTree]) -> dict[str, TensorTree]: ...
 
-    def unnormalize(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
-        """Unnormalizes the input tensor or dict of tensors using the fitted mean and std."""
+    def unnormalize(self, x: TensorTree) -> TensorTree:
+        """Unnormalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
             if self.is_fit:
                 return (x * self.std) + self.mean
@@ -173,9 +187,9 @@ class ZScoreNormalizer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @overload
-    def forward(self, x: dict) -> dict: ...
+    def forward(self, x: Mapping[str, TensorTree]) -> dict[str, TensorTree]: ...
 
-    def forward(self, x: torch.Tensor | dict) -> torch.Tensor | dict:
-        """Forward pass for the normalizer, which normalizes the input tensor or dict of
+    def forward(self, x: TensorTree) -> TensorTree:
+        """Forward pass for the normalizer, which normalizes the input tensor or mapping of
         tensors."""
         return self.normalize(x)
