@@ -4,6 +4,7 @@ import torch
 
 from policy.datasets.trajectory_dataset import TrajectoryDataset
 from policy.utils import recursive_index, to_tensor
+from policy.utils.typing_utils import TensorTree
 
 
 class GoalConditionedTrajectoryDataset(TrajectoryDataset):
@@ -11,7 +12,7 @@ class GoalConditionedTrajectoryDataset(TrajectoryDataset):
         super().__init__(*args, **kwargs)
         self.her_ratio = her_ratio
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, TensorTree]:
         batch = super().__getitem__(idx)
 
         traj_idx, obs_start, obs_end, act_start, act_end, L = self.slices[idx]

@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 
 from policy.utils import print_mapping_tree, to_tensor
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
+from policy.utils.typing_utils import TensorTree
 
 
 class TrajectoryDataset(Dataset):
@@ -33,7 +34,7 @@ class TrajectoryDataset(Dataset):
         load_count: int = -1,
         success_only: bool = False,
         lazy: bool = False,
-        obs_transform: Callable[[dict | torch.Tensor], dict | torch.Tensor] | None = None,
+        obs_transform: Callable[[TensorTree], TensorTree] | None = None,
     ):
         super().__init__()
 
