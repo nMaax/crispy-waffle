@@ -56,3 +56,19 @@ def peek_trajectory_dimension(
             raise TypeError(f"Expected data to be an HDF5 group or dataset, got {type(data)}")
 
         return extract_h5_shapes(item)
+
+
+def peek_trajectory_is_dataset(
+    dataset_file: str | Path, dimension_key: str = "obs", episode_key: str | None = None
+) -> bool:
+    """Peeks at an HDF5 trajectory to check if a key is a flat Dataset (True) or a Group
+    (False)."""
+    with h5py.File(dataset_file, "r") as f:
+        if episode_key is None:
+            episode_key = list(f.keys())[0]
+        node = f[episode_key]
+        if not isinstance(node, h5py.Group):
+            raise TypeError(f"Expected an h5py.Group, got {type(node)!r}")
+        if dimension_key not in node:
+            raise KeyError(f"Key '{dimension_key}' not found in trajectory group {episode_key}.")
+        return isinstance(node[dimension_key], h5py.Dataset)

@@ -15,6 +15,7 @@ from policy.transforms import (
     PnPCanonicalizer,
     RemoveProprioVel,
 )
+from policy.utils.h5_utils import peek_trajectory_is_dataset
 
 
 class TrajectoryDataModule(L.LightningDataModule):
@@ -302,12 +303,4 @@ class TrajectoryDataModule(L.LightningDataModule):
     def _is_raw_obs_flat(self) -> bool:
         """Peeks at the HDF5 file structure to determine if raw observations are flat tensors or
         dictionaries."""
-        import h5py
-
-        with h5py.File(self.dataset_file, "r") as f:
-            first_key = list(f.keys())[0]
-            node = f[first_key]
-            if not isinstance(node, h5py.Group):
-                raise TypeError(f"Expected an h5py.Group, got {type(node)!r}")
-            obs_node = node["obs"]
-            return isinstance(obs_node, h5py.Dataset)
+        return peek_trajectory_is_dataset(self.dataset_file, dimension_key="obs")
