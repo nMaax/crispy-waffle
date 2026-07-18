@@ -153,15 +153,20 @@ def get_total_dim(data: DimSpec | Any) -> int:
     Accepts PyTorch tensors, configuration Mappings containing a 'shape' key, or raw shape
     descriptors (tuples, integers).
     """
-    # Handle actual Tensors (or objects with a .shape attribute)
-    if hasattr(data, "shape"):
+    # Handle actual Tensors
+    if isinstance(data, torch.Tensor):
         return int(data.shape[-1])
 
     # Handle Mappings
     if isinstance(data, Mapping):
         if "shape" in data:
-            # It's a metadata mapping describing a shape, e.g., {"shape": (32, 128)}
-            return int(data["shape"][-1])
+            shape_val = data["shape"]
+            if isinstance(shape_val, int):
+                return shape_val
+            elif isinstance(shape_val, Sequence | torch.Tensor):
+                return int(shape_val[-1])
+            else:
+                raise TypeError(f"Unexpected 'shape' value type: {type(shape_val)}")
         else:
             # It's a nested container, recurse into values
             return sum(get_total_dim(v) for v in data.values())
@@ -191,9 +196,18 @@ def stack_dicts(trees: Sequence[TensorTree]) -> TensorTree:
     dictionary of tensors."""
     first = trees[0]
     if isinstance(first, Mapping):
-        return {k: stack_dicts([t[k] for t in trees]) for k in first}
+        sub_trees_by_key: dict[str, list[TensorTree]] = {k: [] for k in first}
+        for t in trees:
+            assert isinstance(t, Mapping), f"Expected element to be a Mapping, got {type(t)}"
+            for k in first:
+                sub_trees_by_key[k].append(t[k])
+        return {k: stack_dicts(v) for k, v in sub_trees_by_key.items()}
     else:
-        return torch.cat(trees, dim=0)
+        tensor_list: list[torch.Tensor] = []
+        for t in trees:
+            assert isinstance(t, torch.Tensor), f"Expected element to be a Tensor, got {type(t)}"
+            tensor_list.append(t)
+        return torch.cat(tensor_list, dim=0)
 
 
 def concat_leaf_tensors(
