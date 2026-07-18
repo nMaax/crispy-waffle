@@ -41,6 +41,9 @@ PyTree = T | Iterable["PyTree[T]"] | Mapping[Any, "PyTree[T]"]
 TensorTree: TypeAlias = torch.Tensor | Mapping[str, "TensorTree"]
 """A tensor, or an arbitrarily nested mapping of tensors."""
 
+NestedTensorMapping: TypeAlias = Mapping[str, Mapping[str, torch.Tensor]]
+"""A 2-level nested mapping of tensors, e.g., environment observation state dicts."""
+
 RawTree: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any] | Mapping[str, "RawTree"]
 """A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
 
@@ -75,6 +78,7 @@ __all__ = [
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
     "TensorTree",
+    "NestedTensorMapping",
     "RawTree",
     "DimSpec",
 ]

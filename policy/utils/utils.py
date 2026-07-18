@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from logging import getLogger as get_logger
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 import rich
@@ -122,9 +122,23 @@ def recursive_index(data: Any, idx: Any) -> Any:
     return data
 
 
-def slice_by_schema(state: np.ndarray | torch.Tensor, schema: Mapping) -> Mapping:
+@overload
+def slice_by_schema(
+    state: torch.Tensor, schema: Mapping[str, Any]
+) -> dict[str, TensorTree]: ...
+
+
+@overload
+def slice_by_schema(
+    state: np.ndarray, schema: Mapping[str, Any]
+) -> dict[str, RawTree]: ...
+
+
+def slice_by_schema(
+    state: np.ndarray | torch.Tensor, schema: Mapping[str, Any]
+) -> dict[str, Any]:
     """Recursively slices a state array or tensor according to a Mapping schema of index tuples."""
-    result = {}
+    result: dict[str, Any] = {}
     for key, val in schema.items():
         if isinstance(val, Mapping):
             result[key] = slice_by_schema(state, val)
