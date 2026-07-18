@@ -1,4 +1,5 @@
 defaults:
   - mlp
+
 hidden_dims: []
 bias: false
