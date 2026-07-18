@@ -7,7 +7,7 @@ from mani_skill.utils import common
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
-from mani_skill.utils.structs.pose import Pose
+from mani_skill.utils.structs import Link, Pose
 
 
 @register_env("StackCubeWithSphereAndBin-v1", max_episode_steps=50)
@@ -150,8 +150,8 @@ class StackCubeWithSphereAndBinEnv(StackCubeEnv):
         if self.agent is None:
             raise ValueError("Agent is not initialized yet. Cannot compute observations.")
 
-        if not hasattr(self.agent, "tcp") or self.agent.tcp is None:
-            raise ValueError("Agent does not have a TCP. Cannot compute observations.")
+        if not hasattr(self.agent, "tcp") or not isinstance(self.agent.tcp, Link):
+            raise ValueError("Agent does not have a TCP Link. Cannot compute observations.")
 
         obs = dict(tcp_pose=self.agent.tcp.pose.raw_pose)
         if "state" in self.obs_mode:

@@ -1,6 +1,7 @@
 import torch
 from mani_skill.envs.tasks.tabletop.stack_cube import StackCubeEnv
 from mani_skill.utils.registration import register_env
+from mani_skill.utils.structs import Link
 
 
 @register_env("PlaceCubeLeft-v1", max_episode_steps=50)
@@ -51,6 +52,7 @@ class PlaceCubeLeftEnv(StackCubeEnv):
 
     def compute_dense_reward(self, obs, action, info):
         # reaching reward
+        assert isinstance(self.agent.tcp, Link)
         tcp_pose = self.agent.tcp.pose.p
         cubeA_pos = self.cubeA.pose.p
         cubeA_to_tcp_dist = torch.linalg.norm(tcp_pose - cubeA_pos, axis=1)
@@ -70,7 +72,7 @@ class PlaceCubeLeftEnv(StackCubeEnv):
         # ungrasp and static reward
         gripper_width = (self.agent.robot.get_qlimits()[0, -1, 1] * 2).to(self.device)
         is_cubeA_grasped = info["is_cubeA_grasped"]
-        ungrasp_reward = torch.sum(self.agent.robot.get_qpos()[:, -2:], axis=1) / gripper_width
+        ungrasp_reward = torch.sum(self.agent.robot.get_qpos()[:, -2:], dim=1) / gripper_width
         ungrasp_reward[~is_cubeA_grasped] = 1.0
         v = torch.linalg.norm(self.cubeA.linear_velocity, axis=1)
         av = torch.linalg.norm(self.cubeA.angular_velocity, axis=1)

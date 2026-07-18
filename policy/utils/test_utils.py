@@ -80,7 +80,7 @@ def get_config_loader():
     AutoSchemaPlugin = None
     backup = None
     try:
-        from hydra_plugins.auto_schema.auto_schema_plugin import (
+        from hydra_plugins.auto_schema.auto_schema_plugin import (  # type: ignore
             AutoSchemaPlugin,
         )
 
@@ -237,7 +237,7 @@ def get_all_configs_in_group_of_type(
             continue
         for t in config_target_type:
             if (
-                issubclass(t, typing.Protocol) and _matches_protocol(object_type, t)
+                issubclass(t, typing.Protocol) and _matches_protocol(object_type, t)  # type: ignore
             ) or issubclass(object_type, t):
                 compatible_config_names.append(name)
                 break

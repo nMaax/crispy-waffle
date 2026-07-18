@@ -51,8 +51,9 @@ class StackCubeEnv(ManiSkillStackCubeEnv):
         goal_cube_B_pos = cube_B_pos.clone()
         goal_cube_B_quat = cube_B_quat.clone()
 
+        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
         goal_cube_A_pos = cube_B_pos.clone()
-        goal_cube_A_pos[..., 2] += self.cube_half_size[2] * 2
+        goal_cube_A_pos[..., 2] += cube_half_size[2] * 2
         goal_cube_A_quat = cube_B_quat.clone()  # Keep same orientation for simplicity
 
         # Goal: TCP is at Cube A's position, slightly above

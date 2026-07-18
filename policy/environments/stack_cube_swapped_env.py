@@ -1,6 +1,7 @@
 import torch
 from mani_skill.envs.tasks.tabletop.stack_cube import StackCubeEnv
 from mani_skill.utils.registration import register_env
+from mani_skill.utils.structs import Link
 
 
 @register_env("StackCubeSwapped-v1", max_episode_steps=50)
@@ -32,11 +33,12 @@ class StackCubeSwappedEnv(StackCubeEnv):
 
         offset = pos_B - pos_A
 
+        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
         xy_flag = (
             torch.linalg.norm(offset[..., :2], axis=1)
-            <= torch.linalg.norm(self.cube_half_size[:2]) + 0.005
+            <= torch.linalg.norm(cube_half_size[:2]) + 0.005
         )
-        z_flag = torch.abs(offset[..., 2] - self.cube_half_size[..., 2] * 2) <= 0.005
+        z_flag = torch.abs(offset[..., 2] - cube_half_size[..., 2] * 2) <= 0.005
         is_cubeB_on_cubeA = torch.logical_and(xy_flag, z_flag)
 
         is_cubeB_static = self.cubeB.is_static(lin_thresh=1e-2, ang_thresh=0.5)
@@ -53,6 +55,7 @@ class StackCubeSwappedEnv(StackCubeEnv):
 
     def compute_dense_reward(self, obs, action, info):
         # reaching reward (robot to Cube B)
+        assert isinstance(self.agent.tcp, Link)
         tcp_pose = self.agent.tcp.pose.p
         cubeB_pos = self.cubeB.pose.p
         cubeB_to_tcp_dist = torch.linalg.norm(tcp_pose - cubeB_pos, axis=1)
@@ -60,8 +63,9 @@ class StackCubeSwappedEnv(StackCubeEnv):
 
         # grasp and place reward (Cube B onto Cube A)
         cubeA_pos = self.cubeA.pose.p
+        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
         goal_xyz = torch.hstack(
-            [cubeA_pos[:, 0:2], (cubeA_pos[:, 2] + self.cube_half_size[2] * 2)[:, None]]
+            [cubeA_pos[:, 0:2], (cubeA_pos[:, 2] + cube_half_size[2] * 2)[:, None]]
         )
         cubeB_to_goal_dist = torch.linalg.norm(goal_xyz - cubeB_pos, axis=1)
         place_reward = 1 - torch.tanh(5.0 * cubeB_to_goal_dist)
@@ -71,7 +75,7 @@ class StackCubeSwappedEnv(StackCubeEnv):
         # ungrasp and static reward
         gripper_width = (self.agent.robot.get_qlimits()[0, -1, 1] * 2).to(self.device)
         is_cubeB_grasped = info["is_cubeB_grasped"]
-        ungrasp_reward = torch.sum(self.agent.robot.get_qpos()[:, -2:], axis=1) / gripper_width
+        ungrasp_reward = torch.sum(self.agent.robot.get_qpos()[:, -2:], dim=1) / gripper_width
         ungrasp_reward[~is_cubeB_grasped] = 1.0
 
         v = torch.linalg.norm(self.cubeB.linear_velocity, axis=1)
@@ -115,8 +119,9 @@ class StackCubeSwappedEnv(StackCubeEnv):
         goal_cube_A_pos = cube_A_pos.clone()
         goal_cube_A_quat = cube_A_quat.clone()
 
+        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
         goal_cube_B_pos = cube_A_pos.clone()
-        goal_cube_B_pos[..., 2] += self.cube_half_size[2] * 2
+        goal_cube_B_pos[..., 2] += cube_half_size[2] * 2
         goal_cube_B_quat = cube_A_quat.clone()  # Keep same orientation for simplicity
 
         # Goal: TCP is at Cube B's position, slightly above

@@ -4,7 +4,7 @@ from mani_skill.envs.utils import randomization
 from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
-from mani_skill.utils.structs import Pose
+from mani_skill.utils.structs import Link, Pose
 
 from .place_sphere_panda_wristcam_env import PlaceSphereWristcamEnv
 
@@ -114,8 +114,8 @@ class PlaceSphereWristcamWithCubesEnv(PlaceSphereWristcamEnv):
         if self.agent is None:
             raise ValueError("Agent is not initialized yet. Cannot compute observations.")
 
-        if not hasattr(self.agent, "tcp") or self.agent.tcp is None:
-            raise ValueError("Agent does not have a TCP. Cannot compute observations.")
+        if not hasattr(self.agent, "tcp") or not isinstance(self.agent.tcp, Link):
+            raise ValueError("Agent does not have a TCP Link. Cannot compute observations.")
 
         obs = dict(tcp_pose=self.agent.tcp.pose.raw_pose)
         if "state" in self.obs_mode:
