@@ -8,6 +8,7 @@ from .utils import (
     print_mapping_tree,
     recursive_index,
     slice_by_schema,
+    stack_dicts,
     to_tensor,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "print_mapping_tree",
     "recursive_index",
     "slice_by_schema",
+    "stack_dicts",
     "to_tensor",
     "get_total_dim",
 ]

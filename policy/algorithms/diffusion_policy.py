@@ -2,7 +2,6 @@ import functools
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-import h5py
 import hydra_zen
 import lightning as L
 import omegaconf
@@ -19,11 +18,9 @@ from policy.utils import (
     flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_total_dim,
-    to_tensor,
+    stack_dicts,
 )
-from policy.utils.h5_utils import load_h5_data
 from policy.utils.typing_utils import DiffusionSchedulerProtocol, HydraConfigFor, PolicyProtocol
-from policy.utils.utils import stack_dicts
 
 
 class DiffusionPolicy(L.LightningModule, PolicyProtocol):
@@ -324,9 +321,6 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
                 "Action normalizer is None. Make sure to set the action normalizer before training."
             )
 
-        if self.normalizer.is_fit and self.action_normalizer.is_fit:
-            return
-
         dm = getattr(self.trainer, "datamodule", None)
         if dm is None:
             raise ValueError(
@@ -340,38 +334,27 @@ class DiffusionPolicy(L.LightningModule, PolicyProtocol):
         if train_set.lazy:
             if not self.normalizer.is_fit:
 
-                def trajectory_obs_generator():
-                    for i in range(len(train_set.trajectories)):
-                        yield train_set.get_trajectory_obs(i)
+                def obs_generator():
+                    for item in train_set:
+                        yield item["obs_seq"]
 
-                self.normalizer.fit_incremental(trajectory_obs_generator())
+                self.normalizer.fit_incremental(obs_generator())
 
             if not self.action_normalizer.is_fit:
 
-                def trajectory_act_generator():
-                    for traj in train_set.trajectories:
-                        ep_id = traj["episode_id"]
-                        h5_traj = train_set.h5_file[f"traj_{ep_id}"]
-                        act_node = h5_traj["actions"]
-                        if isinstance(act_node, h5py.Group):
-                            act_ep = load_h5_data(act_node)
-                        else:
-                            act_ep = act_node[:]
-                        yield to_tensor(act_ep)
+                def act_generator():
+                    for item in train_set:
+                        yield item["act_seq"]
 
-                self.action_normalizer.fit_incremental(trajectory_act_generator())
+                self.action_normalizer.fit_incremental(act_generator())
         else:
             if not self.normalizer.is_fit:
-                all_obs = [
-                    train_set.get_trajectory_obs(i) for i in range(len(train_set.trajectories))
-                ]
-                stacked_obs = stack_dicts(all_obs)
-                self.normalizer.fit(stacked_obs)
+                all_obs = [item["obs_seq"] for item in train_set]
+                self.normalizer.fit(stack_dicts(all_obs))
 
             if not self.action_normalizer.is_fit:
-                all_act = [to_tensor(traj["actions"]) for traj in train_set.trajectories]
-                stacked_act = stack_dicts(all_act)
-                self.action_normalizer.fit(stacked_act)
+                all_act = [item["act_seq"] for item in train_set]
+                self.action_normalizer.fit(stack_dicts(all_act))
 
     def _run_diffusion_loop(
         self,

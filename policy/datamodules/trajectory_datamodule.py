@@ -283,10 +283,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         return final_left_mask, final_right_mask
 
     def _create_dataset(self, episodes, left_mask, right_mask, obs_transform):
-        """Factory method to instantiate the dataset.
-
-        Overridden by subclasses.
-        """
+        """Creates a TrajectoryDataset instance with the given episodes and padding masks."""
         return TrajectoryDataset(
             dataset_file=self.dataset_file,
             obs_horizon=self.obs_horizon,
