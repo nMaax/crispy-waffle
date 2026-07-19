@@ -1,4 +1,4 @@
 finetune_planner:
   _target_: policy.algorithms.callbacks.finetune_planner.FinetunePlannerCallback
-  unet_unfreeze_step: 500 # Set to null if you want it frozen forever
-  unet_lr: 1e-6
+  unfreeze_step: 500 # Set to null if you want it frozen forever
+  backbone_lr: 1e-6
