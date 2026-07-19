@@ -94,6 +94,7 @@ class TrajectoryDataModule(L.LightningDataModule):
 
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
+        self.test_set: Dataset | None = None
 
     # TODO: Lightning interface also provides the `prepare_data()` method which I could use to download and replay necessary trajectories
 
@@ -167,6 +168,10 @@ class TrajectoryDataModule(L.LightningDataModule):
         )
 
     def test_dataloader(self):
+        if self.test_set is None:
+            raise TypeError(
+                "It appears you asked for a dataloader without setting up a Dataset first. Call setup() first."
+            )
         return DataLoader(self.test_set, batch_size=1)
 
     def _load_metadata_from_json(self):

@@ -203,6 +203,7 @@ class TestManiSkillDataLoaders:
     def test_test_dataloader_is_dummy(self, datamodule_factory):
         """Verifies the test dataloader correctly yields the DummyDataset."""
         dm = datamodule_factory()
+        dm.setup("test")
         test_loader = dm.test_dataloader()
 
         assert isinstance(test_loader.dataset, DummyDataset)

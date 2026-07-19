@@ -9,7 +9,7 @@ from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
 
 
-@pytest.mark.parametrize("algorithm_config", ["diffusion"], indirect=True)
+@pytest.mark.parametrize("algorithm_config", ["diffusion_policy"], indirect=True)
 @pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)
 class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
     """Test suite for the DiffusionPolicy.
