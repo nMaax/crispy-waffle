@@ -60,6 +60,19 @@ markers = [
   "parametrize_when_used: Parametrize a test only when the argument is used.",
 ]
 
+[tool.coverage.run]
+omit = [
+  "tests/*",
+  "*/tests/*",
+  "src/test_*.py",
+  "venv/*",
+  "*/migrations/*",
+  "scripts/*",
+  "*/scripts/*",
+  "policy/adapters/*",
+  "policy/*/*aligner*",
+]
+
 [tool.ruff]
 line-length = 99
 indent-width = 4
