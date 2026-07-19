@@ -48,11 +48,14 @@ def get_constant(*names: str):
                 continue
             return obj
         parts = name.split(".")
-        obj = importlib.import_module(parts[0])
-        for part in parts[1:]:
-            obj = getattr(obj, part)
-        if obj is not None:
-            return obj
+        try:
+            obj = importlib.import_module(parts[0])
+            for part in parts[1:]:
+                obj = getattr(obj, part)
+            if obj is not None:
+                return obj
+        except (ModuleNotFoundError, AttributeError):
+            pass
         logger.debug(f"Value of {name} is None, moving on to the next value.")
 
     if len(names) == 1:

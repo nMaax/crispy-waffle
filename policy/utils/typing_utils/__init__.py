@@ -57,8 +57,8 @@ RawLeaf: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any]
 RawTree: TypeAlias = Tree[RawLeaf]
 """A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
 
-DimSpec: TypeAlias = int | torch.Tensor | Mapping[str, "DimSpec"]
-"""A dimension specification: an integer, tensor, or nested mapping of dimensions."""
+DimSpec: TypeAlias = int | torch.Tensor | Sequence[int] | Mapping[str, "DimSpec"]
+"""A dimension specification: an integer, tensor, shape sequence, or nested mapping of dimensions."""
 
 IndexRange: TypeAlias = tuple[int, int]
 """An index range tuple (start, end) defining a slice along an axis."""

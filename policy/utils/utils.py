@@ -174,7 +174,7 @@ def get_total_dim(data: DimSpec) -> int:
             shape_val = data["shape"]
             if isinstance(shape_val, int):
                 return shape_val
-            elif isinstance(shape_val, Sequence | torch.Tensor):
+            elif isinstance(shape_val, Sequence | torch.Tensor) and not isinstance(shape_val, str):
                 return int(shape_val[-1])
             else:
                 raise TypeError(f"Unexpected 'shape' value type: {type(shape_val)}")
@@ -187,8 +187,10 @@ def get_total_dim(data: DimSpec) -> int:
         return int(data[-1])
 
     # Handle raw integer dimension sizes, e.g., 256
-    if isinstance(data, int):
+    if isinstance(data, int) and not isinstance(data, bool):
         return data
+
+    raise TypeError(f"Unexpected DimSpec type: {type(data)}")
 
 
 def get_device(data: TensorTree) -> torch.device:
