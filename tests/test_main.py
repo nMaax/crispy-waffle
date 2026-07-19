@@ -42,7 +42,28 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check trainer.max_epochs=1",
     "experiment=DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCube-v1__default__test__CubesPermuter trainer.max_epochs=1",
+    # BESO
+    "experiment=BESO__StackCube-v1__default__test trainer.max_epochs=1",
+    "experiment=BESO__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCube-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCube-v1__default__train trainer.max_epochs=1",
+    # Goal-Conditioned Diffusion Policy MLP
+    "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
+    # State Aligners
+    "experiment=StateAligner__PlaceSphereToStackCube__default__train trainer.max_epochs=1",
+    "experiment=StateAligner__StackCubeSwappedToStackCube__default__train trainer.max_epochs=1",
+    "experiment=MultiTaskStateAligner__MultiTaskAlignedStates__default__train trainer.max_epochs=1",
+    # DiffusionPolicy variants (adapters, canonicalization, tuning)
+    "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__CanonicalizedPnP__tuning trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
+    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__NeuralAdapter trainer.max_epochs=1 seed=99420",
+    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
+    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__Neuraldapter trainer.max_epochs=1 seed=99420",
+    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__StackCubeSwappedToStackCubeAdapter trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCube-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
