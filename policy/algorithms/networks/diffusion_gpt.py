@@ -105,11 +105,14 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
         # NOTE: Since  obs_horizon  and  pred_horizon  are equal to  obs_seq_len
         # in this architecture,  obs_horizon + pred_horizon = 2 * obs_seq_len , making the sizes identical.
+
         self.block_size = 1 + goal_seq_len + external_cond_horizon + pred_horizon
+
         # NOTE: Position embedding sequence length aligns with original BESO score_gpts.py:
         # seq_size = goal_seq_len + obs_seq_len + 1.
         # Practically they did NOT use positinal embedding for sigma
         # thus the extra +1 token is defined but unused
+
         self.seq_len = goal_seq_len + external_cond_horizon + 1
 
         # Encoders
@@ -185,12 +188,13 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 f"Observation sequence length {cur_obs_horizon} and action sequence length {cur_pred_horizon} must be equal."
             )
 
-        # Apply Positional Embeddings
-        # pos_emb covers [1, goal_seq_len + obs_horizon + 1, embed_dim] (matching original BESO)
         # NOTE: In the original BESO score_gpts.py, they did not add a positional embedding
         # to the sigma token (but still they reserved such parameter in the positional embedding vector).
         # They just concatenated sigma token raw in the context, and used pos_emb[:, 0:goal_len] for the goals.
         # We align with this choice by not adding positional embeddings to the sigma token as well.
+
+        # Apply Positional Embeddings
+        # pos_emb covers [1, goal_seq_len + obs_horizon + 1, embed_dim] (matching original BESO)
         sigma_token = self.drop(sigma_token)
 
         if self.goal_seq_len > 0:

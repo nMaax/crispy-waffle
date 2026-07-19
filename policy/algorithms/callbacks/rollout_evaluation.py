@@ -135,6 +135,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
+        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=False)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -171,8 +172,6 @@ class RolloutEvaluationCallback(L.Callback):
                 "This is highly unadvised and may lead to failing simulations due to float precision mismatch. "
                 "We will proceed with num_envs=1, however consider setting num_envs > 1 or switching to a CPU replayed data for training."
             )
-
-        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=False)
 
         rank_zero_info(
             f"Rollout Config setup complete:\n"
@@ -230,11 +229,13 @@ class RolloutEvaluationCallback(L.Callback):
             action (stepped in env): [num_envs, act_dim]
         """
 
-        # Prevent secondary GPUs from spawning SAPIEN environments
-        # From [Maniskill](https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization):
+        # NOTE: From Maniskill:
         # "We currently do not properly support exposing multiple
         # visible CUDA devices to a single process as it has some rendering bugs at the moment."
         # The global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
+        # Reference: https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization
+
+        # Prevent secondary GPUs from spawning SAPIEN environments
         if not trainer.is_global_zero:
             return
 
@@ -255,10 +256,6 @@ class RolloutEvaluationCallback(L.Callback):
 
         if num_episodes <= 0:
             return
-
-        # On CUDA we run all episodes in parallel, on CPU we run sequentially
-        # TODO: I could rather use Sync/AsyncVectorEnv, or maybe CPUGym?
-        # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
 
         env = self.env
 
@@ -342,6 +339,10 @@ class RolloutEvaluationCallback(L.Callback):
         if self.render_mode == "human":
             env.render()
 
+        # TODO: I could rather use Sync/AsyncVectorEnv, or maybe CPUGym?
+        # like in https://github.com/haosulab/ManiSkill/blob/main/examples/baselines/diffusion_policy/diffusion_policy/make_env.py
+
+        # On CUDA we run all episodes in parallel, on CPU we run sequentially
         while episodes_completed < num_episodes:
             adapted_obs = self.adapter.apply(obs)
 
@@ -460,35 +461,33 @@ class RolloutEvaluationCallback(L.Callback):
                 if episodes_completed >= num_episodes:
                     break
 
+                # NOTE: In a batched GPU environment, if one single environment truncates
+                # on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
+                # This breaks the for loop, forcing the policy to immediately replan for the entire batch of the next environments,
+                # A truly pure asynchronous approach would require a complicated work of masks and action chunking, which is honestly useless.
+                #
+                # In fact, this is actually desired: what happens if you set ignore_terminations=False
+                # is that early successes cause that specific environment to quietly auto-reset in the background.
+                # This causes the robot to execute those actions that were not yet executed because the robot succceded midway
+                # in the new "ghost" episode.
+                #
+                # Breaking with truncated.any() forces such ghost episodes to being discarded once the other late environments finish.
+                #
+                # Conversely, when ignore_terminations=True, the environments are forced to wait out the entire
+                # time limit (holding their success), preventing early resets and keeping all environment
+                # stopwatches rigidly synchronized without any ghost actions or early replanning.
+                #
+                # In other words, in ignore_terminations = False we do not test our model capacity to "hold" the success state while waiting for the others.
+                # Generally, always prefer ignore_terminations = True
+
                 if self.ignore_terminations:
                     if truncated.all():
                         break
                 else:
-                    # NOTE: In a batched GPU environment, if one single environment truncates
-                    # on step 2 of an 8-step action chunk, truncated.any() evaluates to True.
-                    # This breaks the for loop, forcing the policy to immediately replan for the entire batch of the next environments,
-                    # A truly pure asynchronous approach would require a complicated work of masks and action chunking, which is honestly useless.
-                    #
-                    # In fact, this is actually desired: what happens if you set ignore_terminations=False
-                    # is that early successes cause that specific environment to quietly auto-reset in the background.
-                    # This causes the robot to execute those actions that were not yet executed because the robot succceded midway
-                    # in the new "ghost" episode.
-                    #
-                    # Breaking with truncated.any() forces such ghost episodes to being discarded once the other late environments finish.
-                    #
-                    # Conversely, when ignore_terminations=True, the environments are forced to wait out the entire
-                    # time limit (holding their success), preventing early resets and keeping all environment
-                    # stopwatches rigidly synchronized without any ghost actions or early replanning.
-                    #
-                    # In other words, in ignore_terminations = False we do not test our model capacity to "hold" the success state while waiting for the others.
-                    # Generally, always prefer ignore_terminations = True
-
                     if truncated.any():
                         break
 
         self._close_progress_bar(pbar)
-
-        # env.close()
 
         success_once_rate = total_success_once / num_episodes
         success_at_end_rate = total_success_at_end / num_episodes

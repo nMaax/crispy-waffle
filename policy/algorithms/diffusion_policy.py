@@ -10,7 +10,7 @@ from policy.utils import get_batch_size
 class DiffusionPolicy(BaseDiffusionAgent):
     """Trains a diffusion policy to predict action sequences from observation histories.
 
-    Diffusion Policy as in Cheng et. al (IJRR)
+    Diffusion Policy as in Cheng et. al (IJRR, 2024)
 
     Reference:
         - Arxiv: https://arxiv.org/abs/2303.04137v4
@@ -22,9 +22,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
         super().__init__(*args, **kwargs)
 
         if self.ema_config is None:
-            raise ValueError(
-                "DiffusionPolicy requires an EMA model. Pass a valid `ema` config."
-            )
+            raise ValueError("DiffusionPolicy requires an EMA model. Pass a valid `ema` config.")
 
     def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.

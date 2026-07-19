@@ -14,7 +14,7 @@ from policy.utils import concat_leaf_tensors, get_batch_size
 class BesoPolicy(BaseDiffusionAgent):
     """Trains a BESO diffusion model to predict action sequences from observation histories.
 
-    BESO as in Goal-Conditioned Imitation Learning using Score-based Diffusion Policies, Reuss et al. (2023)
+    BESO as in Goal-Conditioned Imitation Learning using Score-based Diffusion Policies, Reuss et al. (RSS, 2023)
 
     Reference:
         - Arxiv: https://arxiv.org/abs/2304.02532
