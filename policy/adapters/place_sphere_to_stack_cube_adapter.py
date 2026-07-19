@@ -1,10 +1,12 @@
 from typing import Any
 
 import torch
+from typing_extensions import deprecated
 
 from policy.utils.typing_utils import AdapterProtocol
 
 
+@deprecated("Adapters are deprecated and no longer maintained.")
 class PlaceSphereToStackCubeAdapter(AdapterProtocol):
     """Tricks a policy trained on StackCube-v1 into solving PlaceSphere-v1."""
 

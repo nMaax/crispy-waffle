@@ -1,12 +1,14 @@
 from collections.abc import Sequence
 
 import torch
+from typing_extensions import deprecated
 
 from policy.algorithms.multi_task_state_aligner import MultiTaskStateAligner
 from policy.transforms import observation_pipeline
 from policy.utils.typing_utils import AdapterProtocol, TensorTree
 
 
+@deprecated("Adapters are deprecated and no longer maintained.")
 class MultiTaskNeuralAdapter(AdapterProtocol):
     def __init__(
         self,

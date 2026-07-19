@@ -1,12 +1,14 @@
 from collections.abc import Sequence
 
 import torch
+from typing_extensions import deprecated
 
 from policy.algorithms.state_aligner import StateAligner
 from policy.utils.hydra_utils import parse_slice, slice_size
 from policy.utils.typing_utils import AdapterProtocol
 
 
+@deprecated("Adapters are deprecated and no longer maintained.")
 class NeuralAdapter(AdapterProtocol):
     def __init__(
         self,

@@ -18,6 +18,7 @@ trainer:
 
   callbacks:
     model_checkpoint:
+      _target_: lightning.pytorch.callbacks.ModelCheckpoint
       monitor: "val/loss"
       mode: "min"
 

@@ -49,17 +49,39 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedBESO__StackCube-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
-    # State Aligners
-    "experiment=StateAligner__PlaceSphereToStackCube__default__train trainer.max_epochs=1",
-    "experiment=StateAligner__StackCubeSwappedToStackCube__default__train trainer.max_epochs=1",
-    "experiment=MultiTaskStateAligner__MultiTaskAlignedStates__default__train trainer.max_epochs=1",
+    # State Aligners (DEPRECATED)
+    pytest.param(
+        "experiment=StateAligner__PlaceSphereToStackCube__default__train trainer.max_epochs=1",
+        marks=pytest.mark.skip(reason="StateAligner is deprecated"),
+    ),
+    pytest.param(
+        "experiment=StateAligner__StackCubeSwappedToStackCube__default__train trainer.max_epochs=1",
+        marks=pytest.mark.skip(reason="StateAligner is deprecated"),
+    ),
+    pytest.param(
+        "experiment=MultiTaskStateAligner__MultiTaskAlignedStates__default__train trainer.max_epochs=1",
+        marks=pytest.mark.skip(reason="MultiTaskStateAligner is deprecated"),
+    ),
+    # Neural Adapters (DEPRECATED)
+    pytest.param(
+        "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
+        marks=pytest.mark.skip(reason="MultiTaskNeuralAdapter is deprecated"),
+    ),
+    pytest.param(
+        "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__NeuralAdapter trainer.max_epochs=1 seed=99420",
+        marks=pytest.mark.skip(reason="NeuralAdapter is deprecated"),
+    ),
+    pytest.param(
+        "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
+        marks=pytest.mark.skip(reason="MultiTaskNeuralAdapter is deprecated"),
+    ),
+    pytest.param(
+        "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__Neuraldapter trainer.max_epochs=1 seed=99420",
+        marks=pytest.mark.skip(reason="NeuralAdapter is deprecated"),
+    ),
     # DiffusionPolicy variants (adapters, canonicalization, tuning)
     "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__CanonicalizedPnP__tuning trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
-    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__NeuralAdapter trainer.max_epochs=1 seed=99420",
     "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
-    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__Neuraldapter trainer.max_epochs=1 seed=99420",
     "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__StackCubeSwappedToStackCubeAdapter trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",

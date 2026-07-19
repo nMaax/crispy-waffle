@@ -2,12 +2,14 @@ from collections.abc import Callable
 from typing import Any
 
 import torch
+from typing_extensions import deprecated
 
 from policy.utils.typing_utils import AdapterProtocol
 
 IndexSelector = Callable[[torch.Tensor | dict[str, Any]], torch.Tensor]
 
 
+@deprecated("Adapters are deprecated and no longer maintained.")
 class StackCubeSwappedToStackCubeAdapter(AdapterProtocol):
     """Tricks a policy trained on StackCube-v1 into stacking Cube B on Cube A by swapping their
     identities in the observation space."""

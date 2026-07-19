@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
+from typing_extensions import deprecated
 
 from policy.transforms import (
     ZScoreNormalizer,
@@ -15,6 +16,7 @@ from policy.transforms import (
 from policy.utils.typing_utils import HydraConfigFor
 
 
+@deprecated("Aligners are deprecated and no longer maintained.")
 class MultiTaskStateAligner(L.LightningModule):
     """Trains a neural network to map/align states from one domain to another, across multiple
     tasks.
