@@ -20,17 +20,16 @@ class BesoPolicy(BaseDiffusionAgent):
         - Arxiv: https://arxiv.org/abs/2304.02532
         - Paper website: https://intuitive-robots.github.io/beso-website/
 
-    NOTE on observation representations `as_dict=true` v. `as_dict=false`:
-        Running BESO with `as_dict=true` vs `as_dict=false` (when no keys are dropped) processes
-        100% identical data batches, normalized features, and network weights. However, minor
+    NOTE: Running BESO with `as_dict=true` vs `as_dict=false` (when no keys are dropped) processes
+        identical data batches, normalized features, and network weights. However, minor
         initial validation loss variations occur because BESO's continuous noise sampling
         (sigmas and noise vectors) is drawn after setup-phase PRNG ticks from ModuleDict initialization.
-        For deterministic algorithms (or fixed noise, e.g. GCDP), flat and dict runs produce identical losses.
     """
 
     def __init__(
         self,
         *args,
+        noise_scheduler: Any = None,
         goal_seq_len: int = 0,
         alpha: float = 0.5,
         beta: float = 0.5,
@@ -43,14 +42,14 @@ class BesoPolicy(BaseDiffusionAgent):
         cfg_lambda: float = 0.0,
         **kwargs,
     ):
+        if noise_scheduler is not None:
+            raise ValueError(
+                "BesoPolicy does not support a noise_scheduler because it uses custom continuous sigmas. "
+                f"Got noise_scheduler={noise_scheduler}."
+            )
 
-        # NOTE: we implement our own custom DDIM scheduler on continuous sigmas
-        # so we can ignore the noise_scheduler argument from the base class
+        super().__init__(*args, **kwargs)
 
-        kwargs.pop("noise_scheduler", None)
-        super().__init__(*args, noise_scheduler=None, **kwargs)
-
-        self.noise_scheduler = None
         self.goal_seq_len = goal_seq_len
         self.goal_conditioned = goal_seq_len > 0
 
