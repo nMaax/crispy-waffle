@@ -49,8 +49,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         act_horizon: int = 8,
         obs_dim: DimSpec = 48,
         act_dim: int = 4,
-        obs_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
-        act_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
+        obs_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
+        act_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
         flatten_obs: bool | None = None,
     ):
         super().__init__()
@@ -107,8 +107,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _instantiate_normalizers(
         self,
-        obs_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
-        act_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
+        obs_normalizer: bool | HydraConfigFor[nn.Module] | None,
+        act_normalizer: bool | HydraConfigFor[nn.Module] | None,
     ) -> None:
         """Instantiates the observation and action normalizers from their specs.
 
@@ -116,19 +116,19 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         observations and a :class:`MinMaxNormalizer` for the actions; otherwise use
         Hydra configs to specify a custom class.
         """
-        self.obs_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = self._build_normalizer(
+        self.obs_normalizer: nn.Module | None = self._build_normalizer(
             obs_normalizer, self.obs_dim, ZScoreNormalizer
         )
-        self.act_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = self._build_normalizer(
+        self.act_normalizer: nn.Module | None = self._build_normalizer(
             act_normalizer, self.act_dim, MinMaxNormalizer
         )
 
     @staticmethod
     def _build_normalizer(
-        spec: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
+        spec: bool | HydraConfigFor[nn.Module] | None,
         dim: DimSpec,
-        default_cls: type[ZScoreNormalizer | MinMaxNormalizer],
-    ) -> ZScoreNormalizer | MinMaxNormalizer | None:
+        default_cls: type[nn.Module],
+    ) -> nn.Module | None:
         if omegaconf.OmegaConf.is_config(spec):
             spec = cast(Any, omegaconf.OmegaConf.to_object(spec))
 
