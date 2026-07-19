@@ -1,0 +1,110 @@
+main is powered by Hydra.
+
+== Configuration groups ==
+Compose your configuration from those groups (group=option)
+
+algorithm: beso_policy, diffusion_policy, goal_conditioned_diffusion_policy_mlp, multi_task_state_aligner, no_op, state_aligner
+algorithm/ema: default
+algorithm/lr_scheduler: CosineAnnealingLR, StepLR, cosine_with_warmup
+algorithm/network: conditioned_linear, conditioned_mlp, diffusion_gpt, linear, mlp, unet1d
+algorithm/noise_scheduler: ddpm, edm
+algorithm/normalizer: min_max, z_score
+algorithm/optimizer: Adam, AdamW, SGD
+datamodule: aligned_states_datamodule, aligned_states_datamodule_place_sphere_to_stack_cube, aligned_states_datamodule_stack_cube_swapped_to_stack_cube, canonical_trajectory_datamodule, goal_conditioned_trajectory_datamodule, multi_task_aligned_states_datamodule, trajectory_datamodule
+experiment: BESO__StackCube-v1__default__test, BESO__StackCube-v1__default__train, DiffusionPolicy__PlaceCubeLeft-v1__default__train__CanonicalizedPnP__tuning, DiffusionPolicy__PlaceSphereWristcam-v1__default__test__MultiTaskNeuralAdapter, DiffusionPolicy__PlaceSphereWristcam-v1__default__test__NeuralAdapter, DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter, DiffusionPolicy__PlaceSphereWristcam-v1__default__train__CanonicalizedPnP__tuning_5, DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check, DiffusionPolicy__StackCube-v1__default__test, DiffusionPolicy__StackCube-v1__default__test__CanonicalizedPnP, DiffusionPolicy__StackCube-v1__default__train, DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP, DiffusionPolicy__StackCubeSwapped-v1__default__test__MultiTaskNeuralAdapter, DiffusionPolicy__StackCubeSwapped-v1__default__test__Neuraldapter, DiffusionPolicy__StackCubeSwapped-v1__default__test__StackCubeSwappedToStackCubeAdapter, DiffusionPolicy__StackCubeSwapped-v1__default__train__CanonicalizedPnP__tuning_5, DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check, GoalConditionedBESO__StackCube-v1__default__test, GoalConditionedBESO__StackCube-v1__default__train, GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train, MultiTaskStateAligner__MultiTaskAlignedStates__default__train, StateAligner__PlaceSphereToStackCube__default__train, StateAligner__StackCubeSwappedToStackCube__default__train
+render: live, video
+trainer: cpu, debug, default, overfit_one_batch
+trainer/callbacks: default, differential_lr, early_stopping, finetune_planner, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation, tqdm_progress_bar
+trainer/logger: tensorboard, wandb
+
+
+== Config ==
+Override anything in the config (foo.bar=value)
+
+algorithm: ???
+datamodule: null
+trainer:
+  callbacks:
+    model_checkpoint:
+      _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      dirpath: ${hydra:runtime.output_dir}/checkpoints
+      filename: step_{step:06d}
+      monitor: val/success_once_rate
+      verbose: false
+      save_last: true
+      save_top_k: 3
+      mode: max
+      auto_insert_metric_name: false
+      save_weights_only: false
+      every_n_train_steps: null
+      train_time_interval: null
+      every_n_epochs: null
+      save_on_train_epoch_end: null
+    early_stopping:
+      _target_: lightning.pytorch.callbacks.EarlyStopping
+      monitor: val/success_once_rate
+      min_delta: 0.01
+      patience: 10
+      verbose: false
+      mode: min
+      strict: true
+      check_finite: true
+      stopping_threshold: null
+      divergence_threshold: null
+      check_on_train_epoch_end: null
+    model_summary:
+      _target_: lightning.pytorch.callbacks.RichModelSummary
+      max_depth: 2
+    tqdm_progress_bar:
+      _target_: lightning.pytorch.callbacks.TQDMProgressBar
+      refresh_rate: 20
+      leave: false
+    rollout_evaluation:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      _recursive_: false
+      adapter: null
+      num_episodes: 25
+      max_episode_steps: 200
+      num_envs: null
+      ignore_terminations: true
+      clamp_action: false
+      video_dir: null
+      seed: ${seed}
+      env_id: null
+      obs_mode: null
+      control_mode: null
+      physx_backend: null
+    lr_monitor:
+      _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    device_utilisation:
+      _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
+    throughput:
+      _target_: policy.algorithms.callbacks.samples_per_second.MeasureSamplesPerSecondCallback
+  _target_: lightning.Trainer
+  accelerator: auto
+  strategy: auto
+  devices: 1
+  deterministic: false
+  fast_dev_run: false
+  min_epochs: -1
+  max_epochs: -1
+  max_steps: 100000
+  log_every_n_steps: 50
+  num_sanity_val_steps: 2
+  val_check_interval: 5000
+  check_val_every_n_epoch: null
+  default_root_dir: ${hydra:runtime.output_dir}
+  detect_anomaly: false
+log_level: info
+seed: 123
+name: default
+debug: false
+verbose: false
+ckpt_path: null
+finetuning_ckpt_path: null
+render: null
+validate_at_end: false
+
+
+Powered by Hydra (https://hydra.cc)
+Use --hydra-help to view Hydra specific help

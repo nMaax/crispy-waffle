@@ -22,7 +22,7 @@ class FakeRolloutDataModule(L.LightningDataModule):
     obs_mode: str = "state"
     control_mode: str = "pd_joint_pos"
     physx_backend: str | None = None  # set to "cuda" to trigger batched mode
-    use_physx_env_states: bool = False  # keep default unless explicitly tested
+    use_physx_env_states: bool = False
 
     def __post_init__(self):
         super().__init__()
@@ -38,19 +38,42 @@ class FakeRolloutDataModule(L.LightningDataModule):
 
 
 class FakeRolloutPolicyModule(L.LightningModule):
-    def __init__(self, obs_horizon: int = 2, act_horizon: int = 1, act_dim: int = 3):
+    """Non-goal-conditioned policy that returns a fixed action sequence.
+
+    ``action_scale`` controls the magnitude of returned actions (useful for
+    clamp_action tests).  ``record_nit`` records the num_inference_timesteps
+    value received, if any.
+    """
+
+    def __init__(
+        self,
+        obs_horizon: int = 2,
+        act_horizon: int = 1,
+        act_dim: int = 3,
+        action_scale: float = 0.0,
+        record_nit: bool = False,
+    ):
         super().__init__()
         self.obs_horizon = obs_horizon
         self.act_horizon = act_horizon
         self.act_dim = act_dim
+        self.action_scale = action_scale
+        self.record_nit = record_nit
+        self.last_num_inference_timesteps = None
         # tiny parameter so `.to(device)` works and module has a device
         self.p = torch.nn.Parameter(torch.zeros(()))
 
-    # Return zeros action sequence on the same device
-    def get_action(self, obs_seq: torch.Tensor | Any) -> torch.Tensor:
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | Any,
+        num_inference_timesteps: int | None = None,
+        output_clip_range: tuple | None = None,
+    ) -> torch.Tensor:
         assert isinstance(obs_seq, torch.Tensor)
         b = obs_seq.shape[0]
-        return torch.zeros((b, self.act_horizon, self.act_dim), device=obs_seq.device)
+        if self.record_nit:
+            self.last_num_inference_timesteps = num_inference_timesteps
+        return torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device) * self.action_scale
 
     # Lightning boilerplate
     def validation_step(self, batch, batch_idx):
@@ -63,8 +86,32 @@ class FakeRolloutPolicyModule(L.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.1)
 
 
+class FakeGoalConditionedPolicyModule(FakeRolloutPolicyModule):
+    """Goal-conditioned variant: has ``goal_conditioned=True`` and accepts a ``goal`` arg."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.goal_conditioned = True
+
+    def reset(self):
+        pass
+
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | Any,
+        goal: torch.Tensor | Any = None,
+        num_inference_timesteps: int | None = None,
+        output_clip_range: tuple | None = None,
+    ) -> torch.Tensor:
+        assert isinstance(obs_seq, torch.Tensor)
+        b = obs_seq.shape[0]
+        if self.record_nit:
+            self.last_num_inference_timesteps = num_inference_timesteps
+        return torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device) * self.action_scale
+
+
 class FakeUnwrappedEnv(gym.Env):
-    def __init__(self, obs: torch.Tensor, elapsed_steps: torch.Tensor):
+    def __init__(self, obs: torch.Tensor, elapsed_steps: torch.Tensor, goal_conditioned: bool = False):
         self._obs = obs
         self._init_raw_obs = obs
         self.elapsed_steps = elapsed_steps
@@ -72,6 +119,10 @@ class FakeUnwrappedEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(3,))
         self._num_envs = obs.shape[0]
         self.elapsed_steps = torch.zeros(self._num_envs, device=obs.device, dtype=torch.int32)
+        # Only attach generate_heuristic_goal when goal-conditioned, so that
+        # ``hasattr(env, "generate_heuristic_goal")`` is False otherwise.
+        if goal_conditioned:
+            self.generate_heuristic_goal = lambda: torch.randn_like(self._obs)
 
     @property
     def device(self) -> torch.device:
@@ -90,16 +141,20 @@ class FakeUnwrappedEnv(gym.Env):
 
 
 class FakeVectorEnv(gym.Env):
-    """A tiny Gym-like env that finishes in 1 step.
+    """A tiny Gym-like env that finishes in ``episode_len`` steps.
 
-    It supports both "CPU mode" (num_envs=1, sequential episodes) and "CUDA mode"
-    (num_envs=num_episodes, batched episodes), purely based on what the callback passes in.
+    Emits the ``_final_info`` / ``final_info`` / ``episode`` dict structure that
+    the production callback reads for per-episode aggregation.
     """
 
     ACTION_DIM = 3
 
-    def __init__(self, num_envs: int, obs_dim: int = 4):
+    def __init__(self, num_envs: int, obs_dim: int = 4, episode_len: int = 1, success: bool = True,
+                 goal_conditioned: bool = False):
         self.obs_dim = obs_dim
+        self.episode_len = episode_len
+        self._success = success
+        self._goal_conditioned = goal_conditioned
         self.action_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(self.ACTION_DIM,), dtype=np.float32
         )
@@ -110,10 +165,11 @@ class FakeVectorEnv(gym.Env):
         self.elapsed_steps = torch.zeros(self._num_envs, dtype=torch.int32)
         self._closed = False
         self._last_obs = torch.zeros((self.num_envs, self.obs_dim), dtype=torch.float32)
+        self.last_action = None
 
     @property
     def unwrapped(self) -> gym.Env:
-        return FakeUnwrappedEnv(self._last_obs, self.elapsed_steps)
+        return FakeUnwrappedEnv(self._last_obs, self.elapsed_steps, goal_conditioned=self._goal_conditioned)
 
     @property
     def num_envs(self):
@@ -133,22 +189,39 @@ class FakeVectorEnv(gym.Env):
 
         g = torch.Generator().manual_seed(int(seed))
         self._last_obs = torch.randn((self.num_envs, self.obs_dim), generator=g)
+        self.elapsed_steps = torch.zeros(self._num_envs, dtype=torch.int32)
         info = {}
         return self._last_obs, info
 
     def step(self, action: torch.Tensor):
         assert action.shape[0] == self._num_envs
+        self.last_action = action
 
         self.elapsed_steps += 1
-
         obs = self._last_obs
         reward = torch.zeros((self._num_envs,), dtype=torch.float32)
 
-        # Since the callback uses ignore_terminations=True, it is waiting for truncation. Set them to true
+        finished = self.elapsed_steps >= self.episode_len
         terminated = torch.zeros((self._num_envs,), dtype=torch.bool)
-        truncated = torch.ones((self._num_envs,), dtype=torch.bool)
+        truncated = finished.clone()
 
-        info = {"success": torch.ones((self._num_envs,), dtype=torch.bool)}
+        success_val = torch.ones((self._num_envs,), dtype=torch.bool) * self._success
+        info: dict[str, Any] = {"success": success_val}
+
+        if finished.any():
+            mask = finished
+            info["_final_info"] = mask
+            info["final_info"] = {
+                "success": success_val,
+                "episode": {
+                    "success_once": success_val,
+                    "success_at_end": success_val,
+                    "episode_len": self.elapsed_steps.to(torch.float32),
+                },
+            }
+            # Auto-reset finished envs (simulating ManiSkill background reset)
+            self.elapsed_steps[finished] = 0
+
         return obs, reward, terminated, truncated, info
 
     def close(self):
@@ -167,20 +240,31 @@ def capture_log(monkeypatch: pytest.MonkeyPatch):
     return calls
 
 
-def _patch_gym(monkeypatch: pytest.MonkeyPatch):
+def _patch_gym(monkeypatch: pytest.MonkeyPatch, **env_kwargs):
+    """Patches gym to use FakeVectorEnv.
+
+    Returns a list that will hold the created env.
+    """
+    created: list[FakeVectorEnv] = []
+
     # Pretend env is registered
     monkeypatch.setattr(
         gym, "envs", types.SimpleNamespace(registry={"FakeManiSkill-v0": object()})
     )
 
-    # Patch gym.make to return our fake env
-    def _make(id: str, obs_mode: str, control_mode: str, num_envs: int, **kwargs):
-        assert id == "FakeManiSkill-v0"
+    def _make(id: str, num_envs: int, **kwargs):
         assert isinstance(num_envs, int) and num_envs >= 1
-        return FakeVectorEnv(num_envs=num_envs)
+        env = FakeVectorEnv(num_envs=num_envs, **env_kwargs)
+        created.append(env)
+        return env
 
     monkeypatch.setattr(gym, "make", _make, raising=True)
+    return created
 
+
+# ====================================================================== #
+# Existing tests (fixed)
+# ====================================================================== #
 
 @pytest.mark.parametrize(
     "physx_backend",
@@ -204,7 +288,6 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=5, seed=123)
 
-    # Minimal trainer; disable progress bars/logging overhead
     trainer = L.Trainer(
         accelerator="cpu",
         devices=1,
@@ -216,13 +299,9 @@ def test_rollout_evaluation_callback_cpu_mode_logs_success_rate(
         max_epochs=1,
     )
 
-    # Validate triggers on_validation_epoch_end -> rollouts
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
-
-    # Test triggers on_test_epoch_end -> rollouts
     trainer.test(model=model, datamodule=datamodule, verbose=False)
 
-    # Verify log calls exist and are exactly 1.0 (our fake env always succeeds)
     logged = {name: float(value) for (name, value, _kw) in capture_log}
     assert logged["val/success_once_rate"] == 1.0
     assert logged["test/success_once_rate"] == 1.0
@@ -237,10 +316,13 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
         physx_backend="physx_cpu",
     )
 
+    # Use a FakeRolloutPolicyModule so obs_horizon is a real int (FrameStack needs int)
+    fake_module = FakeRolloutPolicyModule(obs_horizon=2)
+
     # Test successful fallback to Datamodule properties
     cb = RolloutEvaluationCallback(num_episodes=5, seed=123)
     mock_trainer = MagicMock(datamodule=datamodule)
-    cb.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
+    cb.setup(trainer=mock_trainer, pl_module=fake_module, stage="fit")
 
     assert cb.env_id == "FakeManiSkill-v0"
     assert cb.num_envs == 1  # CPU backend defaults to 1
@@ -249,20 +331,18 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     cb_override = RolloutEvaluationCallback(
         num_episodes=5, seed=123, env_id="ExplicitEnv-v0", physx_backend="physx_cuda"
     )
-    # Patch cuda availability to bypass the hardware check for this assertion
     with (
         patch("torch.cuda.is_available", return_value=True),
         patch.dict(gym.envs.registry, {"ExplicitEnv-v0": object()}),
     ):
-        cb_override.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
-    assert cb_override.env_id == "ExplicitEnv-v0"  # Overridden
+        cb_override.setup(trainer=mock_trainer, pl_module=fake_module, stage="fit")
+    assert cb_override.env_id == "ExplicitEnv-v0"
     assert cb_override.num_envs == 5  # CUDA backend defaults to num_episodes
 
     # Test missing parameters raise ValueError
     cb_missing = RolloutEvaluationCallback(num_episodes=5, seed=123)
     with pytest.raises(ValueError, match="must be explicitly provided"):
-        # No datamodule provided to fallback to
-        cb_missing.setup(trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit")
+        cb_missing.setup(trainer=MagicMock(datamodule=None), pl_module=fake_module, stage="fit")
 
     # Test unregistered env raises RuntimeError
     cb_unreg = RolloutEvaluationCallback(
@@ -274,7 +354,7 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
         seed=123,
     )
     with pytest.raises(RuntimeError, match="not registered in Gymnasium"):
-        cb_unreg.setup(trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit")
+        cb_unreg.setup(trainer=MagicMock(datamodule=None), pl_module=fake_module, stage="fit")
 
     # Test CUDA backend requirement raises error when CUDA is unavailable
     cb_cuda_fail = RolloutEvaluationCallback(
@@ -287,15 +367,11 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     )
     with patch("torch.cuda.is_available", return_value=False):
         with pytest.raises(RuntimeError, match="CUDA is not available"):
-            cb_cuda_fail.setup(
-                trainer=MagicMock(datamodule=None), pl_module=MagicMock(), stage="fit"
-            )
+            cb_cuda_fail.setup(trainer=MagicMock(datamodule=None), pl_module=fake_module, stage="fit")
 
 
 @pytest.mark.parametrize("invalid_num_episodes", [0, -2])
 def test_run_rollouts_early_return_on_invalid_episodes(monkeypatch, invalid_num_episodes):
-    """Ensures that passing 0 or negative episodes simply exits without instantiating
-    environments."""
     _patch_gym(monkeypatch)
 
     datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
@@ -303,16 +379,10 @@ def test_run_rollouts_early_return_on_invalid_episodes(monkeypatch, invalid_num_
     cb = RolloutEvaluationCallback(num_episodes=invalid_num_episodes, seed=123)
 
     mock_trainer = MagicMock(datamodule=datamodule, is_global_zero=True)
-    cb.setup(trainer=mock_trainer, pl_module=MagicMock(), stage="fit")
+    cb.setup(trainer=mock_trainer, pl_module=model, stage="fit")
 
-    # Mock gym.make to ensure it is NEVER called
     with patch("gymnasium.make") as mock_make:
-        cb._run_rollouts(
-            mock_trainer,
-            model,
-            invalid_num_episodes,
-            "val",
-        )
+        cb._run_rollouts(mock_trainer, model, invalid_num_episodes, "val")
         mock_make.assert_not_called()
 
 
@@ -324,7 +394,6 @@ def test_run_rollouts_early_return_on_invalid_episodes(monkeypatch, invalid_num_
 def test_video_dir_applies_record_episode_wrapper(
     mock_find_steps, mock_record_episode, monkeypatch, capture_log
 ):
-    """Ensures that providing a video_dir triggers the RecordEpisode wrapper with correct paths."""
     _patch_gym(monkeypatch)
     datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
     model = FakeRolloutPolicyModule()
@@ -343,19 +412,153 @@ def test_video_dir_applies_record_episode_wrapper(
         max_epochs=1,
     )
 
-    # By default, setup() sets render_mode to 'rgb_array' if video_dir is passed
     assert rollout_cb.render_mode == "rgb_array"
-
-    # Ensure mock_record_episode returns our fake env so the rest of the loop succeeds
     mock_record_episode.return_value = FakeVectorEnv(num_envs=1)
 
-    # Run validation which triggers _run_rollouts
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
-    # Assert RecordEpisode wrapper was applied correctly
     assert mock_record_episode.called
     call_kwargs = mock_record_episode.call_args[1]
 
     assert call_kwargs["output_dir"] == f"{video_dir}/val"
     assert call_kwargs["save_video"] is True
-    assert call_kwargs["max_steps_per_video"] == 100  # Matches our mocked return_value
+    assert call_kwargs["max_steps_per_video"] == 100
+
+
+# ====================================================================== #
+# New tests
+# ====================================================================== #
+
+def test_seed_none_raises():
+    """RolloutEvaluationCallback must reject seed=None."""
+    with pytest.raises(ValueError, match="seed must be provided"):
+        RolloutEvaluationCallback(seed=None)
+
+
+def test_all_four_metrics_logged(monkeypatch, capture_log):
+    """Ensures all 4 metrics (success_once, success_at_end, truncation, avg_length) are logged."""
+    _patch_gym(monkeypatch, episode_len=1, success=True)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule()
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=3, seed=42)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    logged = {name: float(value) for (name, value, _kw) in capture_log}
+    assert "val/success_once_rate" in logged
+    assert "val/success_at_end_rate" in logged
+    assert "val/truncation_rate" in logged
+    assert "val/avg_episode_length" in logged
+
+
+def test_clamp_action_clamps_out_of_bounds(monkeypatch, capture_log):
+    """With clamp_action=True, out-of-bounds policy actions are clamped to the action space."""
+    created = _patch_gym(monkeypatch, episode_len=1)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    # Policy returns actions with magnitude 5.0 (well outside [-1, 1])
+    model = FakeRolloutPolicyModule(action_scale=5.0)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, clamp_action=True)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    # The FakeVectorEnv recorded the last action it received
+    assert len(created) > 0
+    last_action = created[0].last_action
+    assert last_action is not None
+    assert last_action.min() >= -1.0
+    assert last_action.max() <= 1.0
+
+
+def test_clamp_action_disabled_passes_through(monkeypatch, capture_log):
+    """With clamp_action=False, out-of-bounds actions are NOT clamped."""
+    created = _patch_gym(monkeypatch, episode_len=1)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule(action_scale=5.0)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, clamp_action=False)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    assert len(created) > 0
+    last_action = created[0].last_action
+    assert last_action is not None
+    assert last_action.abs().max() > 1.0
+
+
+def test_teardown_closes_env(monkeypatch):
+    """Teardown() must close the rollout environment."""
+    _patch_gym(monkeypatch)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule()
+
+    cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    # After rollout, _gym_env should exist; teardown should close it
+    assert hasattr(cb, "_gym_env")
+    cb.teardown(trainer=MagicMock(), pl_module=model, stage="validate")
+    assert cb._gym_env._closed is True
+
+
+def test_num_inference_timesteps_propagation(monkeypatch, capture_log):
+    """num_inference_timesteps from the callback config must reach get_action."""
+    _patch_gym(monkeypatch, episode_len=1)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule(record_nit=True)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, num_inference_timesteps=7)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    assert model.last_num_inference_timesteps == 7
+
+
+def test_goal_conditioned_rollout(monkeypatch, capture_log):
+    """Goal-conditioned policy + env with generate_heuristic_goal runs without error."""
+    _patch_gym(monkeypatch, episode_len=1, goal_conditioned=True)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeGoalConditionedPolicyModule(obs_horizon=2, act_horizon=1, act_dim=3)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    logged = {name: float(value) for (name, value, _kw) in capture_log}
+    assert "val/success_once_rate" in logged
+
+
+def test_goal_conditioned_env_without_generate_heuristic_goal_raises(monkeypatch, capture_log):
+    """If the policy is goal-conditioned but the env lacks generate_heuristic_goal, raise."""
+    # goal_conditioned=False on the env -> no generate_heuristic_goal on _inner_env
+    _patch_gym(monkeypatch, episode_len=1, goal_conditioned=False)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeGoalConditionedPolicyModule(obs_horizon=2, act_horizon=1, act_dim=3)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
+    trainer = L.Trainer(
+        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
+        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+    )
+    with pytest.raises(AttributeError, match="generate_heuristic_goal"):
+        trainer.validate(model=model, datamodule=datamodule, verbose=False)

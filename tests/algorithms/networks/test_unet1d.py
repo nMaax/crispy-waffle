@@ -1,32 +1,42 @@
-import hydra
 import hydra_zen
 import torch
+from hydra import compose, initialize_config_module
+from omegaconf import OmegaConf
+
+from policy.utils.typing_utils import DiffusionNetworkProtocol
 
 
 def test_unet1d_instantiates_and_runs():
-    with hydra.initialize(version_base="1.2", config_path="../../configs/algorithm/network"):
-        cfg = hydra.compose(config_name="unet1d")
+    with initialize_config_module(config_module="policy.configs", version_base="1.2"):
+        cfg = compose(config_name="algorithm/network/unet1d")
 
-    # Dummy inputs based on the overrides we just provided
+    # The composed config is nested under algorithm.network (config-group structure)
+    net_cfg = cfg.algorithm.network
+    OmegaConf.set_struct(net_cfg, False)
+
     batch_size = 128
-    horizon = 16  # Number of timesteps to predict/diffuse upon
-    input_dim = 8  # Dimensionality of each element in the sequence being diffused
-    external_obs_dim = 67  # Usually obs_horizon * obs_dim
+    horizon = 16
+    act_dim = 8
+    external_cond_dim = 67
 
-    # Inject the dimensions directly into instantiate
-    network = hydra_zen.instantiate(cfg, input_dim=input_dim, external_obs_dim=external_obs_dim)
+    net_cfg.act_dim = act_dim
+    net_cfg.external_cond_dim = external_cond_dim
+    network = hydra_zen.instantiate(net_cfg)
 
-    # Sample to de-noise
-    sample = torch.randn(batch_size, horizon, input_dim)
-
-    # Timestep integer (will be embedded by Sinusoidal positioning)
+    sample = torch.randn(batch_size, horizon, act_dim)
     timestep = torch.randint(0, 100, (batch_size,))
+    flatten_obs = torch.randn(batch_size, external_cond_dim)
 
-    # This and the timestep embedding (which is generated inside the network) are what enters FiLM
-    flatten_obs = torch.randn(batch_size, external_obs_dim)
-
-    # Run a forward pass to ensure the architecture doesn't crash
     output = network(sample, timestep, obs=flatten_obs)
-
-    # For a 1D Unet in diffusion, output shape should match the sample shape
     assert output.shape == sample.shape
+
+    # Protocol conformance
+    assert isinstance(network, DiffusionNetworkProtocol)
+
+    # Backward pass: grads must be finite
+    loss = output.sum()
+    loss.backward()
+    for p in network.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()

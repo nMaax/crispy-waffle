@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import flatten_tensor_from_mapping, sum_shapes
+from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
 
@@ -48,7 +48,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 
         # Execute inference
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_tensor_from_mapping(obs_seq, device=algorithm.device)
+        obs_seq = flatten_and_concat_leaf_tensors(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 
@@ -75,7 +75,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm.to(batch_device)
 
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_tensor_from_mapping(obs_seq, device=algorithm.device)
+        obs_seq = flatten_and_concat_leaf_tensors(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 
@@ -89,30 +89,29 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 
 
 class TestDiffusionPolicyLogic:
-    """Isolated unit tests for DiffusionPolicy boundary conditions, assertions, and logic.
+    """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
 
-    These run instantly using mocks, independent of the heavy regression suite.
+    Shared infra (horizon validation, normalizer building, cond-dim inference, EMA
+    optionality, abstract methods, obs-only templates) is covered once in
+    ``TestBaseDiffusionAgentLogic``; this suite only covers what is unique to DP:
+    the EMA-required contract, the diffusers-scheduler loss dispatch, and the
+    diffusers-scheduler reverse loop (slicing + clamping + EMA store/restore).
     """
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):
-        """Intercepts hydra_zen.instantiate to prevent Hydra from crashing on mock configs.
-
-        Returns a fresh MagicMock every time it is called.
-        """
+        """Intercepts hydra_zen.instantiate in the base module to prevent Hydra from crashing on
+        mock configs."""
         with patch(
-            "policy.algorithms.diffusion.hydra_zen.instantiate",
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             side_effect=lambda *args, **kwargs: MagicMock(),
         ) as mock:
             yield mock
 
     @pytest.fixture
     def basic_kwargs(self):
-        # We pass empty dictionaries to satisfy Hydra config type hints for modules,
-        # but our patch above handles the actual return value.
-        # We now pass explicit dimensions instead of a datamodule!
         return {
-            "network": {},
+            "network": {"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
             "ema": {},
             "noise_scheduler": {},
             "optimizer": {},
@@ -122,18 +121,18 @@ class TestDiffusionPolicyLogic:
             "obs_horizon": 2,
         }
 
+    def test_ema_required_raises(self, basic_kwargs):
+        """DiffusionPolicy must reject construction without an EMA config."""
+        kwargs = {k: v for k, v in basic_kwargs.items() if k != "ema"}
+        with pytest.raises(ValueError, match="requires an EMA model"):
+            DiffusionPolicy(**kwargs)
+
     def test_horizon_validations(self, basic_kwargs):
         """Ensures the init method strictly catches invalid horizon configurations."""
 
         # act_horizon > pred_horizon
         with pytest.raises(ValueError, match="cannot be greater than prediction horizon"):
             DiffusionPolicy(**basic_kwargs, act_horizon=20)
-
-        # act_horizon < obs_horizon
-        with pytest.raises(ValueError, match="cannot be less than observation horizon"):
-            kwargs = basic_kwargs.copy()
-            kwargs["obs_horizon"] = 4
-            DiffusionPolicy(**kwargs, act_horizon=2)
 
         # obs_horizon + act_horizon - 1 > pred_horizon
         with pytest.raises(ValueError, match="Prediction horizon .* is too short"):
@@ -152,11 +151,11 @@ class TestDiffusionPolicyLogic:
         policy_flat = DiffusionPolicy(**kwargs)
         assert policy_flat.obs_dim == 5
 
-        # Test nested dict (should trigger sum_shapes)
+        # Test nested dict (should trigger get_total_dim)
         kwargs["obs_dim"] = {"camera1": {"shape": (3, 64, 64)}, "proprio": {"shape": (12,)}}
         policy_dict = DiffusionPolicy(**kwargs)
         # 64 + 12 = 76
-        assert sum_shapes(policy_dict.obs_dim) == 76
+        assert get_total_dim(policy_dict.obs_dim) == 76
 
     def test_uninitialized_errors(self, basic_kwargs):
         """Ensures methods fail gracefully if configure_model is not called."""
@@ -181,7 +180,7 @@ class TestDiffusionPolicyLogic:
             raise ValueError("Noise scheduler should be initialized by configure_model")
 
         # Mock the initialized components behavior
-        policy.network = MagicMock(return_value=torch.ones(1, 16, 4))  # Dummy prediction
+        policy.network = MagicMock(return_value=torch.ones(2, 16, 4))  # Dummy prediction
         policy.noise_scheduler.add_noise.return_value = torch.zeros(1, 16, 4)
         policy.noise_scheduler.config = {"num_train_timesteps": 100}
 
@@ -241,3 +240,20 @@ class TestDiffusionPolicyLogic:
         out_clamped = policy.get_action(obs_seq, output_clip_range=(3.0, 6.0))
         assert out_clamped.min() >= 3.0
         assert out_clamped.max() <= 6.0
+
+    def test_run_diffusion_loop_ema_store_restore(self, basic_kwargs):
+        """Ensures _run_diffusion_loop stores/restores EMA weights around the loop."""
+        policy = DiffusionPolicy(**basic_kwargs, act_horizon=8)
+        policy.configure_model()
+
+        policy.noise_scheduler.config = {"num_train_timesteps": 10}
+        policy.noise_scheduler.timesteps = torch.tensor([0, 1])
+        policy.noise_scheduler.step.return_value = (
+            torch.arange(16).view(1, 16, 1).expand(1, 16, 4).float(),
+        )
+
+        policy.get_action(torch.randn(1, 2, 3))
+
+        policy.ema.store.assert_called_once()
+        policy.ema.copy_to.assert_called_once()
+        policy.ema.restore.assert_called_once()
