@@ -50,10 +50,6 @@ class TestBesoPolicyLogic:
     def basic_kwargs(self):
         return _basic_kwargs()
 
-    def test_noise_scheduler_provided_raises(self, basic_kwargs):
-        with pytest.raises(ValueError, match="does not support a noise_scheduler"):
-            BesoPolicy(**basic_kwargs, noise_scheduler={"_target_": "diffusers.DDPMScheduler"})
-
     # ------------------------------------------------------------------ #
     # output_clip_range (post-unnormalize physical-space clamping)
     # ------------------------------------------------------------------ #

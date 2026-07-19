@@ -29,26 +29,31 @@ class BesoPolicy(BaseDiffusionAgent):
     def __init__(
         self,
         *args,
-        noise_scheduler: Any = None,
         goal_seq_len: int = 0,
         alpha: float = 0.5,
         beta: float = 0.5,
-        sigma_data: float = 0.5,
         sigma_min: float = 0.005,
         sigma_max: float = 1.0,
+        sigma_data: float = 0.5,
         pred_last_action_only: bool = False,
         num_parallel_samples: int = 1,
         goal_drop_prob: float = 0.0,
         cfg_lambda: float = 0.0,
         **kwargs,
     ):
-        if noise_scheduler is not None:
-            raise ValueError(
-                "BesoPolicy does not support a noise_scheduler because it uses custom continuous sigmas. "
-                f"Got noise_scheduler={noise_scheduler}."
-            )
 
         super().__init__(*args, **kwargs)
+
+        if "DiffusionGPT" not in self.network_config.get("_target_", None):
+            raise ValueError(
+                f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
+            )
+
+        if self.noise_scheduler is not None:
+            raise ValueError(
+                "BesoPolicy does not support noise_schedulers as it implements its own custom one. "
+                f"Got noise_scheduler={self.noise_scheduler}. Please remove it."
+            )
 
         self.goal_seq_len = goal_seq_len
         self.goal_conditioned = goal_seq_len > 0
@@ -70,11 +75,6 @@ class BesoPolicy(BaseDiffusionAgent):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         self.num_parallel_samples = num_parallel_samples
-
-        if "DiffusionGPT" not in self.network_config.get("_target_", None):
-            raise ValueError(
-                f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
-            )
 
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
@@ -371,16 +371,6 @@ class BesoPolicy(BaseDiffusionAgent):
                 # Reverse Karras preconditioning
                 scaled_pred = current_pred * c_out + current_noisy * c_skip
 
-                # NOTE: In their BESO impleementation, they inverted the order of normalization
-                # and clipping (clipping to [-1, 1] in the normalized space first, then unnormalizing).
-                # This is sloppy as:
-                # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
-                #    physical environment boundaries.
-                # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
-                #    from the mean, preventing the policy from ever outputting extreme actions.
-                # By unnormalizing first and then clipping in physical space (output_clip_range), we apply
-                # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
-
                 # Continuous-DDIM step
                 # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
                 t = self._t_fn(sigma_t).view(B_expanded, 1, 1)
@@ -406,16 +396,17 @@ class BesoPolicy(BaseDiffusionAgent):
             denoised_action = denoised_action.view(B, self.num_parallel_samples, 1, self.act_dim)
             denoised_action = denoised_action.mean(dim=1)
 
+        # NOTE: The original BESO implementation incorrectly inverts the order of normalization and clipping:
+        # it first clips the denoised actions in the normalized space (to [-1, 1]), and only then unnormalizes
+        # them to the physical space. This is mathematically sloppy and highly restrictive:
+        # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
+        #    physical environment boundaries.
+        # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
+        #    from the mean, preventing the policy from ever outputting extreme actions.
+        # By unnormalizing first and then clipping in physical space using output_clip_range, we apply
+        # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
+
         if self.act_normalizer is not None:
-            # NOTE: The original BESO implementation incorrectly inverts the order of normalization and clipping:
-            # it first clips the denoised actions in the normalized space (to [-1, 1]), and only then unnormalizes
-            # them to the physical space. This is mathematically sloppy and highly restrictive:
-            # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
-            #    physical environment boundaries.
-            # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
-            #    from the mean, preventing the policy from ever outputting extreme actions.
-            # By unnormalizing first and then clipping in physical space using output_clip_range, we apply
-            # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
             physical_action = self.act_normalizer.unnormalize(denoised_action)
             if output_clip_range is not None:
                 low, high = output_clip_range

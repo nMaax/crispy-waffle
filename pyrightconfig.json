@@ -3,5 +3,14 @@
   "venv": ".venv",
   "typeCheckingMode": "basic",
   "reportPrivateImportUsage": "none",
-  "reportAttributeAccessIssue": "warning"
+  "reportAttributeAccessIssue": "warning",
+  "include": [
+    "policy"
+  ],
+  "exclude": [
+    ".venv",
+    "**/node_modules",
+    "**/__pycache__",
+    "tests",
+  ],
 }
