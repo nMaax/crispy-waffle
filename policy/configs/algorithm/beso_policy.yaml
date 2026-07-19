@@ -4,8 +4,8 @@ defaults:
   - ema: default
   - noise_scheduler: null
   - lr_scheduler: cosine_with_warmup
-  - normalizer: z_score
-  - normalizer@action_normalizer: min_max
+  - normalizer@obs_normalizer: z_score
+  - normalizer@act_normalizer: min_max
 
 _target_: policy.algorithms.beso_policy.BesoPolicy
 _recursive_: false

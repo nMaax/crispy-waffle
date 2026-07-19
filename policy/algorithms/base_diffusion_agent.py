@@ -1,6 +1,6 @@
 import functools
 from collections.abc import Mapping
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import hydra_zen
 import lightning as L
@@ -49,9 +49,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         act_horizon: int = 8,
         obs_dim: DimSpec = 48,
         act_dim: int = 4,
-        prediction_type: Literal["epsilon", "sample", "v_prediction"] = "epsilon",
-        normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
-        action_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
+        obs_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
+        act_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None = None,
         flatten_obs: bool | None = None,
     ):
         super().__init__()
@@ -67,7 +66,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.noise_scheduler_config = noise_scheduler
         if self.noise_scheduler_config is not None:
             self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
-                self.noise_scheduler_config, prediction_type=prediction_type
+                self.noise_scheduler_config
             )
         else:
             self.noise_scheduler = None
@@ -85,7 +84,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.obs_dim = obs_dim
 
         self._validate_horizons()
-        self._instantiate_normalizers(normalizer, action_normalizer)
+        self._instantiate_normalizers(obs_normalizer, act_normalizer)
         self._infer_network_cond_dim(flatten_obs)
 
     def _validate_horizons(self) -> None:
@@ -108,20 +107,20 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _instantiate_normalizers(
         self,
-        normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
-        action_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
+        obs_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
+        act_normalizer: bool | Mapping[str, Any] | HydraConfigFor[nn.Module] | None,
     ) -> None:
         """Instantiates the observation and action normalizers from their specs.
 
         By convention a bare ``True`` yields a :class:`ZScoreNormalizer` for the
-        observations and a :class:`MinMaxNormalizer` for the actions; explicit
-        ``_target_`` specs are instantiated via hydra-zen.
+        observations and a :class:`MinMaxNormalizer` for the actions; otherwise use
+        Hydra configs to specify a custom class.
         """
-        self.normalizer: ZScoreNormalizer | MinMaxNormalizer | None = self._build_normalizer(
-            normalizer, self.obs_dim, ZScoreNormalizer
+        self.obs_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = self._build_normalizer(
+            obs_normalizer, self.obs_dim, ZScoreNormalizer
         )
-        self.action_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = (
-            self._build_normalizer(action_normalizer, self.act_dim, MinMaxNormalizer)
+        self.act_normalizer: ZScoreNormalizer | MinMaxNormalizer | None = self._build_normalizer(
+            act_normalizer, self.act_dim, MinMaxNormalizer
         )
 
     @staticmethod
@@ -163,7 +162,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             self.network_cond_dim = get_total_dim(self.obs_dim)
 
     def setup(self, stage: str | None = None) -> None:
-        if stage == "fit" and self.normalizer and self.action_normalizer:
+        if stage == "fit" and self.obs_normalizer and self.act_normalizer:
             self._configure_normalizers()
 
     def configure_model(self) -> None:
@@ -239,14 +238,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             self.ema.load_state_dict(checkpoint["ema_state_dict"])
 
     def _configure_normalizers(self) -> None:
-        if self.normalizer is None:
+        if self.obs_normalizer is None:
             raise ValueError(
-                "Normalizer is None. Make sure to set the normalizer before training."
+                "Observation normalizer is None. Make sure to set the obs normalizer before training."
             )
 
-        if self.action_normalizer is None:
+        if self.act_normalizer is None:
             raise ValueError(
-                "Action normalizer is None. Make sure to set the action normalizer before training."
+                "Action normalizer is None. Make sure to set the act normalizer before training."
             )
 
         dm = getattr(self.trainer, "datamodule", None)
@@ -260,29 +259,29 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             raise ValueError("Training set is not available in the datamodule.")
 
         if train_set.lazy:
-            if not self.normalizer.is_fit:
+            if not self.obs_normalizer.is_fit:
 
                 def obs_generator():
                     for item in train_set:
                         yield item["obs_seq"]
 
-                self.normalizer.fit_incremental(obs_generator())
+                self.obs_normalizer.fit_incremental(obs_generator())
 
-            if not self.action_normalizer.is_fit:
+            if not self.act_normalizer.is_fit:
 
                 def act_generator():
                     for item in train_set:
                         yield item["act_seq"]
 
-                self.action_normalizer.fit_incremental(act_generator())
+                self.act_normalizer.fit_incremental(act_generator())
         else:
-            if not self.normalizer.is_fit:
+            if not self.obs_normalizer.is_fit:
                 all_obs = [item["obs_seq"] for item in train_set]
-                self.normalizer.fit(cat_dicts(all_obs))
+                self.obs_normalizer.fit(cat_dicts(all_obs))
 
-            if not self.action_normalizer.is_fit:
+            if not self.act_normalizer.is_fit:
                 all_act = [item["act_seq"] for item in train_set]
-                self.action_normalizer.fit(cat_dicts(all_act))
+                self.act_normalizer.fit(cat_dicts(all_act))
 
     def get_action(
         self,
@@ -297,8 +296,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning) or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
 
         obs_seq = self._prepare_network_cond(obs_seq)
 
@@ -316,11 +315,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
 
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
 
-        if self.action_normalizer is not None:
-            action_seq = self.action_normalizer.normalize(action_seq)
+        if self.act_normalizer is not None:
+            action_seq = self.act_normalizer.normalize(action_seq)
 
         network_cond = self._prepare_network_cond(obs_seq)
 

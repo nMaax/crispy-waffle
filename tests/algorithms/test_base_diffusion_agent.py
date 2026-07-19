@@ -67,20 +67,20 @@ class TestBaseDiffusionAgentLogic:
     # Normalizer building (_build_normalizer)
     # ------------------------------------------------------------------ #
     def test_normalizer_bare_true_obs_zscore_action_minmax(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(normalizer=True, action_normalizer=True))
-        assert isinstance(agent.normalizer, ZScoreNormalizer)
-        assert isinstance(agent.action_normalizer, MinMaxNormalizer)
+        agent = _MinimalDiffusionAgent(**_basic_kwargs(obs_normalizer=True, act_normalizer=True))
+        assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
+        assert isinstance(agent.act_normalizer, MinMaxNormalizer)
 
     def test_normalizer_none_default(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        assert agent.normalizer is None
-        assert agent.action_normalizer is None
+        assert agent.obs_normalizer is None
+        assert agent.act_normalizer is None
 
     def test_normalizer_dict_target_instantiated(self):
         agent = _MinimalDiffusionAgent(
-            **_basic_kwargs(normalizer={"_target_": "policy.transforms.ZScoreNormalizer"})
+            **_basic_kwargs(obs_normalizer={"_target_": "policy.transforms.ZScoreNormalizer"})
         )
-        assert isinstance(agent.normalizer, ZScoreNormalizer)
+        assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
 
     # ------------------------------------------------------------------ #
     # flatten_obs auto-detection + network_cond_dim

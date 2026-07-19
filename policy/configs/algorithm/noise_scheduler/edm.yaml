@@ -2,4 +2,3 @@ _target_: diffusers.EDMEulerScheduler
 sigma_min: 0.005 # or 0.05 for simpler tasks
 sigma_max: 1.0
 sigma_data: 0.5
-prediction_type: "epsilon"

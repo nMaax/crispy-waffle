@@ -165,13 +165,13 @@ class BesoPolicy(BaseDiffusionAgent):
         action_seq = batch["act_seq"]
         goal = batch.get("goal", None)
 
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
             if goal is not None:
-                goal = self.normalizer.normalize(goal)
+                goal = self.obs_normalizer.normalize(goal)
 
-        if self.action_normalizer is not None:
-            action_seq = self.action_normalizer.normalize(action_seq)
+        if self.act_normalizer is not None:
+            action_seq = self.act_normalizer.normalize(action_seq)
 
         network_cond = self._prepare_network_cond(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
@@ -240,10 +240,10 @@ class BesoPolicy(BaseDiffusionAgent):
         num_inference_timesteps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
             if goal is not None:
-                goal = self.normalizer.normalize(goal)
+                goal = self.obs_normalizer.normalize(goal)
 
         obs_seq = self._prepare_network_cond(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
@@ -407,7 +407,7 @@ class BesoPolicy(BaseDiffusionAgent):
             denoised_action = denoised_action.view(B, self.num_parallel_samples, 1, self.act_dim)
             denoised_action = denoised_action.mean(dim=1)
 
-        if self.action_normalizer is not None:
+        if self.act_normalizer is not None:
             # NOTE: The original BESO implementation incorrectly inverts the order of normalization and clipping:
             # it first clips the denoised actions in the normalized space (to [-1, 1]), and only then unnormalizes
             # them to the physical space. This is mathematically sloppy and highly restrictive:
@@ -417,11 +417,11 @@ class BesoPolicy(BaseDiffusionAgent):
             #    from the mean, preventing the policy from ever outputting extreme actions.
             # By unnormalizing first and then clipping in physical space using output_clip_range, we apply
             # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
-            physical_action = self.action_normalizer.unnormalize(denoised_action)
+            physical_action = self.act_normalizer.unnormalize(denoised_action)
             if output_clip_range is not None:
                 low, high = output_clip_range
                 physical_action = torch.clamp(physical_action, low, high)
-            executed_action_normalized = self.action_normalizer.normalize(physical_action)
+            executed_action_normalized = self.act_normalizer.normalize(physical_action)
             self.action_history.append(executed_action_normalized)
             denoised_action = physical_action
         else:

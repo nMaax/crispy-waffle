@@ -2,3 +2,4 @@ _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
 num_train_timesteps: 100
 beta_schedule: "squaredcos_cap_v2"
 clip_sample: true
+prediction_type: "epsilon"

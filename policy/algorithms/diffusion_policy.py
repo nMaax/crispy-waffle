@@ -135,8 +135,8 @@ class DiffusionPolicy(BaseDiffusionAgent):
         end = start + self.act_horizon
 
         denoised_act_seq = noisy_act_seq[:, start:end]
-        if self.action_normalizer is not None:
-            denoised_act_seq = self.action_normalizer.unnormalize(denoised_act_seq)
+        if self.act_normalizer is not None:
+            denoised_act_seq = self.act_normalizer.unnormalize(denoised_act_seq)
         if output_clip_range is not None:
             low, high = output_clip_range
             denoised_act_seq = torch.clamp(denoised_act_seq, low, high)

@@ -76,9 +76,9 @@ class TestBesoPolicyLogic:
 
     def test_output_clip_range_clamps_with_normalizer(self, basic_kwargs):
         """With an action normalizer, clamping happens in physical space (post-unnormalize)."""
-        policy = BesoPolicy(**basic_kwargs, action_normalizer=True)
+        policy = BesoPolicy(**basic_kwargs, act_normalizer=True)
         # Fit the MinMax normalizer to a known range so unnormalize is well-defined.
-        policy.action_normalizer.fit(torch.linspace(-5, 5, 40).view(10, 4))
+        policy.act_normalizer.fit(torch.linspace(-5, 5, 40).view(10, 4))
         _mock_loop_internals(policy)
         network_cond = torch.zeros((1, 2, 3))
         out = policy._run_diffusion_loop(

@@ -82,9 +82,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             goal: [B, obs_dim] or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
-            goal = self.normalizer.normalize(goal)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
+            goal = self.obs_normalizer.normalize(goal)
 
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
         network_cond = self._prepare_network_cond(obs_seq, goal)
@@ -109,10 +109,10 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             else:
                 goal = goal.to(self.device)
 
-        if self.normalizer is not None:
-            obs = self.normalizer.normalize(obs)
+        if self.obs_normalizer is not None:
+            obs = self.obs_normalizer.normalize(obs)
             if goal is not None:
-                goal = self.normalizer.normalize(goal)
+                goal = self.obs_normalizer.normalize(goal)
 
         if isinstance(obs, Mapping):
             task_components = [v for k, v in obs.items() if k != "proprio"]
@@ -162,13 +162,13 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
                 f"Expected batch['goal'] to be a torch.Tensor or Mapping, but got {type(goal)}."
             )
 
-        if self.normalizer is not None:
-            obs_seq = self.normalizer.normalize(obs_seq)
-            goal = self.normalizer.normalize(goal)
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
+            goal = self.obs_normalizer.normalize(goal)
 
         action_seq = batch["act_seq"]
-        if self.action_normalizer is not None:
-            action_seq = self.action_normalizer.normalize(action_seq)
+        if self.act_normalizer is not None:
+            action_seq = self.act_normalizer.normalize(action_seq)
         network_cond = self._prepare_network_cond(obs_seq, goal)
 
         # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
