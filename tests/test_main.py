@@ -154,7 +154,14 @@ def test_can_run_experiment(
     # Get a unique hash id:
     # Sets a unique name to avoid collisions between tests and reusing previous results.
     name = f"{request.function.__name__}_{uuid.uuid4().hex}"
-    command_line_args = ["policy/main.py"] + list(command_line_overrides) + [f"name={name}"]
+    command_line_args = ["policy/main.py"] + list(command_line_overrides)
+    if any(
+        x in arg for arg in command_line_overrides for x in ["__train", "__test", "__sanity_check"]
+    ):
+        command_line_args.extend(
+            ["trainer.val_check_interval=null", "trainer.check_val_every_n_epoch=1"]
+        )
+    command_line_args.append(f"name={name}")
     logger.info(f"Launching sanity check experiment with command: {command_line_args}")
     monkeypatch.setattr(sys, "argv", command_line_args)
     policy.main.main()
