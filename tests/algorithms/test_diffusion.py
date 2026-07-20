@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
@@ -85,6 +86,45 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},
             additional_label=get_gpu_arch_name(),
             include_gpu_name_in_stats=False,
+        )
+
+
+@pytest.mark.parametrize("algorithm_config", ["goal_conditioned_diffusion_policy"], indirect=True)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDiffusionPolicy]):
+    """Test suite for GoalConditionedDiffusionPolicy."""
+
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        pytest.skip("Diffusion policies do not use standard forward pass during training.")
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch.get("goal", None)
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            training_step_content.batch["act_seq"].shape[0],
+            algorithm.act_horizon,
+            algorithm.act_dim,
         )
 
 

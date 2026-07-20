@@ -1,0 +1,1456 @@
+batch.act_seq:
+  device: cuda:0
+  dtype: torch.float32
+  max: 1.0
+  mean: -0.003946339245885611
+  min: -1.0
+  shape:
+  - 256
+  - 16
+  - 4
+  sum: -64.65682220458984
+batch.goal:
+  device: cuda:0
+  dtype: torch.float32
+  max: 2.9508583545684814
+  mean: 0.07834582030773163
+  min: -2.6198010444641113
+  shape:
+  - 256
+  - 48
+  sum: 962.7134399414062
+batch.obs_seq:
+  device: cuda:0
+  dtype: torch.float32
+  max: 3.082664966583252
+  mean: 0.07538079470396042
+  min: -2.637650966644287
+  shape:
+  - 256
+  - 2
+  - 48
+  sum: 1852.558349609375
+grads.network.diffusion_step_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.003610803745687008
+  mean: 6.173658766783774e-05
+  min: -0.00422524381428957
+  shape:
+  - 256
+  sum: 0.01580456644296646
+grads.network.diffusion_step_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0036109446082264185
+  mean: 2.139707976311911e-05
+  min: -0.004225391894578934
+  shape:
+  - 256
+  - 64
+  sum: 0.3505697548389435
+grads.network.diffusion_step_encoder.3.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.01921946182847023
+  mean: -0.0015007035108283162
+  min: -0.01662602089345455
+  shape:
+  - 64
+  sum: -0.09604502469301224
+grads.network.diffusion_step_encoder.3.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.015830468386411667
+  mean: -9.146690717898309e-05
+  min: -0.014408168382942677
+  shape:
+  - 64
+  - 256
+  sum: -1.498593807220459
+grads.network.down_modules.0.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0027562123723328114
+  mean: -3.637978807091713e-12
+  min: -0.002220426220446825
+  shape:
+  - 64
+  sum: -2.3283064365386963e-10
+grads.network.down_modules.0.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.004478355869650841
+  mean: 1.179350510938093e-05
+  min: -0.0035497015342116356
+  shape:
+  - 64
+  - 4
+  - 5
+  sum: 0.015095686540007591
+grads.network.down_modules.0.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.001597534865140915
+  mean: -2.9833914595656097e-05
+  min: -0.0013375832932069898
+  shape:
+  - 64
+  sum: -0.0019093705341219902
+grads.network.down_modules.0.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.001282368553802371
+  mean: -2.5592582460376434e-05
+  min: -0.0015722347889095545
+  shape:
+  - 64
+  sum: -0.0016379252774640918
+grads.network.down_modules.0.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.01987670734524727
+  mean: -5.820766091346741e-11
+  min: -0.01634875126183033
+  shape:
+  - 64
+  sum: -3.725290298461914e-09
+grads.network.down_modules.0.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.01027089636772871
+  mean: 3.88789567296044e-06
+  min: -0.01143768709152937
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.07962410151958466
+grads.network.down_modules.0.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0023030806332826614
+  mean: -0.00040073104901239276
+  min: -0.0037488043308258057
+  shape:
+  - 64
+  sum: -0.025646787136793137
+grads.network.down_modules.0.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0021900576539337635
+  mean: -0.0002783912932500243
+  min: -0.005339536815881729
+  shape:
+  - 64
+  sum: -0.017817042768001556
+grads.network.down_modules.0.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.010416658595204353
+  mean: -0.0006854480016045272
+  min: -0.009157287888228893
+  shape:
+  - 128
+  sum: -0.08773734420537949
+grads.network.down_modules.0.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.025892946869134903
+  mean: -5.3569925512420014e-05
+  min: -0.022598635405302048
+  shape:
+  - 128
+  - 208
+  sum: -1.4262456893920898
+grads.network.down_modules.0.0.residual_conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0050727371126413345
+  mean: -0.0006055929698050022
+  min: -0.0057061719708144665
+  shape:
+  - 64
+  sum: -0.03875795006752014
+grads.network.down_modules.0.0.residual_conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.003156285732984543
+  mean: -0.0001215233642142266
+  min: -0.004107269458472729
+  shape:
+  - 64
+  - 4
+  - 1
+  sum: -0.03110998123884201
+grads.network.down_modules.0.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.003278635907918215
+  mean: 1.6370904631912708e-11
+  min: -0.002745595294982195
+  shape:
+  - 64
+  sum: 1.0477378964424133e-09
+grads.network.down_modules.0.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006884109228849411
+  mean: 5.415266059571877e-06
+  min: -0.007095093373209238
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.11090464890003204
+grads.network.down_modules.0.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0017432478489354253
+  mean: 3.0113284083199687e-05
+  min: -0.0016495299059897661
+  shape:
+  - 64
+  sum: 0.00192725018132478
+grads.network.down_modules.0.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.002466665580868721
+  mean: 5.868430162081495e-05
+  min: -0.0013224224094301462
+  shape:
+  - 64
+  sum: 0.0037557953037321568
+grads.network.down_modules.0.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.03649596869945526
+  mean: 0.0
+  min: -0.019188713282346725
+  shape:
+  - 64
+  sum: 0.0
+grads.network.down_modules.0.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.023629721254110336
+  mean: 2.2809738311480032e-06
+  min: -0.032515816390514374
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.04671434313058853
+grads.network.down_modules.0.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.00498591223731637
+  mean: -0.00021025036403443664
+  min: -0.004013747908174992
+  shape:
+  - 64
+  sum: -0.013456023298203945
+grads.network.down_modules.0.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.00518050417304039
+  mean: 5.7268036471214145e-05
+  min: -0.0028913530986756086
+  shape:
+  - 64
+  sum: 0.0036651543341577053
+grads.network.down_modules.0.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.013788772746920586
+  mean: -0.00025802425807341933
+  min: -0.013653365895152092
+  shape:
+  - 128
+  sum: -0.033027105033397675
+grads.network.down_modules.0.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0341898649930954
+  mean: -2.1054227545391768e-05
+  min: -0.03412646800279617
+  shape:
+  - 128
+  - 208
+  sum: -0.5605477690696716
+grads.network.down_modules.0.2.conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.009119022637605667
+  mean: -0.0007136781350709498
+  min: -0.011312693357467651
+  shape:
+  - 64
+  sum: -0.04567540064454079
+grads.network.down_modules.0.2.conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.023865897208452225
+  mean: -0.00039066607132554054
+  min: -0.0316241979598999
+  shape:
+  - 64
+  - 64
+  - 3
+  sum: -4.800504684448242
+grads.network.down_modules.1.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.011321229860186577
+  mean: 1.4551915228366852e-11
+  min: -0.014747492969036102
+  shape:
+  - 128
+  sum: 1.862645149230957e-09
+grads.network.down_modules.1.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.01810208521783352
+  mean: -2.8899598873977084e-06
+  min: -0.021486368030309677
+  shape:
+  - 128
+  - 64
+  - 5
+  sum: -0.11837275326251984
+grads.network.down_modules.1.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.004400045610964298
+  mean: 0.00010558463691268116
+  min: -0.005572738125920296
+  shape:
+  - 128
+  sum: 0.013514833524823189
+grads.network.down_modules.1.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007050293032079935
+  mean: 5.6994027545442805e-05
+  min: -0.008849039673805237
+  shape:
+  - 128
+  sum: 0.007295235525816679
+grads.network.down_modules.1.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.04508081451058388
+  mean: 2.3283064365386963e-10
+  min: -0.06703322380781174
+  shape:
+  - 128
+  sum: 2.9802322387695312e-08
+grads.network.down_modules.1.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.043204084038734436
+  mean: 6.855090077806381e-07
+  min: -0.032558001577854156
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: 0.05615689605474472
+grads.network.down_modules.1.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.00642053410410881
+  mean: -0.0001009855986922048
+  min: -0.008785631507635117
+  shape:
+  - 128
+  sum: -0.012926156632602215
+grads.network.down_modules.1.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006505873985588551
+  mean: -8.88423528522253e-05
+  min: -0.007206297945231199
+  shape:
+  - 128
+  sum: -0.011371821165084839
+grads.network.down_modules.1.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.027523009106516838
+  mean: 0.00020261913596186787
+  min: -0.028490766882896423
+  shape:
+  - 256
+  sum: 0.051870498806238174
+grads.network.down_modules.1.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.06789881736040115
+  mean: 1.3921527170168702e-05
+  min: -0.0701785460114479
+  shape:
+  - 256
+  - 208
+  sum: 0.7412934899330139
+grads.network.down_modules.1.0.residual_conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.009143543429672718
+  mean: 8.792386506684124e-05
+  min: -0.014916923828423023
+  shape:
+  - 128
+  sum: 0.01125425472855568
+grads.network.down_modules.1.0.residual_conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0142511036247015
+  mean: 2.053406751656439e-05
+  min: -0.018674610182642937
+  shape:
+  - 128
+  - 64
+  - 1
+  sum: 0.1682150810956955
+grads.network.down_modules.1.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.013176867738366127
+  mean: 4.3655745685100555e-11
+  min: -0.009602919220924377
+  shape:
+  - 128
+  sum: 5.587935447692871e-09
+grads.network.down_modules.1.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.04020615667104721
+  mean: 1.3976286936667748e-05
+  min: -0.025845132768154144
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: 1.1449373960494995
+grads.network.down_modules.1.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006839458830654621
+  mean: 0.00015669183630961925
+  min: -0.0037698564119637012
+  shape:
+  - 128
+  sum: 0.020056555047631264
+grads.network.down_modules.1.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.011407977901399136
+  mean: 0.0002627447247505188
+  min: -0.0020345684606581926
+  shape:
+  - 128
+  sum: 0.033631324768066406
+grads.network.down_modules.1.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.05073748528957367
+  mean: -5.820766091346741e-11
+  min: -0.08096493780612946
+  shape:
+  - 128
+  sum: -7.450580596923828e-09
+grads.network.down_modules.1.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.042506903409957886
+  mean: 7.387725418084301e-07
+  min: -0.05015711858868599
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: 0.060520246624946594
+grads.network.down_modules.1.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007618717383593321
+  mean: -2.882511034840718e-05
+  min: -0.011537831276655197
+  shape:
+  - 128
+  sum: -0.003689614124596119
+grads.network.down_modules.1.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0077121383510529995
+  mean: -0.00015922231250442564
+  min: -0.012970339506864548
+  shape:
+  - 128
+  sum: -0.020380456000566483
+grads.network.down_modules.1.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.02755057066679001
+  mean: 0.0003776883240789175
+  min: -0.026841670274734497
+  shape:
+  - 256
+  sum: 0.09668821096420288
+grads.network.down_modules.1.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.06804902106523514
+  mean: 3.089082019869238e-05
+  min: -0.06649544835090637
+  shape:
+  - 256
+  - 208
+  sum: 1.6448744535446167
+grads.network.down_modules.1.2.conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0014005363918840885
+  mean: 8.180270378943533e-05
+  min: -0.0013030460104346275
+  shape:
+  - 128
+  sum: 0.010470746085047722
+grads.network.down_modules.1.2.conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006177618633955717
+  mean: 4.684811574406922e-05
+  min: -0.005385242402553558
+  shape:
+  - 128
+  - 128
+  - 3
+  sum: 2.3026785850524902
+grads.network.down_modules.2.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.002380942925810814
+  mean: 9.094947017729282e-13
+  min: -0.0034780320711433887
+  shape:
+  - 256
+  sum: 2.3283064365386963e-10
+grads.network.down_modules.2.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0053588151931762695
+  mean: -7.612193542172463e-08
+  min: -0.004373747855424881
+  shape:
+  - 256
+  - 128
+  - 5
+  sum: -0.012471817433834076
+grads.network.down_modules.2.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0006932632531970739
+  mean: 7.719353561697062e-06
+  min: -0.0009399446425959468
+  shape:
+  - 256
+  sum: 0.001976154511794448
+grads.network.down_modules.2.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0007640757248736918
+  mean: -2.6696511667978484e-07
+  min: -0.001226324588060379
+  shape:
+  - 256
+  sum: -6.834306987002492e-05
+grads.network.down_modules.2.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006869480479508638
+  mean: -1.4551915228366852e-11
+  min: -0.009510684758424759
+  shape:
+  - 256
+  sum: -3.725290298461914e-09
+grads.network.down_modules.2.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0058091143146157265
+  mean: -2.6516141815591254e-07
+  min: -0.006259073968976736
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: -0.08688809722661972
+grads.network.down_modules.2.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0010642851702868938
+  mean: -2.5049548639799468e-05
+  min: -0.0012182677164673805
+  shape:
+  - 256
+  sum: -0.006412684451788664
+grads.network.down_modules.2.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0021941764280200005
+  mean: -1.4803277736064047e-05
+  min: -0.001582323107868433
+  shape:
+  - 256
+  sum: -0.003789639100432396
+grads.network.down_modules.2.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0030841538682579994
+  mean: -9.257030615117401e-05
+  min: -0.0036930376663804054
+  shape:
+  - 512
+  sum: -0.04739599674940109
+grads.network.down_modules.2.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007662090007215738
+  mean: -7.224120508908527e-06
+  min: -0.009240621700882912
+  shape:
+  - 512
+  - 208
+  sum: -0.769339919090271
+grads.network.down_modules.2.0.residual_conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0010893840808421373
+  mean: -4.4807602535001934e-05
+  min: -0.0012998583260923624
+  shape:
+  - 256
+  sum: -0.011470746248960495
+grads.network.down_modules.2.0.residual_conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0018015741370618343
+  mean: -1.5238701962516643e-06
+  min: -0.0016413737321272492
+  shape:
+  - 256
+  - 128
+  - 1
+  sum: -0.049934178590774536
+grads.network.down_modules.2.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0019809789955615997
+  mean: -2.0463630789890885e-12
+  min: -0.002222079783678055
+  shape:
+  - 256
+  sum: -5.238689482212067e-10
+grads.network.down_modules.2.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.005271179135888815
+  mean: -1.0913016978975065e-07
+  min: -0.006209339946508408
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: -0.03575977310538292
+grads.network.down_modules.2.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0007887594401836395
+  mean: 2.4790886072878493e-06
+  min: -0.0008196845883503556
+  shape:
+  - 256
+  sum: 0.0006346466834656894
+grads.network.down_modules.2.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0005752915749326348
+  mean: 1.6231402923949645e-06
+  min: -0.0008720578043721616
+  shape:
+  - 256
+  sum: 0.0004155239148531109
+grads.network.down_modules.2.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007291166111826897
+  mean: 1.4551915228366852e-11
+  min: -0.0068074618466198444
+  shape:
+  - 256
+  sum: 3.725290298461914e-09
+grads.network.down_modules.2.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.004903133027255535
+  mean: -7.176594607471998e-08
+  min: -0.005209506489336491
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: -0.02351626567542553
+grads.network.down_modules.2.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.000821400317363441
+  mean: -1.992706529563293e-05
+  min: -0.0010138126090168953
+  shape:
+  - 256
+  sum: -0.00510132871568203
+grads.network.down_modules.2.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0008548179175704718
+  mean: -1.4613905477744993e-05
+  min: -0.001301437383517623
+  shape:
+  - 256
+  sum: -0.003741159802302718
+grads.network.down_modules.2.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.004435121547430754
+  mean: 2.6709194571594708e-05
+  min: -0.0033931557554751635
+  shape:
+  - 512
+  sum: 0.01367510762065649
+grads.network.down_modules.2.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.010910672135651112
+  mean: 2.0290931388444733e-06
+  min: -0.008493559435009956
+  shape:
+  - 512
+  - 208
+  sum: 0.21609030663967133
+grads.network.final_conv.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.10364089906215668
+  mean: -2.3283064365386963e-10
+  min: -0.14681102335453033
+  shape:
+  - 64
+  sum: -1.4901161193847656e-08
+grads.network.final_conv.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.09719875454902649
+  mean: 2.4091055820463225e-05
+  min: -0.10252039134502411
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.49338483810424805
+grads.network.final_conv.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.037623316049575806
+  mean: 0.004932599142193794
+  min: -0.022017832845449448
+  shape:
+  - 64
+  sum: 0.31568634510040283
+grads.network.final_conv.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.05247777700424194
+  mean: 0.005402210168540478
+  min: -0.01890684850513935
+  shape:
+  - 64
+  sum: 0.3457414507865906
+grads.network.final_conv.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.10439872741699219
+  mean: -0.03241131454706192
+  min: -0.24256891012191772
+  shape:
+  - 4
+  sum: -0.12964525818824768
+grads.network.final_conv.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.19253209233283997
+  mean: -0.012347769923508167
+  min: -0.4258825480937958
+  shape:
+  - 4
+  - 64
+  - 1
+  sum: -3.161029100418091
+grads.network.mid_modules.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0005315376911312342
+  mean: 0.0
+  min: -0.000762621930334717
+  shape:
+  - 256
+  sum: 0.0
+grads.network.mid_modules.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0014131523203104734
+  mean: 6.45174651481284e-08
+  min: -0.0021539079025387764
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: 0.021141082048416138
+grads.network.mid_modules.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.00026516939396969974
+  mean: -7.697701221331954e-06
+  min: -0.0003579401527531445
+  shape:
+  - 256
+  sum: -0.0019706115126609802
+grads.network.mid_modules.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0005586300976574421
+  mean: -3.715267439474701e-06
+  min: -0.0003247131535317749
+  shape:
+  - 256
+  sum: -0.0009511084645055234
+grads.network.mid_modules.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.005179700441658497
+  mean: -2.1827872842550278e-11
+  min: -0.005031028762459755
+  shape:
+  - 256
+  sum: -5.587935447692871e-09
+grads.network.mid_modules.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0038062056992202997
+  mean: -1.6551847892287697e-08
+  min: -0.0035226584877818823
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: -0.005423709750175476
+grads.network.mid_modules.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0006567136151716113
+  mean: -1.3464426046994049e-05
+  min: -0.0006022142479196191
+  shape:
+  - 256
+  sum: -0.0034468930680304766
+grads.network.mid_modules.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0014807108091190457
+  mean: 1.9709750631591305e-06
+  min: -0.0008114720694720745
+  shape:
+  - 256
+  sum: 0.0005045696161687374
+grads.network.mid_modules.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0018549453234300017
+  mean: -4.844089562539011e-05
+  min: -0.003110529389232397
+  shape:
+  - 512
+  sum: -0.024801738560199738
+grads.network.mid_modules.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.004589315969496965
+  mean: -3.912748979928438e-06
+  min: -0.007689119782298803
+  shape:
+  - 512
+  - 208
+  sum: -0.4166921377182007
+grads.network.mid_modules.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.000688600935973227
+  mean: 0.0
+  min: -0.0005997534608468413
+  shape:
+  - 256
+  sum: 0.0
+grads.network.mid_modules.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0029323305934667587
+  mean: -4.251561165347084e-07
+  min: -0.0035575279034674168
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: -0.1393151581287384
+grads.network.mid_modules.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0004569173906929791
+  mean: -5.38205131306313e-06
+  min: -0.00041208742186427116
+  shape:
+  - 256
+  sum: -0.0013778051361441612
+grads.network.mid_modules.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0003134697035420686
+  mean: -8.013378646865021e-06
+  min: -0.0004917825572192669
+  shape:
+  - 256
+  sum: -0.0020514249335974455
+grads.network.mid_modules.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006222788710147142
+  mean: -7.275957614183426e-12
+  min: -0.007511885836720467
+  shape:
+  - 256
+  sum: -1.862645149230957e-09
+grads.network.mid_modules.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.006286509335041046
+  mean: 3.094539735570834e-08
+  min: -0.005657931789755821
+  shape:
+  - 256
+  - 256
+  - 5
+  sum: 0.010140188038349152
+grads.network.mid_modules.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0008379567880183458
+  mean: -1.988030635402538e-05
+  min: -0.0009246907429769635
+  shape:
+  - 256
+  sum: -0.005089358426630497
+grads.network.mid_modules.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0012433474184945226
+  mean: -6.961264261917677e-06
+  min: -0.0019790977239608765
+  shape:
+  - 256
+  sum: -0.0017820836510509253
+grads.network.mid_modules.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.002321579959243536
+  mean: 2.2590051230508834e-05
+  min: -0.002133627189323306
+  shape:
+  - 512
+  sum: 0.011566106230020523
+grads.network.mid_modules.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.005702272057533264
+  mean: 1.8241792076878482e-06
+  min: -0.005293350201100111
+  shape:
+  - 512
+  - 208
+  sum: 0.19426779448986053
+grads.network.up_modules.0.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0015208577970042825
+  mean: -1.8189894035458565e-12
+  min: -0.0038728229701519012
+  shape:
+  - 128
+  sum: -2.3283064365386963e-10
+grads.network.up_modules.0.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0066945794969797134
+  mean: -3.740269676200114e-07
+  min: -0.01618138700723648
+  shape:
+  - 128
+  - 512
+  - 5
+  sum: -0.12256115674972534
+grads.network.up_modules.0.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.001000692369416356
+  mean: -5.4250227549346164e-05
+  min: -0.0027632657438516617
+  shape:
+  - 128
+  sum: -0.006944029126316309
+grads.network.up_modules.0.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0010656933300197124
+  mean: -1.2469045032048598e-05
+  min: -0.0016831397078931332
+  shape:
+  - 128
+  sum: -0.0015960377641022205
+grads.network.up_modules.0.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.021013135090470314
+  mean: -1.0186340659856796e-10
+  min: -0.017370950430631638
+  shape:
+  - 128
+  sum: -1.30385160446167e-08
+grads.network.up_modules.0.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.013511672616004944
+  mean: 2.3727659481664887e-07
+  min: -0.011145096272230148
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: 0.019437698647379875
+grads.network.up_modules.0.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.002316317753866315
+  mean: -1.561017779749818e-05
+  min: -0.002385857980698347
+  shape:
+  - 128
+  sum: -0.0019981027580797672
+grads.network.up_modules.0.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.00424181018024683
+  mean: 2.9258933864184655e-05
+  min: -0.0031215876806527376
+  shape:
+  - 128
+  sum: 0.003745143534615636
+grads.network.up_modules.0.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007217747624963522
+  mean: 0.0001082344024325721
+  min: -0.00683981366455555
+  shape:
+  - 256
+  sum: 0.027708007022738457
+grads.network.up_modules.0.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.017803557217121124
+  mean: 8.482429620926268e-06
+  min: -0.016914919018745422
+  shape:
+  - 256
+  - 208
+  sum: 0.45167243480682373
+grads.network.up_modules.0.0.residual_conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.002548996126279235
+  mean: -7.107859710231423e-05
+  min: -0.0031710152979940176
+  shape:
+  - 128
+  sum: -0.009098060429096222
+grads.network.up_modules.0.0.residual_conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.010670439340174198
+  mean: -5.3429459512699395e-05
+  min: -0.012865924276411533
+  shape:
+  - 128
+  - 512
+  - 1
+  sum: -3.5015530586242676
+grads.network.up_modules.0.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0017526894807815552
+  mean: -1.3642420526593924e-12
+  min: -0.0027053863741457462
+  shape:
+  - 128
+  sum: -1.7462298274040222e-10
+grads.network.up_modules.0.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.005365848541259766
+  mean: -1.5142634879339312e-07
+  min: -0.007849162444472313
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: -0.012404846027493477
+grads.network.up_modules.0.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0007225564913824201
+  mean: -1.3383033547142986e-05
+  min: -0.0010914746671915054
+  shape:
+  - 128
+  sum: -0.0017130282940343022
+grads.network.up_modules.0.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0009617274045012891
+  mean: -2.6842422812478617e-05
+  min: -0.0012987663503736258
+  shape:
+  - 128
+  sum: -0.003435830119997263
+grads.network.up_modules.0.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.015240637585520744
+  mean: -1.4551915228366852e-11
+  min: -0.01385802123695612
+  shape:
+  - 128
+  sum: -1.862645149230957e-09
+grads.network.up_modules.0.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0098904799669981
+  mean: 2.2800523424848507e-07
+  min: -0.010201954282820225
+  shape:
+  - 128
+  - 128
+  - 5
+  sum: 0.01867818832397461
+grads.network.up_modules.0.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0018183357315137982
+  mean: 5.630547093460336e-06
+  min: -0.0014757488388568163
+  shape:
+  - 128
+  sum: 0.000720710027962923
+grads.network.up_modules.0.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0021849009208381176
+  mean: 2.784411481115967e-05
+  min: -0.0018258308991789818
+  shape:
+  - 128
+  sum: 0.003564046695828438
+grads.network.up_modules.0.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.005606248043477535
+  mean: -8.56045153341256e-06
+  min: -0.006087836343795061
+  shape:
+  - 256
+  sum: -0.0021914755925536156
+grads.network.up_modules.0.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.013948814943432808
+  mean: -9.354222925139766e-07
+  min: -0.0148743512108922
+  shape:
+  - 256
+  - 208
+  sum: -0.04980936646461487
+grads.network.up_modules.0.2.conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.008515680208802223
+  mean: -9.648993727751076e-05
+  min: -0.009727798402309418
+  shape:
+  - 128
+  sum: -0.012350711971521378
+grads.network.up_modules.0.2.conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.01762220449745655
+  mean: -2.320817657164298e-05
+  min: -0.018540579825639725
+  shape:
+  - 128
+  - 128
+  - 4
+  sum: -1.5209710597991943
+grads.network.up_modules.1.0.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.025791876018047333
+  mean: -7.275957614183426e-11
+  min: -0.018794018775224686
+  shape:
+  - 64
+  sum: -4.6566128730773926e-09
+grads.network.up_modules.1.0.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.09026496112346649
+  mean: -1.545735176478047e-05
+  min: -0.0712522640824318
+  shape:
+  - 64
+  - 256
+  - 5
+  sum: -1.2662662267684937
+grads.network.up_modules.1.0.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.013067850843071938
+  mean: -8.918311505112797e-05
+  min: -0.009770921431481838
+  shape:
+  - 64
+  sum: -0.00570771936327219
+grads.network.up_modules.1.0.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.007851656526327133
+  mean: -0.00042411047616042197
+  min: -0.012850485742092133
+  shape:
+  - 64
+  sum: -0.027143070474267006
+grads.network.up_modules.1.0.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.17694500088691711
+  mean: -1.1641532182693481e-10
+  min: -0.09014669805765152
+  shape:
+  - 64
+  sum: -7.450580596923828e-09
+grads.network.up_modules.1.0.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.10794870555400848
+  mean: 1.0903077964030672e-05
+  min: -0.10331584513187408
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.22329503297805786
+grads.network.up_modules.1.0.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.021920984610915184
+  mean: -0.0001948116405401379
+  min: -0.01532328873872757
+  shape:
+  - 64
+  sum: -0.012467944994568825
+grads.network.up_modules.1.0.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.037462737411260605
+  mean: 0.0005881683900952339
+  min: -0.025733990594744682
+  shape:
+  - 64
+  sum: 0.03764277696609497
+grads.network.up_modules.1.0.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.057677797973155975
+  mean: 0.0003727796720340848
+  min: -0.05500451475381851
+  shape:
+  - 128
+  sum: 0.047715798020362854
+grads.network.up_modules.1.0.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.14235727488994598
+  mean: 3.155408921884373e-05
+  min: -0.13646212220191956
+  shape:
+  - 128
+  - 208
+  sum: 0.840096116065979
+grads.network.up_modules.1.0.residual_conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.022276241332292557
+  mean: -0.000825557392090559
+  min: -0.019311625510454178
+  shape:
+  - 64
+  sum: -0.052835673093795776
+grads.network.up_modules.1.0.residual_conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0773143619298935
+  mean: -0.00021357130026444793
+  min: -0.0724119320511818
+  shape:
+  - 64
+  - 256
+  - 1
+  sum: -3.499152183532715
+grads.network.up_modules.1.1.blocks.0.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.03449418395757675
+  mean: 1.1641532182693481e-10
+  min: -0.026913423091173172
+  shape:
+  - 64
+  sum: 7.450580596923828e-09
+grads.network.up_modules.1.1.blocks.0.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.08311164379119873
+  mean: -2.3322663764702156e-05
+  min: -0.0646950751543045
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: -0.47764813899993896
+grads.network.up_modules.1.1.blocks.0.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.014909205958247185
+  mean: -3.4755285014398396e-05
+  min: -0.009674984961748123
+  shape:
+  - 64
+  sum: -0.0022243382409214973
+grads.network.up_modules.1.1.blocks.0.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.014878214336931705
+  mean: 8.182361489161849e-05
+  min: -0.00728719774633646
+  shape:
+  - 64
+  sum: 0.005236711353063583
+grads.network.up_modules.1.1.blocks.1.block.0.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.09615984559059143
+  mean: 2.3283064365386963e-10
+  min: -0.07791721820831299
+  shape:
+  - 64
+  sum: 1.4901161193847656e-08
+grads.network.up_modules.1.1.blocks.1.block.0.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.04407225549221039
+  mean: 1.012727466331853e-06
+  min: -0.04447032883763313
+  shape:
+  - 64
+  - 64
+  - 5
+  sum: 0.020740658044815063
+grads.network.up_modules.1.1.blocks.1.block.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.02112264558672905
+  mean: -0.000297782476991415
+  min: -0.01341104693710804
+  shape:
+  - 64
+  sum: -0.01905807852745056
+grads.network.up_modules.1.1.blocks.1.block.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.03984324634075165
+  mean: 0.0005509668262675405
+  min: -0.010599656030535698
+  shape:
+  - 64
+  sum: 0.03526187688112259
+grads.network.up_modules.1.1.obs_encoder.1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.033612728118896484
+  mean: -0.002077499171718955
+  min: -0.056012529879808426
+  shape:
+  - 128
+  sum: -0.26591989398002625
+grads.network.up_modules.1.1.obs_encoder.1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.08399476110935211
+  mean: -0.0001546760613564402
+  min: -0.13821347057819366
+  shape:
+  - 128
+  - 208
+  sum: -4.118095397949219
+grads.network.up_modules.1.2.conv.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.05021282285451889
+  mean: -0.004181317053735256
+  min: -0.06128157675266266
+  shape:
+  - 64
+  sum: -0.2676042914390564
+grads.network.up_modules.1.2.conv.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 0.10909299552440643
+  mean: -0.0010256539098918438
+  min: -0.128658264875412
+  shape:
+  - 64
+  - 64
+  - 4
+  sum: -16.80431365966797
+outputs.loss:
+  device: cuda:0
+  dtype: torch.float32
+  max: 1.143204927444458
+  mean: 1.143204927444458
+  min: 1.143204927444458
+  shape: []
+  sum: 1.143204927444458

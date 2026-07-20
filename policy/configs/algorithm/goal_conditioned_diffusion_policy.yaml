@@ -1,0 +1,4 @@
+defaults:
+  - diffusion_policy
+
+_target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy
