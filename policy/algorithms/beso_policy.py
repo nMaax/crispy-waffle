@@ -155,10 +155,6 @@ class BesoPolicy(BaseDiffusionAgent):
         """
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
-    def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
-        """Prepares the goal conditioning for the network."""
-        return concat_leaf_tensors(goal, device=self.device)
-
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
@@ -172,13 +168,17 @@ class BesoPolicy(BaseDiffusionAgent):
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        network_cond = self._prepare_network_cond(obs_seq)
+        obs_cond = self._prepare_obs(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
 
-        loss = self._compute_loss(network_cond, action_seq, goal=goal_cond)
+        loss = self._compute_loss(obs_cond, action_seq, goal=goal_cond)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
+
+    def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
+        """Prepares the goal conditioning for the network."""
+        return concat_leaf_tensors(goal, device=self.device)
 
     def _compute_loss(
         self, obs_seq: torch.Tensor, act_seq: torch.Tensor, goal: torch.Tensor | None = None
@@ -244,7 +244,7 @@ class BesoPolicy(BaseDiffusionAgent):
             if goal is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        obs_seq = self._prepare_network_cond(obs_seq)
+        obs_seq = self._prepare_obs(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
 
         return self._run_diffusion_loop(

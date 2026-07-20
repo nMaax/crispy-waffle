@@ -97,7 +97,9 @@ class TestBaseDiffusionAgentLogic:
 
     def test_flatten_obs_auto_detect_unknown_raises(self):
         with pytest.raises(ValueError, match="Cannot auto-detect"):
-            _MinimalDiffusionAgent(**_basic_kwargs(network_target="policy.algorithms.networks.MLP"))
+            _MinimalDiffusionAgent(
+                **_basic_kwargs(network_target="policy.algorithms.networks.MLP")
+            )
 
     def test_flatten_obs_explicit_respected(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=False))
@@ -142,19 +144,19 @@ class TestBaseDiffusionAgentLogic:
             BaseDiffusionAgent._run_diffusion_loop(None, torch.zeros(1))
 
     # ------------------------------------------------------------------ #
-    # _prepare_network_cond
+    # _prepare_obs
     # ------------------------------------------------------------------ #
     def test_prepare_network_cond_flatten(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=True))
         obs = {"a": torch.randn(2, 2, 3)}
-        cond = agent._prepare_network_cond(obs)
-        assert cond.shape == (2, 6)
+        obs_cond = agent._prepare_obs(obs)
+        assert obs_cond.shape == (2, 6)
 
     def test_prepare_network_cond_concat(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=False))
         obs = {"a": torch.randn(2, 2, 3)}
-        cond = agent._prepare_network_cond(obs)
-        assert cond.shape == (2, 2, 3)
+        obs_cond = agent._prepare_obs(obs)
+        assert obs_cond.shape == (2, 2, 3)
 
     # ------------------------------------------------------------------ #
     # Obs-only template methods

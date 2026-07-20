@@ -67,37 +67,16 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
                 proprio_dim + 2 * state_embedding_dim
             )  # (proprioception + embedded observation + embedded goal) for each timestep in sequence
 
-    def get_action(
-        self,
-        obs_seq: torch.Tensor | dict,
-        goal: torch.Tensor | dict,
-        num_inference_timesteps: int | None = None,
-        output_clip_range: tuple | None = None,
-    ):
-        """Runs the reverse diffusion process to predict an action sequence from the current
-        observation.
-
-        Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] or dict
-            goal: [B, obs_dim] or dict
-            returns: [B, act_horizon, act_dim] (denoised actions to execute)
-        """
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            goal = self.obs_normalizer.normalize(goal)
-
-        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-        network_cond = self._prepare_network_cond(obs_seq, goal)
-
-        return self._run_diffusion_loop(network_cond, num_inference_timesteps, output_clip_range)
-
     @torch.no_grad()
     def extract_embeddings(
         self,
         obs: torch.Tensor | dict,
         goal: torch.Tensor | dict | None = None,
     ):
-        """Extracts MLP state embeddings for observations (and optionally a goal)."""
+        """Extracts MLP state embeddings for observations (and optionally a goal).
+
+        Helper function for visualizing the embeddings.
+        """
         if isinstance(obs, Mapping):
             obs = {k: v.to(self.device) for k, v in obs.items()}
         else:
@@ -128,15 +107,29 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         return res
 
-    def _prepare_goal(self, goal: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
-        """Prepares the goal conditioning for the network by embedding it."""
-        if isinstance(goal, Mapping):
-            goal_task_components = [v for k, v in goal.items() if k != "proprio"]
-            goal_task_state = torch.cat(goal_task_components, dim=-1)
-        else:
-            goal_task_state = goal[..., self.proprio_dim :]
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | dict,
+        goal: torch.Tensor | dict,
+        num_inference_timesteps: int | None = None,
+        output_clip_range: tuple | None = None,
+    ):
+        """Runs the reverse diffusion process to predict an action sequence from the current
+        observation.
 
-        return self.state_embedder(goal_task_state)  # B, embedding_dim
+        Shapes:
+            obs_seq: [B, obs_horizon * obs_dim] or dict
+            goal: [B, obs_dim] or dict
+            returns: [B, act_horizon, act_dim] (denoised actions to execute)
+        """
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
+            goal = self.obs_normalizer.normalize(goal)
+
+        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
+        network_cond = self._prepare_network_cond(obs_seq, goal)
+
+        return self._run_diffusion_loop(network_cond, num_inference_timesteps, output_clip_range)
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -218,3 +211,13 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
             network_cond = torch.cat([proprio, state_embeddings, goal_seq], dim=-1)
 
         return network_cond
+
+    def _prepare_goal(self, goal: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
+        """Prepares the goal conditioning for the network by embedding it."""
+        if isinstance(goal, Mapping):
+            goal_task_components = [v for k, v in goal.items() if k != "proprio"]
+            goal_task_state = torch.cat(goal_task_components, dim=-1)
+        else:
+            goal_task_state = goal[..., self.proprio_dim :]
+
+        return self.state_embedder(goal_task_state)  # B, embedding_dim

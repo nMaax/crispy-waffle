@@ -29,12 +29,12 @@ from policy.utils.typing_utils import (
 class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
     """Base class for diffusion-based imitation-learning agents.
 
-    Concrete subclasses must implement :meth:`_compute_loss` and
+    Subclasses must implement :meth:`_compute_loss` and
     :meth:`_run_diffusion_loop`.
 
-    The :meth:`_shared_step`, :meth:`get_action` and
-    :meth:`_prepare_network_cond` are provided as concrete templates that
-    subclasses may override to thread additional conditioning (e.g. goals).
+    The :meth:`_shared_step` and :meth:`get_action`
+    are provided as templates that subclasses
+    may override to thread additional conditioning (e.g. goals).
     """
 
     def __init__(
@@ -299,9 +299,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.obs_normalizer is not None:
             obs_seq = self.obs_normalizer.normalize(obs_seq)
 
-        obs_seq = self._prepare_network_cond(obs_seq)
+        obs_seq = self._prepare_obs(obs_seq)
 
-        return self._run_diffusion_loop(obs_seq, num_inference_timesteps, output_clip_range)
+        action = self._run_diffusion_loop(obs_seq, num_inference_timesteps, output_clip_range)
+
+        return action
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -321,14 +323,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        network_cond = self._prepare_network_cond(obs_seq)
+        obs_cond = self._prepare_obs(obs_seq)
 
-        loss = self._compute_loss(network_cond, action_seq)
+        loss = self._compute_loss(obs_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_network_cond(self, obs_seq: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
+    def _prepare_obs(self, obs_seq: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
         """Prepares the observation sequence for the network conditioning."""
         if self.flatten_obs:
             return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
@@ -350,6 +352,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         network_cond: torch.Tensor,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
-    ):
-        """Generic helper containing the actual reverse diffusion process loop."""
+    ) -> torch.Tensor:
+        """Reverse diffusion process loop."""
         raise NotImplementedError(f"{type(self).__name__} must implement _run_diffusion_loop().")
