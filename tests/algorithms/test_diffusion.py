@@ -127,7 +127,6 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
             algorithm.act_dim,
         )
 
-
 class TestDiffusionPolicyLogic:
     """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
 
@@ -137,6 +136,58 @@ class TestDiffusionPolicyLogic:
     the EMA-required contract, the diffusers-scheduler loss dispatch, and the
     diffusers-scheduler reverse loop (slicing + clamping + EMA store/restore).
     """
+
+    def test_prepare_goal_excludes_proprioception(self):
+        """Check that _prepare_goal excludes proprioception entries for both tensor and dict
+        goals."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            # Flat tensor case
+            policy_flat = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+            )
+            assert policy_flat.goal_dim == 30
+            assert policy_flat.network_cond_dim == 2 * 48 + 30
+
+            tensor_goal = torch.randn(2, 48)
+            prepared_tensor = policy_flat._prepare_goal(tensor_goal)
+            assert prepared_tensor.shape == (2, 30)
+            assert torch.equal(prepared_tensor, tensor_goal[:, 18:])
+
+            # Mapping (dict) case
+            dict_obs_dim = {"proprio": 18, "task_a": 10, "task_b": 20}
+            policy_dict = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=dict_obs_dim,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+            )
+            assert policy_dict.goal_dim == 30
+            dict_goal = {
+                "proprio": torch.randn(2, 18),
+                "task_a": torch.randn(2, 10),
+                "task_b": torch.randn(2, 20),
+            }
+            prepared_dict = policy_dict._prepare_goal(dict_goal)
+            assert prepared_dict.shape == (2, 30)
+            assert torch.equal(prepared_dict[:, :10], dict_goal["task_a"])
+            assert torch.equal(prepared_dict[:, 10:], dict_goal["task_b"])
+
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

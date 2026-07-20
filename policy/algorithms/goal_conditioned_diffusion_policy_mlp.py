@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 import torch
 
@@ -12,60 +12,27 @@ class GoalConditionedDiffusionPolicyMLP(GoalConditionedDiffusionPolicy):
     def __init__(
         self,
         *args,
-        proprio_dim: int = 18,  # panda's qpos(9) + qvel(9), including fingers
-        task_dim: int = 30,  # TCP, A, B, A-B, TCP-A, TCP-B
         hidden_dims: list[int] = [128, 128, 128],
         state_embedding_dim: int = 64,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.goal_conditioned = True
 
-        if isinstance(self.obs_dim, Mapping):
-            if "proprio" not in self.obs_dim:
-                raise ValueError("Observation dictionary spec must contain 'proprio' key.")
-            if self.obs_dim["proprio"] != proprio_dim:
-                raise ValueError(
-                    f"Proprioception dimension in spec ({self.obs_dim['proprio']}) does not match proprio_dim ({proprio_dim})."
-                )
-
-            calc_task_dim = sum(cast(int, v) for k, v in self.obs_dim.items() if k != "proprio")
-            if calc_task_dim != task_dim:
-                raise ValueError(
-                    f"Task dimension calculated from spec ({calc_task_dim}) does not match task_dim ({task_dim})."
-                )
-        else:
-            if not isinstance(self.obs_dim, int):
-                raise ValueError(
-                    f"Observation dimensionality must be an integer or dict, but got {type(self.obs_dim)}."
-                )
-
-            if proprio_dim + task_dim != self.obs_dim:
-                raise ValueError(
-                    f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
-                    f"do not match observation dimensionality ({self.obs_dim}). "
-                    f"{proprio_dim} + {task_dim} != {self.obs_dim}."
-                )
-
-        self.proprio_dim = proprio_dim
-        self.task_dim = task_dim
         self.hidden_dims = hidden_dims
         self.state_embedding_dim = state_embedding_dim
 
         self.state_embedder = MLP(
-            input_dim=task_dim,
+            input_dim=self.task_dim,
             output_dim=state_embedding_dim,
             hidden_dims=hidden_dims,
         )
 
         if self.flatten_obs:
             self.network_cond_dim = (
-                self.obs_horizon * (proprio_dim + state_embedding_dim) + state_embedding_dim
-            )  # (proprioception + embedded observation) for each timestep in the past + the embedded goal (no proprio)
+                self.obs_horizon * (self.proprio_dim + state_embedding_dim) + state_embedding_dim
+            )
         else:
-            self.network_cond_dim = (
-                proprio_dim + 2 * state_embedding_dim
-            )  # (proprioception + embedded observation + embedded goal) for each timestep in sequence
+            self.network_cond_dim = self.proprio_dim + state_embedding_dim + state_embedding_dim
 
     @torch.no_grad()
     def extract_embeddings(

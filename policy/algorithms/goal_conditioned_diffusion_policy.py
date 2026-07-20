@@ -1,10 +1,10 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import concat_leaf_tensors, flatten_and_concat_leaf_tensors, get_total_dim
+from policy.utils import concat_leaf_tensors, flatten_and_concat_leaf_tensors
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol
 
 
@@ -14,11 +14,48 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def __init__(
         self,
         *args,
+        proprio_dim: int = 18,
+        task_dim: int | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.goal_conditioned = True
-        self.network_cond_dim = self.network_cond_dim + get_total_dim(self.obs_dim)
+
+        if isinstance(self.obs_dim, Mapping):
+            if "proprio" not in self.obs_dim:
+                raise ValueError("Observation dictionary spec must contain 'proprio' key.")
+            if self.obs_dim["proprio"] != proprio_dim:
+                raise ValueError(
+                    f"Proprioception dimension in spec ({self.obs_dim['proprio']}) does not match proprio_dim ({proprio_dim})."
+                )
+
+            calc_task_dim = sum(cast(int, v) for k, v in self.obs_dim.items() if k != "proprio")
+            if task_dim is not None and calc_task_dim != task_dim:
+                raise ValueError(
+                    f"Task dimension calculated from spec ({calc_task_dim}) does not match task_dim ({task_dim})."
+                )
+        elif isinstance(self.obs_dim, int):
+            if self.obs_dim < proprio_dim:
+                raise ValueError(
+                    f"Observation dimension ({self.obs_dim}) must be >= proprio_dim ({proprio_dim})."
+                )
+            calc_task_dim = self.obs_dim - proprio_dim
+            if task_dim is not None and calc_task_dim != task_dim:
+                raise ValueError(
+                    f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
+                    f"do not match observation dimensionality ({self.obs_dim}). "
+                    f"{proprio_dim} + {task_dim} != {self.obs_dim}."
+                )
+        else:
+            raise ValueError(
+                f"Observation dimensionality must be an integer or dict, but got {type(self.obs_dim)}."
+            )
+
+        self.proprio_dim = proprio_dim
+        self.task_dim = calc_task_dim
+        self.goal_dim = self.task_dim
+
+        self.network_cond_dim = self.network_cond_dim + self.goal_dim
 
     def get_action(
         self,
@@ -84,15 +121,21 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return loss
 
     def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
-        """Prepares the goal conditioning tensor.
+        """Prepares the goal conditioning tensor by excluding proprioception entries."""
 
-        Default implementation concatenates leaf tensors raw.
-        """
+        if isinstance(goal, Mapping):
+            goal_filtered = {k: v for k, v in goal.items() if k != "proprio"}
+        elif isinstance(goal, torch.Tensor):
+            goal_filtered = goal[..., self.proprio_dim :]
+        else:
+            raise ValueError(
+                f"Expected goal to be a torch.Tensor or Mapping, but got {type(goal)}."
+            )
 
         if self.flatten_obs:
-            return flatten_and_concat_leaf_tensors(goal, device=self.device)
+            return flatten_and_concat_leaf_tensors(goal_filtered, device=self.device)
         else:
-            return concat_leaf_tensors(goal, device=self.device)
+            return concat_leaf_tensors(goal_filtered, device=self.device)
 
     def _compute_loss(
         self, obs_seq: torch.Tensor, act_seq: torch.Tensor, goal: torch.Tensor | None = None
