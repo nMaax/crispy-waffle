@@ -3,12 +3,12 @@ from typing import Any, cast
 
 import torch
 
-from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.algorithms import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks import MLP
 from policy.utils import get_batch_size
 
 
-class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
+class GoalConditionedDiffusionPolicyMLP(GoalConditionedDiffusionPolicy):
     def __init__(
         self,
         *args,
@@ -107,74 +107,8 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
 
         return res
 
-    def get_action(
-        self,
-        obs_seq: torch.Tensor | dict,
-        goal: torch.Tensor | dict,
-        num_inference_timesteps: int | None = None,
-        output_clip_range: tuple | None = None,
-    ):
-        """Runs the reverse diffusion process to predict an action sequence from the current
-        observation.
-
-        Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] or dict
-            goal: [B, obs_dim] or dict
-            returns: [B, act_horizon, act_dim] (denoised actions to execute)
-        """
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            goal = self.obs_normalizer.normalize(goal)
-
-        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-        network_cond = self._prepare_network_cond(obs_seq, goal)
-
-        return self._run_diffusion_loop(network_cond, num_inference_timesteps, output_clip_range)
-
-    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        """Main step logic, it doesn't differ between training and validation except for the
-        logging.
-
-        Shapes:
-            batch["obs_seq"]: [B, obs_horizon, obs_dim] or dict
-            batch["goal"]: [B, obs_dim] or dict
-            batch["act_seq"]: [B, pred_horizon, act_dim]
-            returns: scalar loss tensor []
-        """
-
-        obs_seq = batch["obs_seq"]
-        goal = batch["goal"]
-
-        if not isinstance(obs_seq, torch.Tensor | Mapping):
-            raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor or Mapping, but got {type(obs_seq)}."
-            )
-
-        if not isinstance(goal, torch.Tensor | Mapping):
-            raise ValueError(
-                f"Expected batch['goal'] to be a torch.Tensor or Mapping, but got {type(goal)}."
-            )
-
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            goal = self.obs_normalizer.normalize(goal)
-
-        action_seq = batch["act_seq"]
-        if self.act_normalizer is not None:
-            action_seq = self.act_normalizer.normalize(action_seq)
-        network_cond = self._prepare_network_cond(obs_seq, goal)
-
-        # network_cond: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-        loss = self._compute_loss(network_cond, action_seq)
-
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
-        return loss
-
-    def _prepare_network_cond(
-        self, obs_seq: torch.Tensor | Mapping[str, Any], goal: torch.Tensor | Mapping[str, Any]
-    ) -> torch.Tensor:
-        """Prepares the conditioning for the diffusion model by embedding the observations and
-        goal."""
+    def _prepare_obs(self, obs_seq: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
+        """Prepares observation conditioning by embedding task states."""
 
         B = get_batch_size(obs_seq)
 
@@ -185,8 +119,6 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
         else:
             proprio = obs_seq[..., : self.proprio_dim]
             task_state = obs_seq[..., self.proprio_dim :]
-
-        goal_embedding = self._prepare_goal(goal)  # B, embedding_dim
 
         flatten_task_state = task_state.reshape(B * self.obs_horizon, self.task_dim)
         flatten_obs_embedding = self.state_embedder(flatten_task_state)
@@ -202,15 +134,9 @@ class GoalConditionedDiffusionPolicyMLP(DiffusionPolicy):
                 B, self.obs_horizon * self.state_embedding_dim
             )  # B, horizon * embedding_dim
 
-            # Concatenate all together: B, horizon * (proprio_dim + embedding_dim) + embedding_dim
-            network_cond = torch.cat([proprio_seq, flat_state_embeddings, goal_embedding], dim=-1)
+            return torch.cat([proprio_seq, flat_state_embeddings], dim=-1)
         else:
-            # Broadcast goal embedding across horizon: B, horizon, state_embedding_dim
-            goal_seq = goal_embedding.unsqueeze(1).expand(-1, self.obs_horizon, -1)
-            # Concatenate along feature dim for sequence tokens: B, horizon, proprio_dim + 2 * state_embedding_dim
-            network_cond = torch.cat([proprio, state_embeddings, goal_seq], dim=-1)
-
-        return network_cond
+            return torch.cat([proprio, state_embeddings], dim=-1)
 
     def _prepare_goal(self, goal: torch.Tensor | Mapping[str, Any]) -> torch.Tensor:
         """Prepares the goal conditioning for the network by embedding it."""

@@ -95,7 +95,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             )
 
         # Dimension and horizons
-        self.obs_dim = external_cond_dim
+        self.external_cond_dim = external_cond_dim
         self.act_dim = act_dim
         self.embed_dim = embed_dim
 
@@ -177,7 +177,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             obs_seq = obs
             cur_obs_horizon = obs.shape[1]
         else:
-            cur_obs_horizon = obs.shape[1] // self.obs_dim
+            cur_obs_horizon = obs.shape[1] // self.external_cond_dim
             obs_seq = obs.view(B, cur_obs_horizon, -1)
         obs_tokens = self.obs_emb(obs_seq)  # [B, cur_obs_horizon, embed_dim]
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]

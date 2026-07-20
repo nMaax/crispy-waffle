@@ -286,7 +286,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
         """Runs the reverse diffusion process to predict an action sequence from the current
@@ -299,9 +299,13 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.obs_normalizer is not None:
             obs_seq = self.obs_normalizer.normalize(obs_seq)
 
-        obs_seq = self._prepare_obs(obs_seq)
+        obs_cond = self._prepare_obs(obs_seq)
 
-        action = self._run_diffusion_loop(obs_seq, num_inference_timesteps, output_clip_range)
+        action = self._run_diffusion_loop(
+            obs_cond=obs_cond,
+            num_inference_steps=num_inference_steps,
+            output_clip_range=output_clip_range,
+        )
 
         return action
 
@@ -349,9 +353,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _run_diffusion_loop(
         self,
-        network_cond: torch.Tensor,
+        obs_cond: torch.Tensor,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
-        """Reverse diffusion process loop."""
+        """Reverse diffusion process loop.
+
+        Shapes:
+            obs_cond: [B, obs_horizon * obs_dim] (flattened conditioning)
+            returns: [B, act_horizon, act_dim] (denoised actions to execute)
+        """
         raise NotImplementedError(f"{type(self).__name__} must implement _run_diffusion_loop().")

@@ -56,9 +56,9 @@ class TestBesoPolicyLogic:
     def test_output_clip_range_clamps_without_normalizer(self, basic_kwargs):
         policy = BesoPolicy(**basic_kwargs)
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         out = policy._run_diffusion_loop(
-            network_cond=network_cond, num_inference_timesteps=2, output_clip_range=(3.0, 6.0)
+            obs_cond=obs_cond, num_inference_steps=2, output_clip_range=(3.0, 6.0)
         )
         assert out.min() >= 3.0
         assert out.max() <= 6.0
@@ -66,9 +66,9 @@ class TestBesoPolicyLogic:
     def test_output_clip_range_none_no_clamp(self, basic_kwargs):
         policy = BesoPolicy(**basic_kwargs)
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         out = policy._run_diffusion_loop(
-            network_cond=network_cond, num_inference_timesteps=2, output_clip_range=None
+            obs_cond=obs_cond, num_inference_steps=2, output_clip_range=None
         )
         # No clipping -> output is whatever the loop produces (finite, correct shape)
         assert out.shape == (1, 1, policy.act_dim)
@@ -80,9 +80,9 @@ class TestBesoPolicyLogic:
         # Fit the MinMax normalizer to a known range so unnormalize is well-defined.
         policy.act_normalizer.fit(torch.linspace(-5, 5, 40).view(10, 4))
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         out = policy._run_diffusion_loop(
-            network_cond=network_cond, num_inference_timesteps=2, output_clip_range=(3.0, 6.0)
+            obs_cond=obs_cond, num_inference_steps=2, output_clip_range=(3.0, 6.0)
         )
         assert out.min() >= 3.0
         assert out.max() <= 6.0
@@ -93,30 +93,30 @@ class TestBesoPolicyLogic:
     def test_action_history_appended_after_loop(self, basic_kwargs):
         policy = BesoPolicy(**basic_kwargs)
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         assert len(policy.action_history) == 0
-        policy._run_diffusion_loop(network_cond=network_cond, num_inference_timesteps=2)
+        policy._run_diffusion_loop(obs_cond=obs_cond, num_inference_steps=2)
         assert len(policy.action_history) == 1
 
     def test_reset_clears_action_history(self, basic_kwargs):
         policy = BesoPolicy(**basic_kwargs)
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
-        policy._run_diffusion_loop(network_cond=network_cond, num_inference_timesteps=2)
+        obs_cond = torch.zeros((1, 2, 3))
+        policy._run_diffusion_loop(obs_cond=obs_cond, num_inference_steps=2)
         assert len(policy.action_history) == 1
         policy.reset()
         assert len(policy.action_history) == 0
         assert isinstance(policy.action_history, deque)
 
     # ------------------------------------------------------------------ #
-    # num_inference_timesteps required
+    # num_inference_steps required
     # ------------------------------------------------------------------ #
-    def test_num_inference_timesteps_required(self, basic_kwargs):
+    def test_num_inference_steps_required(self, basic_kwargs):
         policy = BesoPolicy(**basic_kwargs)
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         with pytest.raises(ValueError, match="must be manually provided"):
-            policy._run_diffusion_loop(network_cond=network_cond, num_inference_timesteps=None)
+            policy._run_diffusion_loop(obs_cond=obs_cond, num_inference_steps=None)
 
     # ------------------------------------------------------------------ #
     # _prepare_goal
@@ -178,10 +178,10 @@ class TestBesoPolicyLogic:
     def test_cfg_inference_two_network_calls(self, basic_kwargs):
         policy = BesoPolicy(**_basic_kwargs(cfg_lambda=1.0, goal_seq_len=1))
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         goal_cond = torch.randn(1, 3)
         policy._run_diffusion_loop(
-            network_cond=network_cond, goal_cond=goal_cond, num_inference_timesteps=2
+            obs_cond=obs_cond, goal_cond=goal_cond, num_inference_steps=2
         )
         # cond + uncond = 2 network calls per iteration.
         assert policy.network.call_count == 2
@@ -189,10 +189,10 @@ class TestBesoPolicyLogic:
     def test_no_cfg_single_network_call(self, basic_kwargs):
         policy = BesoPolicy(**_basic_kwargs(cfg_lambda=0.0, goal_seq_len=1))
         _mock_loop_internals(policy)
-        network_cond = torch.zeros((1, 2, 3))
+        obs_cond = torch.zeros((1, 2, 3))
         goal_cond = torch.randn(1, 3)
         policy._run_diffusion_loop(
-            network_cond=network_cond, goal_cond=goal_cond, num_inference_timesteps=2
+            obs_cond=obs_cond, goal_cond=goal_cond, num_inference_steps=2
         )
         assert policy.network.call_count == 1
 
@@ -202,8 +202,8 @@ class TestBesoPolicyLogic:
     def test_num_parallel_samples_averaged(self, basic_kwargs):
         policy = BesoPolicy(**_basic_kwargs(num_parallel_samples=2))
         _mock_loop_internals(policy, network_return=torch.ones((2, 1, 4)))
-        network_cond = torch.zeros((1, 2, 3))
-        out = policy._run_diffusion_loop(network_cond=network_cond, num_inference_timesteps=2)
+        obs_cond = torch.zeros((1, 2, 3))
+        out = policy._run_diffusion_loop(obs_cond=obs_cond, num_inference_steps=2)
         # B=1 averaged over 2 parallel samples -> (1, 1, act_dim)
         assert out.shape == (1, 1, policy.act_dim)
         assert torch.isfinite(out).all()

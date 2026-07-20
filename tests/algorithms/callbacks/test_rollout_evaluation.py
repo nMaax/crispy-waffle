@@ -41,7 +41,7 @@ class FakeRolloutPolicyModule(L.LightningModule):
     """Non-goal-conditioned policy that returns a fixed action sequence.
 
     ``action_scale`` controls the magnitude of returned actions (useful for
-    clamp_action tests).  ``record_nit`` records the num_inference_timesteps
+    clamp_action tests).  ``record_nit`` records the num_inference_steps
     value received, if any.
     """
 
@@ -59,21 +59,24 @@ class FakeRolloutPolicyModule(L.LightningModule):
         self.act_dim = act_dim
         self.action_scale = action_scale
         self.record_nit = record_nit
-        self.last_num_inference_timesteps = None
+        self.last_num_inference_steps = None
         # tiny parameter so `.to(device)` works and module has a device
         self.p = torch.nn.Parameter(torch.zeros(()))
 
     def get_action(
         self,
         obs_seq: torch.Tensor | Any,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
         assert isinstance(obs_seq, torch.Tensor)
         b = obs_seq.shape[0]
         if self.record_nit:
-            self.last_num_inference_timesteps = num_inference_timesteps
-        return torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device) * self.action_scale
+            self.last_num_inference_steps = num_inference_steps
+        return (
+            torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device)
+            * self.action_scale
+        )
 
     # Lightning boilerplate
     def validation_step(self, batch, batch_idx):
@@ -100,18 +103,23 @@ class FakeGoalConditionedPolicyModule(FakeRolloutPolicyModule):
         self,
         obs_seq: torch.Tensor | Any,
         goal: torch.Tensor | Any = None,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
         assert isinstance(obs_seq, torch.Tensor)
         b = obs_seq.shape[0]
         if self.record_nit:
-            self.last_num_inference_timesteps = num_inference_timesteps
-        return torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device) * self.action_scale
+            self.last_num_inference_steps = num_inference_steps
+        return (
+            torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device)
+            * self.action_scale
+        )
 
 
 class FakeUnwrappedEnv(gym.Env):
-    def __init__(self, obs: torch.Tensor, elapsed_steps: torch.Tensor, goal_conditioned: bool = False):
+    def __init__(
+        self, obs: torch.Tensor, elapsed_steps: torch.Tensor, goal_conditioned: bool = False
+    ):
         self._obs = obs
         self._init_raw_obs = obs
         self.elapsed_steps = elapsed_steps
@@ -149,8 +157,14 @@ class FakeVectorEnv(gym.Env):
 
     ACTION_DIM = 3
 
-    def __init__(self, num_envs: int, obs_dim: int = 4, episode_len: int = 1, success: bool = True,
-                 goal_conditioned: bool = False):
+    def __init__(
+        self,
+        num_envs: int,
+        obs_dim: int = 4,
+        episode_len: int = 1,
+        success: bool = True,
+        goal_conditioned: bool = False,
+    ):
         self.obs_dim = obs_dim
         self.episode_len = episode_len
         self._success = success
@@ -169,7 +183,9 @@ class FakeVectorEnv(gym.Env):
 
     @property
     def unwrapped(self) -> gym.Env:
-        return FakeUnwrappedEnv(self._last_obs, self.elapsed_steps, goal_conditioned=self._goal_conditioned)
+        return FakeUnwrappedEnv(
+            self._last_obs, self.elapsed_steps, goal_conditioned=self._goal_conditioned
+        )
 
     @property
     def num_envs(self):
@@ -265,6 +281,7 @@ def _patch_gym(monkeypatch: pytest.MonkeyPatch, **env_kwargs):
 # ====================================================================== #
 # Existing tests (fixed)
 # ====================================================================== #
+
 
 @pytest.mark.parametrize(
     "physx_backend",
@@ -367,7 +384,9 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     )
     with patch("torch.cuda.is_available", return_value=False):
         with pytest.raises(RuntimeError, match="CUDA is not available"):
-            cb_cuda_fail.setup(trainer=MagicMock(datamodule=None), pl_module=fake_module, stage="fit")
+            cb_cuda_fail.setup(
+                trainer=MagicMock(datamodule=None), pl_module=fake_module, stage="fit"
+            )
 
 
 @pytest.mark.parametrize("invalid_num_episodes", [0, -2])
@@ -429,6 +448,7 @@ def test_video_dir_applies_record_episode_wrapper(
 # New tests
 # ====================================================================== #
 
+
 def test_seed_none_raises():
     """RolloutEvaluationCallback must reject seed=None."""
     with pytest.raises(ValueError, match="seed must be provided"):
@@ -443,8 +463,14 @@ def test_all_four_metrics_logged(monkeypatch, capture_log):
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=3, seed=42)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
@@ -464,8 +490,14 @@ def test_clamp_action_clamps_out_of_bounds(monkeypatch, capture_log):
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, clamp_action=True)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
@@ -485,8 +517,14 @@ def test_clamp_action_disabled_passes_through(monkeypatch, capture_log):
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, clamp_action=False)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
@@ -504,8 +542,14 @@ def test_teardown_closes_env(monkeypatch):
 
     cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
@@ -515,20 +559,26 @@ def test_teardown_closes_env(monkeypatch):
     assert cb._gym_env._closed is True
 
 
-def test_num_inference_timesteps_propagation(monkeypatch, capture_log):
-    """num_inference_timesteps from the callback config must reach get_action."""
+def test_num_inference_steps_propagation(monkeypatch, capture_log):
+    """num_inference_steps from the callback config must reach get_action."""
     _patch_gym(monkeypatch, episode_len=1)
     datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
     model = FakeRolloutPolicyModule(record_nit=True)
 
-    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, num_inference_timesteps=7)
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, num_inference_steps=7)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
-    assert model.last_num_inference_timesteps == 7
+    assert model.last_num_inference_steps == 7
 
 
 def test_goal_conditioned_rollout(monkeypatch, capture_log):
@@ -539,8 +589,14 @@ def test_goal_conditioned_rollout(monkeypatch, capture_log):
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     trainer.validate(model=model, datamodule=datamodule, verbose=False)
 
@@ -557,8 +613,14 @@ def test_goal_conditioned_env_without_generate_heuristic_goal_raises(monkeypatch
 
     rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42)
     trainer = L.Trainer(
-        accelerator="cpu", devices=1, logger=False, enable_checkpointing=False,
-        enable_model_summary=False, enable_progress_bar=False, callbacks=[rollout_cb], max_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
     )
     with pytest.raises(AttributeError, match="generate_heuristic_goal"):
         trainer.validate(model=model, datamodule=datamodule, verbose=False)

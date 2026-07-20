@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
@@ -24,7 +24,9 @@ class DiffusionPolicy(BaseDiffusionAgent):
         if self.ema_config is None:
             raise ValueError("DiffusionPolicy requires an EMA model. Pass a valid `ema` config.")
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+    def _compute_loss(
+        self, obs_seq: torch.Tensor, act_seq: torch.Tensor, **kwargs: Any
+    ) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
@@ -56,7 +58,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
         timesteps = cast(torch.IntTensor, timesteps)
 
         noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq)
+        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq, **kwargs)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 
@@ -74,9 +76,10 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
     def _run_diffusion_loop(
         self,
-        network_cond: torch.Tensor,
+        obs_cond: torch.Tensor,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
+        **kwargs: Any,
     ):
         """Generic helper containing the actual reverse diffusion process loop."""
         if self.network is None:
@@ -94,7 +97,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(network_cond)
+        B = get_batch_size(obs_cond)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -115,7 +118,8 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 model_pred = self.network(
                     sample=latent_model_input,
                     timestep=t,
-                    obs=network_cond,
+                    obs=obs_cond,
+                    **kwargs,
                 )
 
                 output = self.noise_scheduler.step(

@@ -271,14 +271,16 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
-        obs=None,
-    ):
+        obs: torch.Tensor | None = None,
+        goal: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Predicts the noise residual for a given noisy sample, timestep, and conditioning.
 
         Shapes:
             sample: [B, pred_horizon, input_dim] (noisy action sequence)
             timestep: [B,] or int
             obs: [B, obs_horizon * obs_dim] (flattened global conditioning)
+            goal: [B, goal_dim] (optional goal conditioning)
             returns: [B, horizon, input_dim] (predicted noise)
         """
         # (B,T,C) -> (B,C,T)
@@ -302,6 +304,8 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
         # Concatenate time embedding with the (eventually provided) global conditioning
         if obs is not None:
             global_feature = torch.cat([global_feature, obs], dim=-1)
+        if goal is not None:
+            global_feature = torch.cat([global_feature, goal], dim=-1)
 
         # Prepare variables to pass and track Unet features for skip connections
         x = sample  # Working variable that we will pass through the UNet

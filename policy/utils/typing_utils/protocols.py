@@ -74,7 +74,7 @@ class PolicyProtocol(Protocol):
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any] | None,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
     ) -> torch.Tensor:
         """Return a sequence of actions given a (batched) observations window.
 
@@ -103,7 +103,7 @@ class GoalConditionedPolicyProtocol(Protocol):
         self,
         obs_seq: torch.Tensor | Mapping[str, Any] | None,
         goal: torch.Tensor | Mapping[str, Any] | None,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
     ) -> torch.Tensor:
         """Return a sequence of actions given a (batched) observations window and a goal.
 
@@ -128,6 +128,7 @@ class DiffusionNetworkProtocol(Protocol):
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
         obs: torch.Tensor,
+        goal: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Predicts the noise or target action sequence.
 
@@ -135,6 +136,7 @@ class DiffusionNetworkProtocol(Protocol):
             sample: Tensor of shape (B, pred_horizon, act_dim) or (B, seq_len, act_dim)
             timestep: Tensor of shape (B,) or scalar representing the timestep/noise level
             obs: Tensor representing the observation conditioning (either sequence or flattened)
+            goal: Optional tensor representing the goal conditioning.
 
         Returns:
             Tensor of same shape as sample (predicted noise or target action sequence)

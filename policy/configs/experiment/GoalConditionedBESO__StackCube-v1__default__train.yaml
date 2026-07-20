@@ -23,6 +23,6 @@ trainer:
   callbacks:
     early_stopping: null
     rollout_evaluation:
-      num_inference_timesteps: 3
+      num_inference_steps: 3
       max_episode_steps: 200
       clamp_action: true

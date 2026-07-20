@@ -9,9 +9,10 @@ import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.utils import concat_leaf_tensors, get_batch_size
+from policy.utils.typing_utils import GoalConditionedPolicyProtocol
 
 
-class BesoPolicy(BaseDiffusionAgent):
+class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     """Trains a BESO diffusion model to predict action sequences from observation histories.
 
     BESO as in Goal-Conditioned Imitation Learning using Score-based Diffusion Policies, Reuss et al. (RSS, 2023)
@@ -236,7 +237,7 @@ class BesoPolicy(BaseDiffusionAgent):
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
         goal: torch.Tensor | Mapping[str, Any] | None = None,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
         if self.obs_normalizer is not None:
@@ -244,18 +245,21 @@ class BesoPolicy(BaseDiffusionAgent):
             if goal is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        obs_seq = self._prepare_obs(obs_seq)
+        obs_cond = self._prepare_obs(obs_seq)
         goal_cond = self._prepare_goal(goal) if goal is not None else None
 
         return self._run_diffusion_loop(
-            obs_seq, goal_cond, num_inference_timesteps, output_clip_range
+            obs_cond=obs_cond,
+            goal_cond=goal_cond,
+            num_inference_steps=num_inference_steps,
+            output_clip_range=output_clip_range,
         )
 
     def _run_diffusion_loop(
         self,
-        network_cond: torch.Tensor,
+        obs_cond: torch.Tensor,
         goal_cond: torch.Tensor | None = None,
-        num_inference_timesteps: int | None = None,
+        num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
         """Runs the BESO diffusion loop to generate the next action.
@@ -269,17 +273,15 @@ class BesoPolicy(BaseDiffusionAgent):
                 "Network not initialized. Call configure_model() before getting action."
             )
 
-        if num_inference_timesteps is None:
-            raise ValueError(
-                "num_inference_timesteps must be manually provided for BESO inference."
-            )
+        if num_inference_steps is None:
+            raise ValueError("num_inference_steps must be manually provided for BESO inference.")
 
         if self.ema is None:
             raise ValueError(
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(network_cond)
+        B = get_batch_size(obs_cond)
 
         # Determine the current history length
         H = len(self.action_history)
@@ -292,18 +294,16 @@ class BesoPolicy(BaseDiffusionAgent):
             clean_past_actions = torch.zeros((B, 0, self.act_dim), device=self.device)
 
         # Slice network_cond to the current observation sequence length
-        if network_cond.ndim == 3:
-            sliced_network_cond = network_cond[:, -cur_obs_len:, :]
+        if obs_cond.ndim == 3:
+            sliced_obs_cond = obs_cond[:, -cur_obs_len:, :]
         else:
-            sliced_network_cond = network_cond.view(B, self.obs_horizon, -1)[:, -cur_obs_len:, :]
+            sliced_obs_cond = obs_cond.view(B, self.obs_horizon, -1)[:, -cur_obs_len:, :]
 
         if self.num_parallel_samples > 1:
             clean_past_actions = clean_past_actions.repeat_interleave(
                 self.num_parallel_samples, dim=0
             )
-            sliced_network_cond = sliced_network_cond.repeat_interleave(
-                self.num_parallel_samples, dim=0
-            )
+            sliced_obs_cond = sliced_obs_cond.repeat_interleave(self.num_parallel_samples, dim=0)
             if goal_cond is not None:
                 goal_cond = goal_cond.repeat_interleave(self.num_parallel_samples, dim=0)
             B_expanded = B * self.num_parallel_samples
@@ -313,9 +313,7 @@ class BesoPolicy(BaseDiffusionAgent):
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
 
-        sigmas = self._get_sigmas_exponential(
-            num_inference_timesteps, self.sigma_min, self.sigma_max
-        )
+        sigmas = self._get_sigmas_exponential(num_inference_steps, self.sigma_min, self.sigma_max)
 
         # NOTE: they provided many custom solvers in the original BESO code
         # however in the paper they indicated DDIM as their best choice for
@@ -344,7 +342,7 @@ class BesoPolicy(BaseDiffusionAgent):
 
                 # Conditional Prediction (with the goal)
                 cond_pred = self.network(
-                    sample=scaled_sample, timestep=sigma_t, obs=sliced_network_cond, goal=goal_cond
+                    sample=scaled_sample, timestep=sigma_t, obs=sliced_obs_cond, goal=goal_cond
                 )
 
                 # Unconditional Prediction (goal zeroed out)
@@ -353,7 +351,7 @@ class BesoPolicy(BaseDiffusionAgent):
                     uncond_pred = self.network(
                         sample=scaled_sample,
                         timestep=sigma_t,
-                        obs=sliced_network_cond,
+                        obs=sliced_obs_cond,
                         goal=uncond_goal,
                     )
 

@@ -20,11 +20,12 @@ class _MinimalDiffusionAgent(BaseDiffusionAgent):
 
     def _run_diffusion_loop(
         self,
-        network_cond: torch.Tensor,
+        obs_cond: torch.Tensor,
+        goal_cond: torch.Tensor | None = None,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
-        B = get_batch_size(network_cond)
+        B = get_batch_size(obs_cond)
         return torch.zeros((B, self.act_horizon, self.act_dim), device=self.device)
 
 
