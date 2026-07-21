@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -193,6 +194,38 @@ class TestDiffusionPolicyLogic:
             assert torch.equal(prepared_dict[:, :10], dict_goal["task_a"])
             assert torch.equal(prepared_dict[:, 10:], dict_goal["task_b"])
 
+    def test_prepare_goal_includes_proprioception_when_configured(self):
+        """exclude_proprio_from_goal=False keeps proprio in the goal's cond shape/output."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                exclude_proprio_from_goal=False,
+            )
+            policy.configure_model()
+            assert policy._get_cond_dims() == {
+                "obs": {"proprio": 18, "task": 30},
+                "goal": {"proprio": 18, "task": 30},
+            }
+
+            tensor_goal = torch.randn(2, 48)
+            prepared_goal = policy._build_goal_external_cond(tensor_goal)["goal"]
+            assert isinstance(prepared_goal, Mapping)
+            assert torch.equal(prepared_goal["proprio"], tensor_goal[:, :18])
+            assert torch.equal(prepared_goal["task"], tensor_goal[:, 18:])
+
+            embeddings = policy.extract_embeddings(torch.randn(2, 2, 48), goal=tensor_goal)
+            assert embeddings["goal_embedding"].shape == (2, 30)
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

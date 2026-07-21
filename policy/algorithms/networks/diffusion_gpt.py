@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from policy.utils import concat_leaf_tensors, get_total_dim
+from policy.utils import concat_leaf_tensors, get_total_dim, split_leaf_key
 from policy.utils.typing_utils import DimSpec, TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 
@@ -83,6 +83,8 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         embed_dim: int = 256,
         obs_horizon: int = 8,
         goal_horizon: int = 0,
+        proprio_dim: int = 0,
+        use_proprio_token: bool = False,
         pred_horizon: int = 8,
         n_layers: int = 4,
         n_heads: int = 8,
@@ -90,6 +92,17 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         attn_pdrop: float = 0.1,
         resid_pdrop: float = 0.1,
     ):
+        """
+        Extra Args:
+            proprio_dim: per-timestep proprioception width. Only read when ``use_proprio_token``
+                is set -- otherwise it's an inert value (proprio, if any, stays glued to the rest
+                of the state features, undifferentiated).
+            use_proprio_token: ``False`` (default) is equivalent to original BESO". ``True`` opts for
+                a "robot-agnostic BESO" variant to better compare with GCDP: proprioception gets its
+                own dedicated per-timestep token and related embedding, separate from the task-only
+                ``obs_emb`` shared by obs-state and goal tokens. Context then becomes:
+                [simga, goal_1, ..., goal_G, proprio_1, obs_1, act_1, proprio_2, obs_2, act_2, ...]
+        """
         super().__init__()
 
         if obs_horizon != pred_horizon:
@@ -97,16 +110,33 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 "Observation horizon and act horizon must be equal for DiffusionGPT. (For now)"
             )
 
+        if use_proprio_token and proprio_dim == 0:
+            raise ValueError("use_proprio_token=True requires proprio_dim > 0.")
+
         # Dimension and horizons
         self.obs_dim = get_total_dim(
             cond_dims["obs"] if isinstance(cond_dims, Mapping) else cond_dims
         )
+
+        if proprio_dim >= self.obs_dim:
+            raise ValueError(
+                f"proprio_dim ({proprio_dim}) must be smaller than the per-timestep obs "
+                f"width ({self.obs_dim}) -- there must be a nonempty task remainder."
+            )
+
+        self.proprio_dim = proprio_dim
+        self.use_proprio_token = use_proprio_token
+        if use_proprio_token:
+            self.task_dim = self.obs_dim - proprio_dim
+        else:
+            self.task_dim = self.obs_dim
+
         if isinstance(cond_dims, Mapping) and "goal" in cond_dims:
             goal_cond_dim = get_total_dim(cond_dims["goal"])
-            if goal_cond_dim != self.obs_dim:
+            if goal_cond_dim != self.task_dim:
                 raise ValueError(
-                    f"cond_dims['goal'] ({goal_cond_dim}) must match the per-timestep obs width "
-                    f"({self.obs_dim}), since goal tokens share obs_emb with obs tokens."
+                    f"cond_dims['goal'] ({goal_cond_dim}) must match the per-timestep task width "
+                    f"({self.task_dim}), since goal tokens share obs_emb with obs-task tokens."
                 )
 
         self.act_dim = act_dim
@@ -116,20 +146,25 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         self.pred_horizon = pred_horizon
         self.goal_horizon = goal_horizon
 
-        # NOTE: Since  obs_horizon  and  pred_horizon  are equal to  obs_seq_len
-        # in this architecture,  obs_horizon + pred_horizon = 2 * obs_seq_len , making the sizes identical.
+        # NOTE: here obs_horizon === obs_seq_len in BESO code, see:
+        # https://github.com/intuitive-robots/beso/blob/ef68824e533802ec0d7a5368ae21d013ce0df5c3/beso/agents/diffusion_agents/k_diffusion/score_gpts.py#L148
+        # In our case, since obs_horizon and pred_horizon are sssumed equal, obs_horizon + pred_horizon = 2 * obs_horizon
+        # With use_proprio_token=True, each obs timestep contributes with one extra dedicated token (3 * obs_seq_len)
 
-        self.block_size = 1 + goal_horizon + obs_horizon + pred_horizon
+        tokens_per_step = 3 if use_proprio_token else 2
+        self.block_size = 1 + goal_horizon + tokens_per_step * obs_horizon
 
         # NOTE: Position embedding sequence length aligns with original BESO score_gpts.py:
         # seq_size = goal_horizon + obs_seq_len + 1.
-        # Practically they did NOT use positinal embedding for sigma
-        # thus the extra +1 token is defined but unused
 
+        # NOTE: seq_len simply is the number of positional embedding we need (consecutive tokens p1, s1, a1 share the same position)
         self.seq_len = goal_horizon + obs_horizon + 1
 
         # Encoders
-        self.obs_emb = nn.Linear(self.obs_dim, embed_dim)
+        self.obs_emb = nn.Linear(self.task_dim, embed_dim)
+        self.proprio_emb: nn.Linear | None = (
+            nn.Linear(proprio_dim, embed_dim) if use_proprio_token else None
+        )
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 
@@ -178,9 +213,21 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 (``[B, obs_horizon * obs_dim]`` or ``[B, obs_horizon, obs_dim]``, possibly a
                 nested mapping of components that gets merged on the feature axis) and an
                 optional ``"goal"`` key (``[B, goal_horizon * obs_dim]`` or
-                ``[B, goal_horizon, obs_dim]``).
+                ``[B, goal_horizon, obs_dim]``). When ``self.use_proprio_token`` is set, ``"obs"``
+                must carry a ``"proprio"`` key (Mapping form) and must be 3D (or a Mapping of 3D
+                tensors) -- a pre-flattened 2D obs tensor's proprio/task boundary is ambiguous
+                once multiple timesteps are packed into one flat vector. A ``"proprio"`` key in
+                ``"goal"``, if present, is simply discarded (goal tokens are always task-only).
         """
         obs = external_cond["obs"]
+        proprio = None
+        if self.use_proprio_token:
+            proprio, obs = split_leaf_key(obs, "proprio", self.proprio_dim)
+            if proprio is None:
+                raise ValueError(
+                    "use_proprio_token=True requires external_cond['obs'] to carry a 'proprio' key."
+                )
+
         if isinstance(obs, Mapping):
             # e.g. with concat_leaf_tensors(dim=-1) a external_cond["obs"] tree like
             #       "obs": {
@@ -197,6 +244,10 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             )
 
         goal = external_cond.get("goal", None)
+        if self.use_proprio_token and isinstance(goal, Mapping):
+            # Goal tokens are always task-only; a "proprio" key, if present (real or zeroed), is
+            # discarded rather than embedded. Tolerant of the key being absent entirely.
+            _, goal = split_leaf_key(goal, "proprio", self.proprio_dim)
         if isinstance(goal, Mapping):
             # e.g. with concat_leaf_tensors(dim=-1) a external_cond["goal"] tree like
             #   torch.Tensor[B, T, 20] (degenerate tree with one tensor leaf only)
@@ -221,8 +272,18 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             obs_seq = obs
             cur_obs_horizon = obs.shape[1]
         else:
+            if self.use_proprio_token:
+                raise ValueError(
+                    "use_proprio_token=True requires external_cond['obs'] to be 3D (or a Mapping "
+                    "of 3D tensors); a pre-flattened 2D obs tensor's proprio/task boundary is "
+                    "ambiguous once multiple timesteps are packed into one flat vector."
+                )
             cur_obs_horizon = obs.shape[1] // self.obs_dim
             obs_seq = obs.view(B, cur_obs_horizon, -1)
+
+        if proprio is not None and proprio.ndim != 3:
+            raise ValueError("external_cond['obs']['proprio'] must be 3D ([B, T, proprio_dim]).")
+
         obs_tokens = self.obs_emb(obs_seq)  # [B, cur_obs_horizon, embed_dim]
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
 
@@ -254,6 +315,18 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                     f"Expected goal sequence length {self.goal_horizon}, but got {goal_seq.shape[1]}"
                 )
 
+            if self.use_proprio_token and goal_seq.shape[-1] == self.obs_dim:
+                # A flat/3D Tensor goal can't be tolerantly checked for a "proprio" key the way a
+                # Mapping can; disambiguate by width instead -- if it's exactly obs-width (task +
+                # proprio, e.g. real or zeroed proprio from an upstream goal-crafter), strip the
+                # leading proprio slice. A goal that's already task-width is left untouched.
+                goal_seq = goal_seq[..., self.proprio_dim :]
+
+            if goal_seq.shape[-1] != self.task_dim:
+                raise ValueError(
+                    f"Expected goal width {self.task_dim} (task-only), but got {goal_seq.shape[-1]}"
+                )
+
             goal_tokens = self.obs_emb(goal_seq)  # [B, goal_horizon, embed_dim]
             goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_horizon, :])
             pos_emb_sa = self.pos_emb[
@@ -267,10 +340,18 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         act_tokens = self.drop(act_tokens + pos_emb_sa[:, :cur_pred_horizon, :])
 
         # Interleave the Sequence
-        # torch.stack creates [B, cur_obs_horizon, 2, embed_dim]
-        # .view flattens it to [B, cur_obs_horizon * 2, embed_dim] resulting in [s1, a1, s2, a2...]
-        sa_seq = torch.stack([obs_tokens, act_tokens], dim=2)
-        sa_seq = sa_seq.view(B, cur_obs_horizon * 2, self.embed_dim)
+        # torch.stack creates [B, cur_obs_horizon, N, embed_dim] (N=2, or N=3 when use_proprio_token)
+        # .view flattens it to [B, cur_obs_horizon * N, embed_dim], e.g. N=2: [s1, a1, s2, a2...],
+        # N=3: [p1, s1, a1, p2, s2, a2...] -- action always sits last in each timestep's group.
+        if proprio is not None:
+            assert self.proprio_emb is not None
+            proprio_tokens = self.proprio_emb(proprio)
+            proprio_tokens = self.drop(proprio_tokens + pos_emb_sa[:, :cur_obs_horizon, :])
+            interleaved = torch.stack([proprio_tokens, obs_tokens, act_tokens], dim=2)
+        else:
+            interleaved = torch.stack([obs_tokens, act_tokens], dim=2)
+        interleave_width = interleaved.shape[2]
+        sa_seq = interleaved.view(B, cur_obs_horizon * interleave_width, self.embed_dim)
 
         # Assemble Final Sequence
         if goal_tokens is not None:
@@ -283,17 +364,17 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         x = self.ln_f(x)
 
         # Extract Action Tokens
-        # Because we interleaved [sigma, goal, s1, a1, s2, a2...], the actions are now evenly spaced.
-        # First, strip off the sigma token and goal tokens:
+        # Because we interleaved [sigma, goal, (p1,) s1, a1, (p2,) s2, a2...], the actions are now
+        # evenly spaced. First, strip off the sigma token and goal tokens:
         if self.goal_horizon > 0:
             x_sa = x[:, 1 + self.goal_horizon :, :]
         else:
             x_sa = x[:, 1:, :]
 
-        # Reshape back to pairs [B, cur_obs_horizon, 2, embed_dim]
-        x_sa = x_sa.view(B, cur_obs_horizon, 2, self.embed_dim)
-        # Extract index 1 from the pairs (which corresponds to the actions)
-        act_outputs = x_sa[:, :, 1, :]
+        # Reshape back to groups [B, cur_obs_horizon, interleave_width, embed_dim]
+        x_sa = x_sa.view(B, cur_obs_horizon, interleave_width, self.embed_dim)
+        # Actions always sit last within each timestep's group.
+        act_outputs = x_sa[:, :, interleave_width - 1, :]
 
         # Decode back to action space
         predicted_actions = self.action_pred(act_outputs)

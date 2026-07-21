@@ -1,15 +1,23 @@
 import math
 from collections import deque
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import hydra_zen
 import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
-from policy.utils import concat_leaf_tensors, get_batch_size, map_leaves, merge_dicts
-from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
+from policy.utils import (
+    concat_leaf_tensors,
+    derive_task_dim,
+    get_batch_size,
+    get_total_dim,
+    map_leaves,
+    merge_dicts,
+    validate_proprio_dim,
+)
+from policy.utils.typing_utils import DimSpec, GoalConditionedPolicyProtocol, TensorTree
 
 
 class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
@@ -31,6 +39,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self,
         *args,
         goal_horizon: int = 0,
+        proprio_dim: int = 0,
+        task_dim: int | None = None,
+        use_proprio_token: bool = False,
         alpha: float = 0.5,
         beta: float = 0.5,
         sigma_min: float = 0.005,
@@ -55,6 +66,17 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "BesoPolicy does not support noise_schedulers as it implements its own custom one. "
                 f"Got noise_scheduler={self.noise_scheduler}. Please remove it."
             )
+
+        if use_proprio_token and proprio_dim == 0:
+            raise ValueError("use_proprio_token=True requires proprio_dim > 0.")
+
+        if proprio_dim > 0 or task_dim is not None:
+            validate_proprio_dim(self.obs_dim, proprio_dim)
+            task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
+
+        self.proprio_dim = proprio_dim
+        self.task_dim = task_dim
+        self.use_proprio_token = use_proprio_token
 
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
@@ -155,6 +177,23 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         Call this at the start of every new rollout episode.
         """
         self.action_history = deque(maxlen=self.obs_horizon - 1)
+
+    def _get_cond_dims(self) -> DimSpec:
+        """Reports the per-timestep conditioning dimensionality passed to the network's
+        ``cond_dims``.
+
+        Adds a ``"goal"`` key (absent from the base class) whenever goal-conditioning is active,
+        so DiffusionGPT's own width validation actually has something to check. Goal width is
+        the task-only width (``obs_total - proprio_dim``) when ``use_proprio_token`` is on;
+        otherwise it's ``obs_total``, i.e. today's implicit (unchecked) invariant that goal and
+        obs share the same width.
+        """
+        cond_dims = cast(Mapping[str, DimSpec], super()._get_cond_dims())
+        if self.goal_horizon > 0:
+            obs_total = get_total_dim(cond_dims["obs"])
+            goal_total = obs_total - self.proprio_dim if self.use_proprio_token else obs_total
+            cond_dims = {**cond_dims, "goal": goal_total}
+        return cond_dims
 
     def get_action(
         self,

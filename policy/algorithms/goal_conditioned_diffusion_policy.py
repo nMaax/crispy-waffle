@@ -1,12 +1,18 @@
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 import hydra_zen
 import torch
 import torch.nn as nn
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import merge_dicts
+from policy.utils import (
+    concat_leaf_tensors,
+    derive_task_dim,
+    merge_dicts,
+    split_leaf_key,
+    validate_proprio_dim,
+)
 from policy.utils.typing_utils import (
     DimSpec,
     GoalConditionedPolicyProtocol,
@@ -21,6 +27,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     Proprioception is always kept raw and never routed through the embedder, so embedders stay
     robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
     embedder); other embedders (e.g. an MLP) are selected via config.
+
+    Propriception of the historical states is the re-routed to be concatenated alongside the embedder outputs to
+    condition the network denoising process. Among such proprioception we can optionally include the one associated
+    to the goal by turning exclude_proprio_from_goal to False.
     """
 
     def __init__(
@@ -29,6 +39,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         proprio_dim: int = 18,
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
+        exclude_proprio_from_goal: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -39,42 +50,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.proprio_dim = proprio_dim
         self.task_dim = task_dim
         self.goal_dim = task_dim
+        self.exclude_proprio_from_goal = exclude_proprio_from_goal
 
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
 
     def _validate_obs_dim(self, proprio_dim: int, task_dim: int | None) -> tuple[int, int]:
-        if isinstance(self.obs_dim, Mapping):
-            if "proprio" not in self.obs_dim:
-                raise ValueError("Observation dictionary spec must contain 'proprio' key.")
-            if self.obs_dim["proprio"] != proprio_dim:
-                raise ValueError(
-                    f"Proprioception dimension in spec ({self.obs_dim['proprio']}) does not match proprio_dim ({proprio_dim})."
-                )
-
-            calc_task_dim = sum(cast(int, v) for k, v in self.obs_dim.items() if k != "proprio")
-            if task_dim is not None and calc_task_dim != task_dim:
-                raise ValueError(
-                    f"Task dimension calculated from spec ({calc_task_dim}) does not match task_dim ({task_dim})."
-                )
-        elif isinstance(self.obs_dim, int):
-            if self.obs_dim < proprio_dim:
-                raise ValueError(
-                    f"Observation dimension ({self.obs_dim}) must be >= proprio_dim ({proprio_dim})."
-                )
-            calc_task_dim = self.obs_dim - proprio_dim
-            if task_dim is not None and calc_task_dim != task_dim:
-                raise ValueError(
-                    f"Proprioception dimensionality ({proprio_dim}) + Task dimensionality ({task_dim}) "
-                    f"do not match observation dimensionality ({self.obs_dim}). "
-                    f"{proprio_dim} + {task_dim} != {self.obs_dim}."
-                )
-        else:
-            raise ValueError(
-                f"Observation dimensionality must be an integer or dict, but got {type(self.obs_dim)}."
-            )
-
-        return proprio_dim, calc_task_dim
+        validate_proprio_dim(self.obs_dim, proprio_dim)
+        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
+        return proprio_dim, task_dim
 
     def configure_model(self) -> None:
         if self.network is not None:
@@ -88,13 +72,14 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's
-        ``cond_dims``.
-
-        Widths here are *not* multiplied by ``obs_horizon`` -- each network knows its own horizon
-        (via config) and is responsible for resolving how it consumes the time axis of each key.
-        """
+        ``cond_dims``."""
         embed_dim = self._embedder_output_dim()
-        return {"obs": {"proprio": self.proprio_dim, "task": embed_dim}, "goal": embed_dim}
+        obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+        if self.exclude_proprio_from_goal:
+            goal_spec = embed_dim
+        else:
+            goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+        return {"obs": obs_spec, "goal": goal_spec}
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
@@ -152,11 +137,16 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         goal_embedding = external_cond.get("goal", None)
         if goal_embedding is not None:
-            if not isinstance(goal_embedding, torch.Tensor):
+            if isinstance(goal_embedding, Mapping):
+                goal_task_embedding = goal_embedding.get("task")
+            else:
+                goal_task_embedding = goal_embedding
+
+            if not isinstance(goal_task_embedding, torch.Tensor):
                 raise ValueError(
-                    f"Expected goal_embedding to be a torch.Tensor, but got {type(goal_embedding)}."
+                    f"Expected goal_task_embedding to be a torch.Tensor, but got {type(goal_task_embedding)}."
                 )
-            res["goal_embedding"] = goal_embedding.cpu()
+            res["goal_embedding"] = goal_task_embedding.cpu()
 
         return res
 
@@ -235,8 +225,11 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return {"obs": {"proprio": proprio, "task": task_embedded}}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
-        _, goal_embedded = self._embed_states(goal)
-        return {"goal": goal_embedded}
+        proprio, goal_embedded = self._embed_states(goal)
+        if self.exclude_proprio_from_goal:
+            return {"goal": goal_embedded}
+        else:
+            return {"goal": {"proprio": proprio, "task": goal_embedded}}
 
     def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits proprio/task and embeds the task components.
@@ -269,11 +262,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self, x: torch.Tensor | Mapping[str, Any]
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits proprioception from the (concatenated) task-relevant components."""
-        if isinstance(x, Mapping):
-            proprio = x["proprio"]
-            task_components = [v for k, v in x.items() if k != "proprio"]
-            task = torch.cat(task_components, dim=-1)
-        else:
-            proprio = x[..., : self.proprio_dim]
-            task = x[..., self.proprio_dim :]
+        proprio, remainder = split_leaf_key(x, "proprio", self.proprio_dim)
+        if proprio is None:
+            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
+        task = (
+            concat_leaf_tensors(remainder, dim=-1) if isinstance(remainder, Mapping) else remainder
+        )
         return proprio, task

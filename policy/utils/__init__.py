@@ -2,6 +2,7 @@ from .functional_utils import compose
 from .utils import (
     cat_dicts,
     concat_leaf_tensors,
+    derive_task_dim,
     flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_device,
@@ -12,12 +13,15 @@ from .utils import (
     print_mapping_tree,
     recursive_index,
     slice_by_schema,
+    split_leaf_key,
     to_tensor,
+    validate_proprio_dim,
 )
 
 __all__ = [
     "compose",
     "concat_leaf_tensors",
+    "derive_task_dim",
     "flatten_and_concat_leaf_tensors",
     "get_batch_size",
     "get_device",
@@ -27,7 +31,9 @@ __all__ = [
     "print_mapping_tree",
     "recursive_index",
     "slice_by_schema",
+    "split_leaf_key",
     "cat_dicts",
     "to_tensor",
     "get_total_dim",
+    "validate_proprio_dim",
 ]

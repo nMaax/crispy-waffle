@@ -51,6 +51,48 @@ class TestBesoPolicyLogic:
         return _basic_kwargs()
 
     # ------------------------------------------------------------------ #
+    # _get_cond_dims
+    # ------------------------------------------------------------------ #
+    def test_get_cond_dims_no_goal(self, basic_kwargs):
+        """Without goal-conditioning, cond_dims carries no "goal" key (today's behavior)."""
+        policy = BesoPolicy(**basic_kwargs)
+        assert policy._get_cond_dims() == {"obs": 3}
+
+    def test_get_cond_dims_goal_matches_obs_when_use_proprio_token_off(self, basic_kwargs):
+        """use_proprio_token=False ("true BESO"): goal width equals obs width, today's implicit
+        invariant now made explicit -- regardless of whether proprio_dim is also set."""
+        policy = BesoPolicy(**_basic_kwargs(goal_horizon=1))
+        assert policy._get_cond_dims() == {"obs": 3, "goal": 3}
+
+        policy_with_inert_proprio_dim = BesoPolicy(
+            **_basic_kwargs(goal_horizon=1, proprio_dim=1, obs_dim=3)
+        )
+        assert policy_with_inert_proprio_dim._get_cond_dims() == {"obs": 3, "goal": 3}
+
+    def test_get_cond_dims_goal_is_task_only_when_use_proprio_token_set(self, basic_kwargs):
+        """use_proprio_token=True ("robot-agnostic BESO"): goal width is task-only
+        (obs_total - proprio_dim)."""
+        policy = BesoPolicy(
+            **_basic_kwargs(goal_horizon=1, proprio_dim=1, use_proprio_token=True, obs_dim=3)
+        )
+        assert policy._get_cond_dims() == {"obs": 3, "goal": 2}
+
+    def test_proprio_dim_validated_against_obs_dim(self, basic_kwargs):
+        with pytest.raises(ValueError, match="must be >= proprio_dim"):
+            BesoPolicy(**_basic_kwargs(proprio_dim=10, obs_dim=3))
+
+    def test_task_dim_validated_against_obs_dim_and_proprio_dim(self, basic_kwargs):
+        policy = BesoPolicy(**_basic_kwargs(proprio_dim=1, task_dim=2, obs_dim=3))
+        assert policy.task_dim == 2
+
+        with pytest.raises(ValueError, match="does not match task_dim"):
+            BesoPolicy(**_basic_kwargs(proprio_dim=1, task_dim=5, obs_dim=3))
+
+    def test_use_proprio_token_requires_proprio_dim(self, basic_kwargs):
+        with pytest.raises(ValueError, match="use_proprio_token=True requires proprio_dim > 0"):
+            BesoPolicy(**_basic_kwargs(use_proprio_token=True))
+
+    # ------------------------------------------------------------------ #
     # output_clip_range (post-unnormalize physical-space clamping)
     # ------------------------------------------------------------------ #
     def test_output_clip_range_clamps_without_normalizer(self, basic_kwargs):
