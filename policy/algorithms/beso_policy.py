@@ -156,6 +156,26 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         """
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
+    def get_action(
+        self,
+        obs_seq: torch.Tensor | Mapping[str, Any],
+        goal: torch.Tensor | Mapping[str, Any] | None = None,
+        num_inference_steps: int | None = None,
+        output_clip_range: tuple | None = None,
+    ):
+        if self.obs_normalizer is not None:
+            obs_seq = self.obs_normalizer.normalize(obs_seq)
+            if goal is not None:
+                goal = self.obs_normalizer.normalize(goal)
+
+        external_cond = self._build_external_cond(obs_seq, goal)
+
+        return self._run_diffusion_loop(
+            external_cond=external_cond,
+            num_inference_steps=num_inference_steps,
+            output_clip_range=output_clip_range,
+        )
+
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
@@ -169,13 +189,15 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        loss = self._compute_loss(obs_seq, action_seq, goal=goal)
+        external_cond = self._build_external_cond(obs_seq, goal)
+
+        loss = self._compute_loss(external_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
     def _compute_loss(
-        self, obs_seq: TensorTree, act_seq: torch.Tensor, goal: TensorTree | None = None
+        self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor
     ) -> torch.Tensor:
         """BESO Loss formulation using Karras preconditioning and sampling from a continuous
         distribution of noise levels (i.e., do not use Diffusers)."""
@@ -185,7 +207,14 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "Network not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(obs_seq)
+        B = get_batch_size(external_cond)
+
+        # NOTE: since we need to mask the goal for CFG
+        # we unpack the external_cond and pack it back later
+
+        # Unpack data
+        obs_seq = external_cond["obs"]
+        goal = external_cond.get("goal", None)
 
         # Sample continuous noise levels
         sigmas = self._sample_noise_distribution(B, alpha=self.alpha, beta=self.beta)
@@ -203,7 +232,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # Predict raw model output (Network is now just DiffusionGPT)
         scaled_noisy_act = noisy_act_seq * c_in
 
-        # Goal dropout for Classifier-Free Guidance training
+        # Goal dropout for Classifier-Free Guidance
         if self.training and goal is not None and self.goal_drop_prob > 0.0:
             # One drop decision per batch item, shared across every leaf of the goal tree.
             drop_mask = torch.rand(B, device=self.device) < self.goal_drop_prob
@@ -214,8 +243,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 goal,
             )
 
+        # Repack data back in the external_cond dictionary and predict
         external_cond = self._build_external_cond(obs_seq, goal)
-
         model_output = self.network(
             sample=scaled_noisy_act, timestep=sigmas, external_cond=external_cond
         )
@@ -247,29 +276,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
         return {"goal": goal}
 
-    def get_action(
-        self,
-        obs_seq: torch.Tensor | Mapping[str, Any],
-        goal: torch.Tensor | Mapping[str, Any] | None = None,
-        num_inference_steps: int | None = None,
-        output_clip_range: tuple | None = None,
-    ):
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            if goal is not None:
-                goal = self.obs_normalizer.normalize(goal)
-
-        external_cond = self._build_external_cond(obs_seq, goal)
-
-        return self._run_diffusion_loop(
-            external_cond=external_cond,
-            num_inference_steps=num_inference_steps,
-            output_clip_range=output_clip_range,
-        )
-
     def _run_diffusion_loop(
         self,
-        external_cond: dict[str, TensorTree],
+        external_cond: Mapping[str, TensorTree],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
@@ -292,10 +301,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
+        B = get_batch_size(external_cond)
+
+        # Unpack data
         obs_cond = external_cond["obs"]
         goal_cond = external_cond.get("goal", None)
-
-        B = get_batch_size(obs_cond)
 
         # Determine the current history length
         H = len(self.action_history)
@@ -307,10 +317,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         else:
             clean_past_actions = torch.zeros((B, 0, self.act_dim), device=self.device)
 
+        # NOTE: Slicing logic below needs a flat Tensor so we need
+        # to flatten it before and work on it; kind of dirty but same
+        # flattening would have happened inside DiffusionGPT anyway.
+
         if isinstance(obs_cond, Mapping):
-            # Slicing logic below needs a flat Tensor so we need
-            # to flatten it before and work it; kind of dirty but same
-            # flattening would have happened inside DiffusionGPT anyway.
             obs_cond = concat_leaf_tensors(obs_cond, dim=-1)
 
         # Slice network_cond to the current observation sequence length
@@ -393,8 +404,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 # Reverse Karras preconditioning
                 scaled_pred = current_pred * c_out + current_noisy * c_skip
 
-                # Continuous-DDIM step
-                # as in https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
+                # Continuous-DDIM step, as in:
+                # https://github.com/intuitive-robots/beso/blob/main/beso/agents/diffusion_agents/k_diffusion/gc_sampling.py#L896
                 t = self._t_fn(sigma_t).view(B_expanded, 1, 1)
                 t_next = self._t_fn(sigma_next).view(B_expanded, 1, 1)
 
@@ -426,7 +437,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation
         #    from the mean, preventing the policy from ever outputting extreme actions.
         # By unnormalizing first and then clipping in physical space using output_clip_range, we apply
-        # the bounds correctly in physical/environment coordinates, regardless of the normalization scheme.
+        # the bounds correctly in physical/environment coordinates, regardless of the normalization.
 
         if self.act_normalizer is not None:
             physical_action = self.act_normalizer.unnormalize(denoised_action)

@@ -113,14 +113,14 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
                 latent_model_input = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
-                model_pred = self.network(
+                model_output = self.network(
                     sample=latent_model_input,
                     timestep=t,
                     external_cond=external_cond,
                 )
 
                 output = self.noise_scheduler.step(
-                    model_output=model_pred,
+                    model_output=model_output,
                     timestep=t,
                     sample=noisy_act_seq,
                     return_dict=False,

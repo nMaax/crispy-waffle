@@ -157,7 +157,8 @@ class TestBesoPolicyLogic:
         obs_seq = torch.randn(1, 2, 3)
         act_seq = torch.randn(1, 16, 4)
         goal = torch.randn(1, 3)
-        policy._compute_loss(obs_seq, act_seq, goal=goal)
+        external_cond = {"obs": obs_seq, "goal": goal}
+        policy._compute_loss(external_cond, act_seq)
         # With goal_drop_prob=1.0, the goal passed to the network must be all zeros.
         call_kwargs = policy.network.call_args.kwargs
         assert "goal" in call_kwargs["external_cond"]
@@ -171,7 +172,8 @@ class TestBesoPolicyLogic:
         obs_seq = torch.randn(1, 2, 3)
         act_seq = torch.randn(1, 16, 4)
         goal = {"a": torch.randn(1, 3), "b": torch.randn(1, 5)}
-        policy._compute_loss(obs_seq, act_seq, goal=goal)
+        external_cond = {"obs": obs_seq, "goal": goal}
+        policy._compute_loss(external_cond, act_seq)
         call_kwargs = policy.network.call_args.kwargs
         goal_out = call_kwargs["external_cond"]["goal"]
         assert torch.all(goal_out["a"] == 0.0)
