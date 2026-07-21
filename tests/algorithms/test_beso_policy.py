@@ -151,7 +151,7 @@ class TestBesoPolicyLogic:
     # Goal dropout (CFG training)
     # ------------------------------------------------------------------ #
     def test_goal_dropout_zeros_goal_when_training(self, basic_kwargs):
-        policy = BesoPolicy(**_basic_kwargs(goal_drop_prob=1.0, goal_seq_len=1))
+        policy = BesoPolicy(**_basic_kwargs(goal_drop_prob=1.0, goal_horizon=1))
         policy.train()  # enable training mode
         policy.network = MagicMock(return_value=torch.zeros(1, 16, 4))
         obs_seq = torch.randn(1, 2, 3)
@@ -165,7 +165,7 @@ class TestBesoPolicyLogic:
 
     def test_goal_dropout_zeros_goal_when_training_dict_goal(self, basic_kwargs):
         """Same as above, but with a genuine multi-key goal tree (not a bare Tensor)."""
-        policy = BesoPolicy(**_basic_kwargs(goal_drop_prob=1.0, goal_seq_len=1))
+        policy = BesoPolicy(**_basic_kwargs(goal_drop_prob=1.0, goal_horizon=1))
         policy.train()
         policy.network = MagicMock(return_value=torch.zeros(1, 16, 4))
         obs_seq = torch.randn(1, 2, 3)
@@ -181,7 +181,7 @@ class TestBesoPolicyLogic:
     # CFG inference
     # ------------------------------------------------------------------ #
     def test_cfg_inference_two_network_calls(self, basic_kwargs):
-        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=1.0, goal_seq_len=1))
+        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=1.0, goal_horizon=1))
         _mock_loop_internals(policy)
         obs_cond = torch.zeros((1, 2, 3))
         goal_cond = torch.randn(1, 3)
@@ -192,7 +192,7 @@ class TestBesoPolicyLogic:
         assert policy.network.call_count == 2
 
     def test_no_cfg_single_network_call(self, basic_kwargs):
-        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=0.0, goal_seq_len=1))
+        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=0.0, goal_horizon=1))
         _mock_loop_internals(policy)
         obs_cond = torch.zeros((1, 2, 3))
         goal_cond = torch.randn(1, 3)

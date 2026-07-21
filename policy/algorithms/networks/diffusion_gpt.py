@@ -81,62 +81,55 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         act_dim: int,
         cond_dims: DimSpec,
         embed_dim: int = 256,
-        external_cond_horizon: int = 8,
+        obs_horizon: int = 8,
+        goal_horizon: int = 0,
         pred_horizon: int = 8,
         n_layers: int = 4,
         n_heads: int = 8,
         embed_pdrop: float = 0.1,
         attn_pdrop: float = 0.1,
         resid_pdrop: float = 0.1,
-        goal_seq_len: int = 0,
     ):
         super().__init__()
 
-        if external_cond_horizon != pred_horizon:
+        if obs_horizon != pred_horizon:
             raise ValueError(
                 "Observation horizon and act horizon must be equal for DiffusionGPT. (For now)"
             )
 
         # Dimension and horizons
-
-        # NOTE: cond_dims reports the *per-timestep* width of each key (see
-        # BaseDiffusionAgent._get_cond_dims); this network tokenizes per-timestep, so it uses
-        # that width directly -- no horizon multiplication/division needed here.
-        self.external_cond_dim = get_total_dim(
+        self.obs_dim = get_total_dim(
             cond_dims["obs"] if isinstance(cond_dims, Mapping) else cond_dims
         )
-
-        # obs_emb (below) is shared between obs and goal tokens, so a goal width mismatch would
-        # otherwise only surface as an opaque matmul error deep inside forward().
         if isinstance(cond_dims, Mapping) and "goal" in cond_dims:
             goal_cond_dim = get_total_dim(cond_dims["goal"])
-            if goal_cond_dim != self.external_cond_dim:
+            if goal_cond_dim != self.obs_dim:
                 raise ValueError(
                     f"cond_dims['goal'] ({goal_cond_dim}) must match the per-timestep obs width "
-                    f"({self.external_cond_dim}), since goal tokens share obs_emb with obs tokens."
+                    f"({self.obs_dim}), since goal tokens share obs_emb with obs tokens."
                 )
 
         self.act_dim = act_dim
         self.embed_dim = embed_dim
 
-        self.obs_horizon = external_cond_horizon
+        self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
-        self.goal_seq_len = goal_seq_len
+        self.goal_horizon = goal_horizon
 
         # NOTE: Since  obs_horizon  and  pred_horizon  are equal to  obs_seq_len
         # in this architecture,  obs_horizon + pred_horizon = 2 * obs_seq_len , making the sizes identical.
 
-        self.block_size = 1 + goal_seq_len + external_cond_horizon + pred_horizon
+        self.block_size = 1 + goal_horizon + obs_horizon + pred_horizon
 
         # NOTE: Position embedding sequence length aligns with original BESO score_gpts.py:
-        # seq_size = goal_seq_len + obs_seq_len + 1.
+        # seq_size = goal_horizon + obs_seq_len + 1.
         # Practically they did NOT use positinal embedding for sigma
         # thus the extra +1 token is defined but unused
 
-        self.seq_len = goal_seq_len + external_cond_horizon + 1
+        self.seq_len = goal_horizon + obs_horizon + 1
 
         # Encoders
-        self.obs_emb = nn.Linear(self.external_cond_dim, embed_dim)
+        self.obs_emb = nn.Linear(self.obs_dim, embed_dim)
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 
@@ -184,8 +177,8 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             external_cond: conditioning tensor tree with an ``"obs"`` key
                 (``[B, obs_horizon * obs_dim]`` or ``[B, obs_horizon, obs_dim]``, possibly a
                 nested mapping of components that gets merged on the feature axis) and an
-                optional ``"goal"`` key (``[B, goal_seq_len * obs_dim]`` or
-                ``[B, goal_seq_len, obs_dim]``).
+                optional ``"goal"`` key (``[B, goal_horizon * obs_dim]`` or
+                ``[B, goal_horizon, obs_dim]``).
         """
         obs = external_cond["obs"]
         if isinstance(obs, Mapping):
@@ -228,7 +221,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             obs_seq = obs
             cur_obs_horizon = obs.shape[1]
         else:
-            cur_obs_horizon = obs.shape[1] // self.external_cond_dim
+            cur_obs_horizon = obs.shape[1] // self.obs_dim
             obs_seq = obs.view(B, cur_obs_horizon, -1)
         obs_tokens = self.obs_emb(obs_seq)  # [B, cur_obs_horizon, embed_dim]
         act_tokens = self.act_emb(sample)  # [B, pred_horizon, embed_dim]
@@ -239,32 +232,32 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 f"Observation sequence length {cur_obs_horizon} and action sequence length {cur_pred_horizon} must be equal."
             )
 
+        # Apply Positional Embeddings, pos_emb covers [1, goal_horizon + obs_horizon + 1, embed_dim]
+
         # NOTE: In the original BESO score_gpts.py, they did not add a positional embedding
         # to the sigma token (but still they reserved such parameter in the positional embedding vector).
         # They just concatenated sigma token raw in the context, and used pos_emb[:, 0:goal_len] for the goals.
         # We align with this choice by not adding positional embeddings to the sigma token as well.
 
-        # Apply Positional Embeddings
-        # pos_emb covers [1, goal_seq_len + obs_horizon + 1, embed_dim] (matching original BESO)
         sigma_token = self.drop(sigma_token)
 
-        if self.goal_seq_len > 0:
+        if self.goal_horizon > 0:
             if goal is None:
                 raise ValueError("goal must be provided for goal-conditioned DiffusionGPT")
             if goal.ndim == 2:
-                goal_seq = goal.view(B, self.goal_seq_len, -1)
+                goal_seq = goal.view(B, self.goal_horizon, -1)
             else:
                 goal_seq = goal
 
-            if goal_seq.shape[1] != self.goal_seq_len:
+            if goal_seq.shape[1] != self.goal_horizon:
                 raise ValueError(
-                    f"Expected goal sequence length {self.goal_seq_len}, but got {goal_seq.shape[1]}"
+                    f"Expected goal sequence length {self.goal_horizon}, but got {goal_seq.shape[1]}"
                 )
 
-            goal_tokens = self.obs_emb(goal_seq)  # [B, goal_seq_len, embed_dim]
-            goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_seq_len, :])
+            goal_tokens = self.obs_emb(goal_seq)  # [B, goal_horizon, embed_dim]
+            goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_horizon, :])
             pos_emb_sa = self.pos_emb[
-                :, self.goal_seq_len : cur_obs_horizon + self.goal_seq_len, :
+                :, self.goal_horizon : cur_obs_horizon + self.goal_horizon, :
             ]
         else:
             goal_tokens = None
@@ -292,8 +285,8 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         # Extract Action Tokens
         # Because we interleaved [sigma, goal, s1, a1, s2, a2...], the actions are now evenly spaced.
         # First, strip off the sigma token and goal tokens:
-        if self.goal_seq_len > 0:
-            x_sa = x[:, 1 + self.goal_seq_len :, :]
+        if self.goal_horizon > 0:
+            x_sa = x[:, 1 + self.goal_horizon :, :]
         else:
             x_sa = x[:, 1:, :]
 

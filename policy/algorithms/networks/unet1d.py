@@ -192,11 +192,11 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
         # "obs" repeats every timestep (it's the only key with a real time axis at runtime), so
         # only its width gets multiplied by obs_horizon here.
         cond_dims_map = cond_dims if isinstance(cond_dims, Mapping) else {"obs": cond_dims}
-        external_cond_dim = sum(
+        total_cond_dim = sum(
             get_total_dim(spec) * (obs_horizon if key == "obs" else 1)
             for key, spec in cond_dims_map.items()
         )
-        obs_dim = dsed + external_cond_dim
+        obs_dim = dsed + total_cond_dim
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]

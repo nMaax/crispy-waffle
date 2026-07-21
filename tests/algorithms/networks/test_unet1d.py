@@ -17,16 +17,16 @@ def test_unet1d_instantiates_and_runs():
     batch_size = 128
     horizon = 16
     act_dim = 8
-    external_cond_dim = 67
+    total_cond_dim = 67
 
     net_cfg.act_dim = act_dim
-    net_cfg.cond_dims = {"obs": external_cond_dim}
+    net_cfg.cond_dims = {"obs": total_cond_dim}
     net_cfg.obs_horizon = horizon
     network = hydra_zen.instantiate(net_cfg)
 
     sample = torch.randn(batch_size, horizon, act_dim)
     timestep = torch.randint(0, 100, (batch_size,))
-    obs = torch.randn(batch_size, horizon, external_cond_dim)
+    obs = torch.randn(batch_size, horizon, total_cond_dim)
 
     output = network(sample, timestep, external_cond={"obs": obs})
     assert output.shape == sample.shape

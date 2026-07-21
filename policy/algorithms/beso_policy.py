@@ -30,7 +30,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     def __init__(
         self,
         *args,
-        goal_seq_len: int = 0,
+        goal_horizon: int = 0,
         alpha: float = 0.5,
         beta: float = 0.5,
         sigma_min: float = 0.005,
@@ -56,8 +56,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 f"Got noise_scheduler={self.noise_scheduler}. Please remove it."
             )
 
-        self.goal_seq_len = goal_seq_len
-        self.goal_conditioned = goal_seq_len > 0
+        self.goal_horizon = goal_horizon
+        self.goal_conditioned = goal_horizon > 0
 
         # Training
         self.alpha = alpha
