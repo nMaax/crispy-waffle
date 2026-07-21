@@ -12,17 +12,13 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
-from policy.utils import (
-    cat_dicts,
-    concat_leaf_tensors,
-    flatten_and_concat_leaf_tensors,
-    get_total_dim,
-)
+from policy.utils import cat_dicts, get_total_dim
 from policy.utils.typing_utils import (
     DiffusionSchedulerProtocol,
     DimSpec,
     HydraConfigFor,
     PolicyProtocol,
+    TensorTree,
 )
 
 
@@ -51,7 +47,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         act_dim: int = 4,
         obs_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
         act_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
-        flatten_obs: bool | None = None,
     ):
         super().__init__()
 
@@ -59,6 +54,12 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         self.network_config = network
         self.network: torch.nn.Module | None = None
+
+        self.optimizer_config = optimizer
+        self.optimizer: Optimizer | None = None
+
+        self.lr_scheduler_config = lr_scheduler
+        self.lr_scheduler: LRScheduler | None = None
 
         self.ema_config = ema
         self.ema: EMAModel | None = None
@@ -71,12 +72,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         else:
             self.noise_scheduler = None
 
-        self.optimizer_config = optimizer
-        self.optimizer: Optimizer | None = None
-
-        self.lr_scheduler_config = lr_scheduler
-        self.lr_scheduler: LRScheduler | None = None
-
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
@@ -85,7 +80,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         self._validate_horizons()
         self._instantiate_normalizers(obs_normalizer, act_normalizer)
-        self._infer_network_cond_dim(flatten_obs)
 
     def _validate_horizons(self) -> None:
         """Sanity-checks the observation / prediction / action horizons."""
@@ -129,6 +123,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         dim: DimSpec,
         default_cls: type[nn.Module],
     ) -> nn.Module | None:
+        """Instantiates a normalizer from a spec."""
         if omegaconf.OmegaConf.is_config(spec):
             spec = cast(Any, omegaconf.OmegaConf.to_object(spec))
 
@@ -138,42 +133,73 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             return hydra_zen.instantiate(spec, spec=dim)
         return None
 
-    def _infer_network_cond_dim(self, flatten_obs: bool | None) -> None:
-        """Resolves ``flatten_obs`` (auto-detecting from the network target when ``None``) and
-        computes the resulting ``network_cond_dim``."""
-        if flatten_obs is None:
-            # Auto-detect if we are using a Transformer or a Unet
-            network_target = self.network_config.get("_target_").lower()
-            if "gpt" in network_target or "transformer" in network_target:
-                self.flatten_obs = False
-            elif "unet" in network_target:
-                self.flatten_obs = True
-            else:
-                raise ValueError(
-                    f"Cannot auto-detect network type from target: {network_target}. "
-                    "Please specify flatten_obs explicitly."
-                )
-        else:
-            self.flatten_obs = flatten_obs
-
-        if self.flatten_obs:
-            self.network_cond_dim = self.obs_horizon * get_total_dim(self.obs_dim)
-        else:
-            self.network_cond_dim = get_total_dim(self.obs_dim)
-
     def setup(self, stage: str | None = None) -> None:
         if stage == "fit" and self.obs_normalizer and self.act_normalizer:
             self._configure_normalizers()
 
+    def _configure_normalizers(self) -> None:
+        if self.obs_normalizer is None:
+            raise ValueError(
+                "Observation normalizer is None. Make sure to set the obs normalizer before training."
+            )
+
+        if self.act_normalizer is None:
+            raise ValueError(
+                "Action normalizer is None. Make sure to set the act normalizer before training."
+            )
+
+        dm = getattr(self.trainer, "datamodule", None)
+        if dm is None:
+            raise ValueError(
+                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
+            )
+
+        train_set = getattr(dm, "train_set", None)
+        if train_set is None:
+            raise ValueError("Training set is not available in the datamodule.")
+
+        if train_set.lazy:
+            if not self.obs_normalizer.is_fit:
+
+                def obs_generator():
+                    for item in train_set:
+                        yield item["obs_seq"]
+
+                self.obs_normalizer.fit_incremental(obs_generator())
+
+            if not self.act_normalizer.is_fit:
+
+                def act_generator():
+                    for item in train_set:
+                        yield item["act_seq"]
+
+                self.act_normalizer.fit_incremental(act_generator())
+        else:
+            if not self.obs_normalizer.is_fit:
+                all_obs = [item["obs_seq"] for item in train_set]
+                self.obs_normalizer.fit(cat_dicts(all_obs))
+
+            if not self.act_normalizer.is_fit:
+                all_act = [item["act_seq"] for item in train_set]
+                self.act_normalizer.fit(cat_dicts(all_act))
+
     def configure_model(self) -> None:
         if self.network is not None:
             return
-        self.network = hydra_zen.instantiate(
-            self.network_config, external_cond_dim=self.network_cond_dim
-        )
+        cond_dims = self._get_cond_dims()
+        self.network = hydra_zen.instantiate(self.network_config, cond_dims=cond_dims)
 
         if self.ema_config is not None:
             self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
+
+    def _get_cond_dims(self) -> DimSpec:
+        """Reports the per-timestep conditioning dimensionality passed to the network's
+        ``cond_dims``.
+
+        Widths here are *not* multiplied by ``obs_horizon`` -- each network knows its own horizon
+        (via config) and is responsible for resolving how it consumes the time axis of each key.
+        """
+        return {"obs": get_total_dim(self.obs_dim)}
 
     def configure_optimizers(self) -> Optimizer | dict:
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
@@ -237,52 +263,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.ema is not None and "ema_state_dict" in checkpoint:
             self.ema.load_state_dict(checkpoint["ema_state_dict"])
 
-    def _configure_normalizers(self) -> None:
-        if self.obs_normalizer is None:
-            raise ValueError(
-                "Observation normalizer is None. Make sure to set the obs normalizer before training."
-            )
-
-        if self.act_normalizer is None:
-            raise ValueError(
-                "Action normalizer is None. Make sure to set the act normalizer before training."
-            )
-
-        dm = getattr(self.trainer, "datamodule", None)
-        if dm is None:
-            raise ValueError(
-                "Datamodule is not available in the trainer. Make sure to set the datamodule before training."
-            )
-
-        train_set = getattr(dm, "train_set", None)
-        if train_set is None:
-            raise ValueError("Training set is not available in the datamodule.")
-
-        if train_set.lazy:
-            if not self.obs_normalizer.is_fit:
-
-                def obs_generator():
-                    for item in train_set:
-                        yield item["obs_seq"]
-
-                self.obs_normalizer.fit_incremental(obs_generator())
-
-            if not self.act_normalizer.is_fit:
-
-                def act_generator():
-                    for item in train_set:
-                        yield item["act_seq"]
-
-                self.act_normalizer.fit_incremental(act_generator())
-        else:
-            if not self.obs_normalizer.is_fit:
-                all_obs = [item["obs_seq"] for item in train_set]
-                self.obs_normalizer.fit(cat_dicts(all_obs))
-
-            if not self.act_normalizer.is_fit:
-                all_act = [item["act_seq"] for item in train_set]
-                self.act_normalizer.fit(cat_dicts(all_act))
-
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
@@ -299,10 +279,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.obs_normalizer is not None:
             obs_seq = self.obs_normalizer.normalize(obs_seq)
 
-        obs_cond = self._prepare_obs(obs_seq)
+        external_cond = self._build_external_cond(obs_seq)
 
         action = self._run_diffusion_loop(
-            obs_cond=obs_cond,
+            external_cond=external_cond,
             num_inference_steps=num_inference_steps,
             output_clip_range=output_clip_range,
         )
@@ -327,25 +307,27 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        obs_cond = self._prepare_obs(obs_seq)
+        external_cond = self._build_external_cond(obs_seq)
 
-        loss = self._compute_loss(obs_cond, action_seq)
+        loss = self._compute_loss(external_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_obs(self, obs_seq: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
-        """Prepares the observation sequence for the network conditioning."""
-        if self.flatten_obs:
-            return flatten_and_concat_leaf_tensors(obs_seq, device=self.device)
-        else:
-            return concat_leaf_tensors(obs_seq, device=self.device)
+    def _build_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
+        """Prepares the network ``external_cond``. ``external_cond`` is a dict of tensors.
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
+        Observations are packaged in their un-flattened shape (``[B, obs_horizon,
+        dim]`` or a nested tree of such tensors); handling and flattening them is a responsibility
+        of the receiving network.
+        """
+        return {"obs": obs}
+
+    def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened condition sequence)
+            external_cond: network conditioning tree (e.g. ``{"obs": ...}``)
             act_seq: [B, pred_horizon, act_dim] (target action chunk)
             returns: scalar loss tensor []
         """
@@ -353,14 +335,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _run_diffusion_loop(
         self,
-        obs_cond: torch.Tensor,
+        external_cond: TensorTree,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
         """Reverse diffusion process loop.
 
         Shapes:
-            obs_cond: [B, obs_horizon * obs_dim] (flattened conditioning)
+            external_cond: network conditioning tree (e.g. ``{"obs": ...}``)
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
         raise NotImplementedError(f"{type(self).__name__} must implement _run_diffusion_loop().")

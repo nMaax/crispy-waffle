@@ -1,9 +1,12 @@
 import math
+from collections.abc import Mapping
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from policy.utils import concat_leaf_tensors, get_total_dim
+from policy.utils.typing_utils import DimSpec, TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 
 
@@ -76,7 +79,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
     def __init__(
         self,
         act_dim: int,
-        external_cond_dim: int,
+        cond_dims: DimSpec,
         embed_dim: int = 256,
         external_cond_horizon: int = 8,
         pred_horizon: int = 8,
@@ -95,7 +98,24 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             )
 
         # Dimension and horizons
-        self.external_cond_dim = external_cond_dim
+
+        # NOTE: cond_dims reports the *per-timestep* width of each key (see
+        # BaseDiffusionAgent._get_cond_dims); this network tokenizes per-timestep, so it uses
+        # that width directly -- no horizon multiplication/division needed here.
+        self.external_cond_dim = get_total_dim(
+            cond_dims["obs"] if isinstance(cond_dims, Mapping) else cond_dims
+        )
+
+        # obs_emb (below) is shared between obs and goal tokens, so a goal width mismatch would
+        # otherwise only surface as an opaque matmul error deep inside forward().
+        if isinstance(cond_dims, Mapping) and "goal" in cond_dims:
+            goal_cond_dim = get_total_dim(cond_dims["goal"])
+            if goal_cond_dim != self.external_cond_dim:
+                raise ValueError(
+                    f"cond_dims['goal'] ({goal_cond_dim}) must match the per-timestep obs width "
+                    f"({self.external_cond_dim}), since goal tokens share obs_emb with obs tokens."
+                )
+
         self.act_dim = act_dim
         self.embed_dim = embed_dim
 
@@ -116,7 +136,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         self.seq_len = goal_seq_len + external_cond_horizon + 1
 
         # Encoders
-        self.obs_emb = nn.Linear(external_cond_dim, embed_dim)
+        self.obs_emb = nn.Linear(self.external_cond_dim, embed_dim)
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 
@@ -155,16 +175,47 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor,
-        obs: torch.Tensor,
-        goal: torch.Tensor | None = None,
+        external_cond: Mapping[str, TensorTree],
     ) -> torch.Tensor:
         """
         Args:
             sample: [B, pred_horizon, act_dim] (Noisy actions)
             timestep: [B] (Continuous sigma values in BESO)
-            obs: [B, obs_horizon * obs_dim] (Flattened context)
-            goal: [B, goal_seq_len * obs_dim] or [B, goal_seq_len, obs_dim] (Optional goal context)
+            external_cond: conditioning tensor tree with an ``"obs"`` key
+                (``[B, obs_horizon * obs_dim]`` or ``[B, obs_horizon, obs_dim]``, possibly a
+                nested mapping of components that gets merged on the feature axis) and an
+                optional ``"goal"`` key (``[B, goal_seq_len * obs_dim]`` or
+                ``[B, goal_seq_len, obs_dim]``).
         """
+        obs = external_cond["obs"]
+        if isinstance(obs, Mapping):
+            # e.g. with concat_leaf_tensors(dim=-1) a external_cond["obs"] tree like
+            #       "obs": {
+            #           "proprio": torch.Tensor[B, T, 18],
+            #           "tcp": torch.Tensor[B, T, 8],
+            #           "extras": torch.Tensor[B, T, 12]
+            #       } will be flattened as :
+            #   obs = torch.Tensor[B, T, (18 + 8 + 12)]
+            obs = concat_leaf_tensors(obs, dim=-1)
+
+        if not isinstance(obs, torch.Tensor):
+            raise ValueError(
+                f"Expected external_cond['obs'] to be a torch.Tensor or tensor-like tree structure, but got {type(obs)}"
+            )
+
+        goal = external_cond.get("goal", None)
+        if isinstance(goal, Mapping):
+            # e.g. with concat_leaf_tensors(dim=-1) a external_cond["goal"] tree like
+            #   torch.Tensor[B, T, 20] (degenerate tree with one tensor leaf only)
+            #   simply becomes goal = torch.Tensor[B, T, 20]
+            #   (if goal is a proper mapping with multiple leaves, it will behave just like obs above.)
+            goal = concat_leaf_tensors(goal, dim=-1)
+
+        if goal is not None and not isinstance(goal, torch.Tensor):
+            raise ValueError(
+                f"Expected external_cond['goal'] to be a torch.Tensor or None, but got {type(goal)}"
+            )
+
         B = sample.size(0)
 
         # Embed Sigma

@@ -1,26 +1,49 @@
 from collections.abc import Mapping
 from typing import Any, cast
 
+import hydra_zen
 import torch
+import torch.nn as nn
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import concat_leaf_tensors, flatten_and_concat_leaf_tensors
-from policy.utils.typing_utils import GoalConditionedPolicyProtocol
+from policy.utils import merge_dicts
+from policy.utils.typing_utils import (
+    DimSpec,
+    GoalConditionedPolicyProtocol,
+    HydraConfigFor,
+    TensorTree,
+)
 
 
 class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProtocol):
-    """Goal-conditioned diffusion policy using diffusers noise schedulers."""
+    """Goal-conditioned diffusion policy using diffusers noise schedulers.
+
+    Proprioception is always kept raw and never routed through the embedder, so embedders stay
+    robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
+    embedder); other embedders (e.g. an MLP) are selected via config.
+    """
 
     def __init__(
         self,
         *args,
         proprio_dim: int = 18,
         task_dim: int | None = None,
+        embedder: HydraConfigFor[nn.Module] | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.goal_conditioned = True
 
+        proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
+
+        self.proprio_dim = proprio_dim
+        self.task_dim = task_dim
+        self.goal_dim = task_dim
+
+        self.embedder_config = embedder
+        self.embedder: nn.Module | None = None
+
+    def _validate_obs_dim(self, proprio_dim: int, task_dim: int | None) -> tuple[int, int]:
         if isinstance(self.obs_dim, Mapping):
             if "proprio" not in self.obs_dim:
                 raise ValueError("Observation dictionary spec must contain 'proprio' key.")
@@ -51,11 +74,91 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 f"Observation dimensionality must be an integer or dict, but got {type(self.obs_dim)}."
             )
 
-        self.proprio_dim = proprio_dim
-        self.task_dim = calc_task_dim
-        self.goal_dim = self.task_dim
+        return proprio_dim, calc_task_dim
 
-        self.network_cond_dim = self.network_cond_dim + self.goal_dim
+    def configure_model(self) -> None:
+        if self.network is not None:
+            return
+        self.embedder = (
+            hydra_zen.instantiate(self.embedder_config)
+            if self.embedder_config is not None
+            else nn.Identity()
+        )
+        super().configure_model()
+
+    def _get_cond_dims(self) -> DimSpec:
+        """Reports the per-timestep conditioning dimensionality passed to the network's
+        ``cond_dims``.
+
+        Widths here are *not* multiplied by ``obs_horizon`` -- each network knows its own horizon
+        (via config) and is responsible for resolving how it consumes the time axis of each key.
+        """
+        embed_dim = self._embedder_output_dim()
+        return {"obs": {"proprio": self.proprio_dim, "task": embed_dim}, "goal": embed_dim}
+
+    def _embedder_output_dim(self) -> int:
+        """Lookup of the embedder's output dim.
+
+        Reads config only, never an instantiated module, so that
+        :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`.
+        """
+        if self.embedder_config is None:
+            return self.task_dim
+
+        return self.embedder_config.get("output_dim")
+
+    @torch.no_grad()
+    def extract_embeddings(
+        self,
+        obs: torch.Tensor | dict,
+        goal: torch.Tensor | dict | None = None,
+    ):
+        """Extracts embedder outputs for observations (and optionally a goal).
+
+        Helper function for visualizing the embeddings.
+        """
+        if isinstance(obs, Mapping):
+            obs = {k: v.to(self.device) for k, v in obs.items()}
+        else:
+            obs = obs.to(self.device)
+
+        if goal is not None:
+            if isinstance(goal, Mapping):
+                goal = {k: v.to(self.device) for k, v in goal.items()}
+            else:
+                goal = goal.to(self.device)
+
+        if self.obs_normalizer is not None:
+            obs = self.obs_normalizer.normalize(obs)
+            if goal is not None:
+                goal = self.obs_normalizer.normalize(goal)
+
+        external_cond = self._build_external_cond(obs, goal)
+        obs_embeddings = external_cond.get("obs")
+        if obs_embeddings is None:
+            raise ValueError("Failed to extract observation embeddings from external_cond.")
+
+        if isinstance(obs_embeddings, Mapping):
+            obs_task_embeddings = obs_embeddings.get("task")
+        else:
+            obs_task_embeddings = obs_embeddings
+
+        if not isinstance(obs_task_embeddings, torch.Tensor):
+            raise ValueError(
+                f"Expected obs_task_embeddings to be a torch.Tensor, but got {type(obs_task_embeddings)}."
+            )
+
+        res = {"obs_embeddings": obs_task_embeddings.cpu()}
+
+        goal_embedding = external_cond.get("goal", None)
+        if goal_embedding is not None:
+            if not isinstance(goal_embedding, torch.Tensor):
+                raise ValueError(
+                    f"Expected goal_embedding to be a torch.Tensor, but got {type(goal_embedding)}."
+                )
+            res["goal_embedding"] = goal_embedding.cpu()
+
+        return res
 
     def get_action(
         self,
@@ -77,12 +180,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             if goal is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        obs_cond = self._prepare_obs(obs_seq)
-        goal_cond = self._prepare_goal(goal) if goal is not None else None
+        external_cond = self._build_external_cond(obs_seq, goal)
 
         return self._run_diffusion_loop(
-            obs_cond=obs_cond,
-            goal_cond=goal_cond,
+            external_cond=external_cond,
             num_inference_steps=num_inference_steps,
             output_clip_range=output_clip_range,
         )
@@ -112,48 +213,67 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        obs_cond = self._prepare_obs(obs_seq)
-        goal_cond = self._prepare_goal(goal) if goal is not None else None
+        external_cond = self._build_external_cond(obs_seq, goal)
 
-        loss = self._compute_loss(obs_seq=obs_cond, act_seq=action_seq, goal=goal_cond)
+        loss = self._compute_loss(external_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
-        """Prepares the goal conditioning tensor by excluding proprioception entries."""
+    def _build_external_cond(
+        self, obs: TensorTree, goal: TensorTree | None
+    ) -> dict[str, TensorTree]:
+        external_cond = self._build_obs_external_cond(obs)
+        if goal is not None:
+            goal_external_cond = self._build_goal_external_cond(goal)
+            external_cond = merge_dicts([external_cond, goal_external_cond])
 
-        if isinstance(goal, Mapping):
-            goal_filtered = {k: v for k, v in goal.items() if k != "proprio"}
-        elif isinstance(goal, torch.Tensor):
-            goal_filtered = goal[..., self.proprio_dim :]
-        else:
+        return external_cond
+
+    def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
+        proprio, task_embedded = self._embed_states(obs)
+        return {"obs": {"proprio": proprio, "task": task_embedded}}
+
+    def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
+        _, goal_embedded = self._embed_states(goal)
+        return {"goal": goal_embedded}
+
+    def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
+        """Splits proprio/task and embeds the task components.
+
+        Handles both a horizon window (``task`` is ``[B, T, task_dim]``, e.g. obs) and a single
+        timestep with no time axis at all (``task`` is ``[B, task_dim]``, e.g. goal) uniformly:
+        a missing time axis is unsqueezed to ``T=1`` before embedding, then squeezed back out of
+        the result so the returned shape matches whatever was passed in.
+        """
+        if self.embedder is None:
             raise ValueError(
-                f"Expected goal to be a torch.Tensor or Mapping, but got {type(goal)}."
+                "Embedder not initialized. Call configure_model() before using the embedder."
             )
+        proprio, task = self._split_proprio_task(states)
 
-        if self.flatten_obs:
-            return flatten_and_concat_leaf_tensors(goal_filtered, device=self.device)
+        had_no_time_axis = task.ndim == 2
+        if had_no_time_axis:
+            task = task.unsqueeze(1)
+
+        B, T = task.shape[0], task.shape[1]
+        task_flat = task.reshape(B * T, self.task_dim)
+        task_embedded = self.embedder(task_flat).reshape(B, T, -1)
+
+        if had_no_time_axis:
+            task_embedded = task_embedded.squeeze(1)
+
+        return proprio, task_embedded
+
+    def _split_proprio_task(
+        self, x: torch.Tensor | Mapping[str, Any]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Splits proprioception from the (concatenated) task-relevant components."""
+        if isinstance(x, Mapping):
+            proprio = x["proprio"]
+            task_components = [v for k, v in x.items() if k != "proprio"]
+            task = torch.cat(task_components, dim=-1)
         else:
-            return concat_leaf_tensors(goal_filtered, device=self.device)
-
-    def _compute_loss(
-        self, obs_seq: torch.Tensor, act_seq: torch.Tensor, goal: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        """Computes reconstruction loss by passing observation and optional goal to network."""
-        return super()._compute_loss(obs_seq=obs_seq, act_seq=act_seq, goal=goal)
-
-    def _run_diffusion_loop(
-        self,
-        obs_cond: torch.Tensor,
-        goal_cond: torch.Tensor | None = None,
-        num_inference_steps: int | None = None,
-        output_clip_range: tuple | None = None,
-    ) -> torch.Tensor:
-        """Reverse diffusion process loop supporting observation and optional goal conditioning."""
-        return super()._run_diffusion_loop(
-            obs_cond=obs_cond,
-            num_inference_steps=num_inference_steps,
-            output_clip_range=output_clip_range,
-            goal=goal_cond,
-        )
+            proprio = x[..., : self.proprio_dim]
+            task = x[..., self.proprio_dim :]
+        return proprio, task

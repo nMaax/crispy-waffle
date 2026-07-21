@@ -127,47 +127,15 @@ class DiffusionNetworkProtocol(Protocol):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
-        obs: torch.Tensor,
-        goal: torch.Tensor | None = None,
+        external_cond: Mapping[str, TensorTree],
     ) -> torch.Tensor:
         """Predicts the noise or target action sequence.
 
         Args:
             sample: Tensor of shape (B, pred_horizon, act_dim) or (B, seq_len, act_dim)
             timestep: Tensor of shape (B,) or scalar representing the timestep/noise level
-            obs: Tensor representing the observation conditioning (either sequence or flattened)
-            goal: Optional tensor representing the goal conditioning.
-
-        Returns:
-            Tensor of same shape as sample (predicted noise or target action sequence)
-        """
-        ...
-
-
-@runtime_checkable
-class GoalConditionedDiffusionNetworkProtocol(DiffusionNetworkProtocol, Protocol):
-    """Protocol for diffusion networks that additionally accept a goal conditioning.
-
-    Goal-agnostic networks satisfy :class:`DiffusionNetworkProtocol`; only networks
-    that consume a ``goal`` argument (e.g. BESO's DiffusionGPT) should satisfy this
-    protocol. The ``goal`` is optional so that the same network can be queried
-    unconditionally for classifier-free guidance.
-    """
-
-    def forward(
-        self,
-        sample: torch.Tensor,
-        timestep: torch.Tensor | float | int,
-        obs: torch.Tensor,
-        goal: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Predicts the noise or target action sequence, optionally conditioned on a goal.
-
-        Args:
-            sample: Tensor of shape (B, pred_horizon, act_dim) or (B, seq_len, act_dim)
-            timestep: Tensor of shape (B,) or scalar representing the timestep/noise level
-            obs: Tensor representing the observation conditioning (either sequence or flattened)
-            goal: Optional tensor representing the goal conditioning.
+            external_cond: Conditioning tensor tree (e.g. ``{"obs": ...}`` or
+                ``{"obs": ..., "goal": ...}``).
 
         Returns:
             Tensor of same shape as sample (predicted noise or target action sequence)

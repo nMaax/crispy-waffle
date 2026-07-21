@@ -252,3 +252,25 @@ def flatten_and_concat_leaf_tensors(
     return concat_leaf_tensors(
         data, dim=1, device=device, preprocess=lambda x: x.flatten(start_dim=1)
     )
+
+
+def merge_dicts(mappings: Sequence[Mapping[str, TensorTree]]) -> dict[str, TensorTree]:
+    """Union of mapping over keys."""
+    merged: dict[str, TensorTree] = {}
+    for mapping in mappings:
+        collisions = merged.keys() & mapping.keys()
+        if collisions:
+            raise ValueError(f"Duplicate key(s) {collisions} found while merging mappings.")
+        merged.update(mapping)
+    return merged
+
+
+def map_leaves(
+    fn: Callable[[torch.Tensor], torch.Tensor],
+    tree: TensorTree,
+) -> TensorTree:
+    """Recursively applies `fn` to every leaf tensor in a tree, preserving the Mapping
+    structure."""
+    if isinstance(tree, torch.Tensor):
+        return fn(tree)
+    return {k: map_leaves(fn, v) for k, v in tree.items()}

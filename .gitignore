@@ -175,5 +175,7 @@ tests/.regression_files/**/*.gif
 data
 policy/.schemas
 
+# Project related files
+*.md
+!README.md
 scripts/figures/*
-.context/

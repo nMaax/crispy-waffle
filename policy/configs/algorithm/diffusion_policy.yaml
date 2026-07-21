@@ -19,6 +19,7 @@ act_dim: ${datamodule.act_dim}
 
 network:
   act_dim: ${..act_dim}
+  obs_horizon: ${..obs_horizon}
 
 optimizer:
   lr: 1e-4

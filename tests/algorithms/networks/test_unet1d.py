@@ -20,14 +20,15 @@ def test_unet1d_instantiates_and_runs():
     external_cond_dim = 67
 
     net_cfg.act_dim = act_dim
-    net_cfg.external_cond_dim = external_cond_dim
+    net_cfg.cond_dims = {"obs": external_cond_dim}
+    net_cfg.obs_horizon = horizon
     network = hydra_zen.instantiate(net_cfg)
 
     sample = torch.randn(batch_size, horizon, act_dim)
     timestep = torch.randint(0, 100, (batch_size,))
-    flatten_obs = torch.randn(batch_size, external_cond_dim)
+    obs = torch.randn(batch_size, horizon, external_cond_dim)
 
-    output = network(sample, timestep, obs=flatten_obs)
+    output = network(sample, timestep, external_cond={"obs": obs})
     assert output.shape == sample.shape
 
     # Protocol conformance

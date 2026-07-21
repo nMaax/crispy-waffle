@@ -8,8 +8,8 @@ import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
-from policy.utils import concat_leaf_tensors, get_batch_size
-from policy.utils.typing_utils import GoalConditionedPolicyProtocol
+from policy.utils import concat_leaf_tensors, get_batch_size, map_leaves, merge_dicts
+from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
 class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
@@ -169,20 +169,13 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         if self.act_normalizer is not None:
             action_seq = self.act_normalizer.normalize(action_seq)
 
-        obs_cond = self._prepare_obs(obs_seq)
-        goal_cond = self._prepare_goal(goal) if goal is not None else None
-
-        loss = self._compute_loss(obs_cond, action_seq, goal=goal_cond)
+        loss = self._compute_loss(obs_seq, action_seq, goal=goal)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _prepare_goal(self, goal: Mapping[str, Any] | torch.Tensor) -> torch.Tensor:
-        """Prepares the goal conditioning for the network."""
-        return concat_leaf_tensors(goal, device=self.device)
-
     def _compute_loss(
-        self, obs_seq: torch.Tensor, act_seq: torch.Tensor, goal: torch.Tensor | None = None
+        self, obs_seq: TensorTree, act_seq: torch.Tensor, goal: TensorTree | None = None
     ) -> torch.Tensor:
         """BESO Loss formulation using Karras preconditioning and sampling from a continuous
         distribution of noise levels (i.e., do not use Diffusers)."""
@@ -192,7 +185,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "Network not initialized. Call configure_model() before getting action."
             )
 
-        B = obs_seq.shape[0]
+        B = get_batch_size(obs_seq)
 
         # Sample continuous noise levels
         sigmas = self._sample_noise_distribution(B, alpha=self.alpha, beta=self.beta)
@@ -212,14 +205,19 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         # Goal dropout for Classifier-Free Guidance training
         if self.training and goal is not None and self.goal_drop_prob > 0.0:
-            # Create a boolean mask of shape [B, 1, ..., 1] matching goal's dimensions
-            mask_shape = [B] + [1] * (goal.ndim - 1)
-            mask = torch.rand(mask_shape, device=self.device) < self.goal_drop_prob
-            # 0 out the goals for the masked batch items
-            goal = torch.where(mask, torch.zeros_like(goal), goal)
+            # One drop decision per batch item, shared across every leaf of the goal tree.
+            drop_mask = torch.rand(B, device=self.device) < self.goal_drop_prob
+            goal = map_leaves(
+                lambda leaf: torch.where(
+                    drop_mask.view([B] + [1] * (leaf.ndim - 1)), torch.zeros_like(leaf), leaf
+                ),
+                goal,
+            )
+
+        external_cond = self._build_external_cond(obs_seq, goal)
 
         model_output = self.network(
-            sample=scaled_noisy_act, timestep=sigmas, obs=obs_seq, goal=goal
+            sample=scaled_noisy_act, timestep=sigmas, external_cond=external_cond
         )
 
         # Compute the Karras target (reversing the skip connection)
@@ -233,6 +231,22 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         return loss
 
+    def _build_external_cond(
+        self, obs: TensorTree, goal: TensorTree | None
+    ) -> dict[str, TensorTree]:
+        external_cond = self._build_obs_external_cond(obs)
+        if goal is not None:
+            goal_external_cond = self._build_goal_external_cond(goal)
+            external_cond = merge_dicts([external_cond, goal_external_cond])
+
+        return external_cond
+
+    def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
+        return {"obs": obs}
+
+    def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
+        return {"goal": goal}
+
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
@@ -245,20 +259,17 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
             if goal is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        obs_cond = self._prepare_obs(obs_seq)
-        goal_cond = self._prepare_goal(goal) if goal is not None else None
+        external_cond = self._build_external_cond(obs_seq, goal)
 
         return self._run_diffusion_loop(
-            obs_cond=obs_cond,
-            goal_cond=goal_cond,
+            external_cond=external_cond,
             num_inference_steps=num_inference_steps,
             output_clip_range=output_clip_range,
         )
 
     def _run_diffusion_loop(
         self,
-        obs_cond: torch.Tensor,
-        goal_cond: torch.Tensor | None = None,
+        external_cond: dict[str, TensorTree],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
@@ -281,6 +292,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
+        obs_cond = external_cond["obs"]
+        goal_cond = external_cond.get("goal", None)
+
         B = get_batch_size(obs_cond)
 
         # Determine the current history length
@@ -292,6 +306,12 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
             clean_past_actions = torch.cat(list(self.action_history), dim=1)
         else:
             clean_past_actions = torch.zeros((B, 0, self.act_dim), device=self.device)
+
+        if isinstance(obs_cond, Mapping):
+            # Slicing logic below needs a flat Tensor so we need
+            # to flatten it before and work it; kind of dirty but same
+            # flattening would have happened inside DiffusionGPT anyway.
+            obs_cond = concat_leaf_tensors(obs_cond, dim=-1)
 
         # Slice network_cond to the current observation sequence length
         if obs_cond.ndim == 3:
@@ -305,7 +325,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
             )
             sliced_obs_cond = sliced_obs_cond.repeat_interleave(self.num_parallel_samples, dim=0)
             if goal_cond is not None:
-                goal_cond = goal_cond.repeat_interleave(self.num_parallel_samples, dim=0)
+                goal_cond = map_leaves(
+                    lambda t: t.repeat_interleave(self.num_parallel_samples, dim=0), goal_cond
+                )
             B_expanded = B * self.num_parallel_samples
         else:
             B_expanded = B
@@ -341,18 +363,20 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 scaled_sample = running_seq * c_in
 
                 # Conditional Prediction (with the goal)
+                cond_external_cond: dict[str, TensorTree] = {"obs": sliced_obs_cond}
+                if goal_cond is not None:
+                    cond_external_cond["goal"] = goal_cond
                 cond_pred = self.network(
-                    sample=scaled_sample, timestep=sigma_t, obs=sliced_obs_cond, goal=goal_cond
+                    sample=scaled_sample, timestep=sigma_t, external_cond=cond_external_cond
                 )
 
                 # Unconditional Prediction (goal zeroed out)
                 if self.cfg_lambda > 0.0 and goal_cond is not None:
-                    uncond_goal = torch.zeros_like(goal_cond)
+                    uncond_goal = map_leaves(torch.zeros_like, goal_cond)
                     uncond_pred = self.network(
                         sample=scaled_sample,
                         timestep=sigma_t,
-                        obs=sliced_obs_cond,
-                        goal=uncond_goal,
+                        external_cond={"obs": sliced_obs_cond, "goal": uncond_goal},
                     )
 
                     model_pred = uncond_pred + self.cfg_lambda * (cond_pred - uncond_pred)

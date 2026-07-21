@@ -15,10 +15,13 @@
 # @markdown `cond` is applied to `x` with [FiLM](https://arxiv.org/abs/1709.07871) conditioning.
 
 import math
+from collections.abc import Mapping
 
 import torch
 import torch.nn as nn
 
+from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
+from policy.utils.typing_utils import DimSpec, TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 
 
@@ -162,7 +165,8 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
     def __init__(
         self,
         act_dim,
-        external_cond_dim,
+        cond_dims: DimSpec,
+        obs_horizon: int,
         diffusion_step_embed_dim=256,
         down_dims=[256, 512, 1024],
         kernel_size=5,
@@ -183,6 +187,14 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
             nn.Linear(dsed, dsed * 4),
             nn.Mish(),
             nn.Linear(dsed * 4, dsed),
+        )
+        # cond_dims reports per-timestep widths (see BaseDiffusionAgent._get_cond_dims); only
+        # "obs" repeats every timestep (it's the only key with a real time axis at runtime), so
+        # only its width gets multiplied by obs_horizon here.
+        cond_dims_map = cond_dims if isinstance(cond_dims, Mapping) else {"obs": cond_dims}
+        external_cond_dim = sum(
+            get_total_dim(spec) * (obs_horizon if key == "obs" else 1)
+            for key, spec in cond_dims_map.items()
         )
         obs_dim = dsed + external_cond_dim
 
@@ -271,16 +283,15 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
         self,
         sample: torch.Tensor,
         timestep: torch.Tensor | float | int,
-        obs: torch.Tensor | None = None,
-        goal: torch.Tensor | None = None,
+        external_cond: Mapping[str, TensorTree] | None = None,
     ) -> torch.Tensor:
         """Predicts the noise residual for a given noisy sample, timestep, and conditioning.
 
         Shapes:
             sample: [B, pred_horizon, input_dim] (noisy action sequence)
             timestep: [B,] or int
-            obs: [B, obs_horizon * obs_dim] (flattened global conditioning)
-            goal: [B, goal_dim] (optional goal conditioning)
+            external_cond: conditioning tensor tree (e.g. ``{"obs": ...}`` or
+                ``{"obs": ..., "goal": ...}``), flattened and concatenated for FiLM.
             returns: [B, horizon, input_dim] (predicted noise)
         """
         # (B,T,C) -> (B,C,T)
@@ -302,10 +313,19 @@ class ConditionalUnet1D(nn.Module, DiffusionNetworkProtocol):
         global_feature = self.diffusion_step_encoder(timesteps)
 
         # Concatenate time embedding with the (eventually provided) global conditioning
-        if obs is not None:
-            global_feature = torch.cat([global_feature, obs], dim=-1)
-        if goal is not None:
-            global_feature = torch.cat([global_feature, goal], dim=-1)
+        if external_cond is not None:
+            # e.g. with flatten_and_concat_leaf_tensors a external_cond tree like
+            #       {
+            #           "obs": {
+            #               "proprio": torch.Tensor[B, T, 18],
+            #               "tcp": torch.Tensor[B, T, 8],
+            #               "extras": torch.Tensor[B, T, 12]
+            #           },
+            #           "goal": torch.Tensor[B, 20]  (no time axis -- a goal is a single timestep)
+            #       } will be flattened as :
+            #   cond_flat = torch.Tensor[B, T * (18 + 8 + 12) + 20]
+            cond_flat = flatten_and_concat_leaf_tensors(external_cond, device=sample.device)
+            global_feature = torch.cat([global_feature, cond_flat], dim=-1)
 
         # Prepare variables to pass and track Unet features for skip connections
         x = sample  # Working variable that we will pass through the UNet

@@ -14,8 +14,8 @@ import torch
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
-from policy.algorithms.goal_conditioned_diffusion_policy_mlp import (
-    GoalConditionedDiffusionPolicyMLP,
+from policy.algorithms.goal_conditioned_diffusion_policy import (
+    GoalConditionedDiffusionPolicy,
 )
 
 
@@ -198,9 +198,22 @@ def main() -> None:
         if act_dim is not None:
             network_config["act_dim"] = act_dim
 
-        model = GoalConditionedDiffusionPolicyMLP.load_from_checkpoint(
+        embedder_config = hparams.get("embedder")
+        if embedder_config is None and "state_embedding_dim" in hparams:
+            # Checkpoint predates the configurable embedder (was trained as the now-deleted
+            # GoalConditionedDiffusionPolicyMLP, which hard-coded an MLP embedder).
+            print("Checkpoint predates the embedder config; reconstructing its MLP embedder.")
+            embedder_config = {
+                "_target_": "policy.algorithms.networks.mlp.MLP",
+                "input_dim": hparams.get("task_dim"),
+                "output_dim": hparams["state_embedding_dim"],
+                "hidden_dims": hparams.get("hidden_dims", [128, 128, 128]),
+            }
+
+        model = GoalConditionedDiffusionPolicy.load_from_checkpoint(
             ckpt_path,
             network=network_config,
+            embedder=embedder_config,
         )
         model.eval()
         print("Model loaded successfully!")

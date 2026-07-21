@@ -2,10 +2,7 @@ import pytest
 import torch
 
 from policy.algorithms.networks.diffusion_gpt import DiffusionGPT
-from policy.utils.typing_utils import (
-    DiffusionNetworkProtocol,
-    GoalConditionedDiffusionNetworkProtocol,
-)
+from policy.utils.typing_utils import DiffusionNetworkProtocol
 
 # Small architecture dims for fast unit tests
 ACT_DIM = 4
@@ -17,9 +14,11 @@ HORIZON = 4
 
 
 def _make_network(goal_seq_len: int = 0, **overrides) -> DiffusionGPT:
+    # cond_dims["obs"] is the *per-timestep* width (COND_DIM); DiffusionGPT tokenizes per
+    # timestep, so it uses this width directly.
     kw = dict(
         act_dim=ACT_DIM,
-        external_cond_dim=COND_DIM,
+        cond_dims={"obs": COND_DIM},
         embed_dim=EMBED_DIM,
         external_cond_horizon=HORIZON,
         pred_horizon=HORIZON,
@@ -42,7 +41,7 @@ class TestDiffusionGPT:
     def test_forward_non_goal_conditioned(self):
         net = _make_network(goal_seq_len=0)
         sample, timestep, obs = _sample_inputs()
-        out = net(sample, timestep, obs)
+        out = net(sample, timestep, external_cond={"obs": obs})
         assert out.shape == sample.shape
 
     def test_forward_goal_conditioned(self):
@@ -50,7 +49,7 @@ class TestDiffusionGPT:
         net = _make_network(goal_seq_len=goal_seq_len)
         sample, timestep, obs = _sample_inputs()
         goal = torch.randn(4, goal_seq_len, COND_DIM)
-        out = net(sample, timestep, obs, goal=goal)
+        out = net(sample, timestep, external_cond={"obs": obs, "goal": goal})
         assert out.shape == sample.shape
 
     def test_forward_obs_flattened_2d(self):
@@ -58,13 +57,27 @@ class TestDiffusionGPT:
         net = _make_network(goal_seq_len=0)
         sample, timestep, _ = _sample_inputs()
         obs_flat = torch.randn(4, HORIZON * COND_DIM)
-        out = net(sample, timestep, obs_flat)
+        out = net(sample, timestep, external_cond={"obs": obs_flat})
+        assert out.shape == sample.shape
+
+    def test_forward_obs_nested_mapping(self):
+        """A nested obs mapping is merged on the feature axis before embedding."""
+        net = _make_network(
+            goal_seq_len=0,
+            cond_dims={"obs": {"a": COND_DIM // 2, "b": COND_DIM // 2}},
+        )
+        sample, timestep, _ = _sample_inputs()
+        obs = {
+            "a": torch.randn(4, HORIZON, COND_DIM // 2),
+            "b": torch.randn(4, HORIZON, COND_DIM // 2),
+        }
+        out = net(sample, timestep, external_cond={"obs": obs})
         assert out.shape == sample.shape
 
     def test_backward_grads_finite(self):
         net = _make_network(goal_seq_len=0)
         sample, timestep, obs = _sample_inputs()
-        out = net(sample, timestep, obs)
+        out = net(sample, timestep, external_cond={"obs": obs})
         loss = out.sum()
         loss.backward()
         for p in net.parameters():
@@ -79,10 +92,6 @@ class TestDiffusionGPT:
         net = _make_network()
         assert isinstance(net, DiffusionNetworkProtocol)
 
-    def test_satisfies_goal_conditioned_diffusion_network_protocol(self):
-        net = _make_network(goal_seq_len=2)
-        assert isinstance(net, GoalConditionedDiffusionNetworkProtocol)
-
     # ------------------------------------------------------------------ #
     # ValueError paths
     # ------------------------------------------------------------------ #
@@ -91,7 +100,7 @@ class TestDiffusionGPT:
         with pytest.raises(ValueError, match="Observation horizon and act horizon must be equal"):
             DiffusionGPT(
                 act_dim=ACT_DIM,
-                external_cond_dim=COND_DIM,
+                cond_dims={"obs": COND_DIM},
                 embed_dim=EMBED_DIM,
                 n_layers=N_LAYERS,
                 n_heads=N_HEADS,
@@ -107,14 +116,14 @@ class TestDiffusionGPT:
         timestep = torch.rand(4)
         obs = torch.randn(4, HORIZON * 2, COND_DIM)  # 8 != 4
         with pytest.raises(ValueError, match="Observation sequence length .* and action sequence length"):
-            net(sample, timestep, obs)
+            net(sample, timestep, external_cond={"obs": obs})
 
     def test_goal_required_when_goal_conditioned(self):
         """If goal_seq_len > 0, passing goal=None must raise."""
         net = _make_network(goal_seq_len=2)
         sample, timestep, obs = _sample_inputs()
         with pytest.raises(ValueError, match="goal must be provided"):
-            net(sample, timestep, obs, goal=None)
+            net(sample, timestep, external_cond={"obs": obs})
 
     def test_goal_length_mismatch_raises(self):
         """The goal sequence length must match goal_seq_len."""
@@ -122,4 +131,4 @@ class TestDiffusionGPT:
         sample, timestep, obs = _sample_inputs()
         goal = torch.randn(4, 3, COND_DIM)  # 3 != 2
         with pytest.raises(ValueError, match="Expected goal sequence length 2, but got 3"):
-            net(sample, timestep, obs, goal=goal)
+            net(sample, timestep, external_cond={"obs": obs, "goal": goal})

@@ -5,7 +5,7 @@ import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
+from policy.utils import get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
 
@@ -49,7 +49,6 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 
         # Execute inference
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_and_concat_leaf_tensors(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 
@@ -76,7 +75,6 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm.to(batch_device)
 
         obs_seq = training_step_content.batch["obs_seq"]
-        obs_seq = flatten_and_concat_leaf_tensors(obs_seq, device=algorithm.device)
         with torch.no_grad():
             out = algorithm.get_action(obs_seq)
 
@@ -138,8 +136,8 @@ class TestDiffusionPolicyLogic:
     """
 
     def test_prepare_goal_excludes_proprioception(self):
-        """Check that _prepare_goal excludes proprioception entries for both tensor and dict
-        goals."""
+        """Check that _build_goal_external_cond excludes proprioception entries for both tensor and
+        dict goals, and that _get_cond_dims reports the identity-embedder cond shape."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -156,11 +154,17 @@ class TestDiffusionPolicyLogic:
                 pred_horizon=16,
                 obs_horizon=2,
             )
+            policy_flat.configure_model()
             assert policy_flat.goal_dim == 30
-            assert policy_flat.network_cond_dim == 2 * 48 + 30
+            # _get_cond_dims reports per-timestep widths; obs_horizon multiplication is the
+            # network's responsibility, not reported here.
+            assert policy_flat._get_cond_dims() == {
+                "obs": {"proprio": 18, "task": 30},
+                "goal": 30,
+            }
 
             tensor_goal = torch.randn(2, 48)
-            prepared_tensor = policy_flat._prepare_goal(tensor_goal)
+            prepared_tensor = policy_flat._build_goal_external_cond(tensor_goal)["goal"]
             assert prepared_tensor.shape == (2, 30)
             assert torch.equal(prepared_tensor, tensor_goal[:, 18:])
 
@@ -177,13 +181,14 @@ class TestDiffusionPolicyLogic:
                 pred_horizon=16,
                 obs_horizon=2,
             )
+            policy_dict.configure_model()
             assert policy_dict.goal_dim == 30
             dict_goal = {
                 "proprio": torch.randn(2, 18),
                 "task_a": torch.randn(2, 10),
                 "task_b": torch.randn(2, 20),
             }
-            prepared_dict = policy_dict._prepare_goal(dict_goal)
+            prepared_dict = policy_dict._build_goal_external_cond(dict_goal)["goal"]
             assert prepared_dict.shape == (2, 30)
             assert torch.equal(prepared_dict[:, :10], dict_goal["task_a"])
             assert torch.equal(prepared_dict[:, 10:], dict_goal["task_b"])
@@ -260,7 +265,7 @@ class TestDiffusionPolicyLogic:
             policy.on_train_batch_end(None, {}, 0)
 
         with pytest.raises(ValueError, match="Network not initialized"):
-            policy._compute_loss(torch.randn(1, 2, 3), torch.randn(1, 4, 4))
+            policy._compute_loss({"obs": torch.randn(1, 2, 3)}, torch.randn(1, 4, 4))
 
     def test_compute_loss_prediction_types(self, basic_kwargs):
         """Ensures _compute_loss correctly maps prediction_type to the right target tensor."""
@@ -277,11 +282,12 @@ class TestDiffusionPolicyLogic:
 
         B = 2
         obs_seq = torch.randn(B, 2, policy.obs_dim)
+        external_cond = {"obs": obs_seq}
         act_seq = torch.ones(B, 16, policy.act_dim)  # Act sequence is 1s
 
         # Test "sample" (target should be act_seq)
         policy.noise_scheduler.config["prediction_type"] = "sample"
-        loss_sample = policy._compute_loss(obs_seq, act_seq)
+        loss_sample = policy._compute_loss(external_cond, act_seq)
         assert isinstance(loss_sample, torch.Tensor)
 
         # Test "v_prediction"
@@ -289,13 +295,13 @@ class TestDiffusionPolicyLogic:
         policy.noise_scheduler.get_velocity.return_value = (
             torch.ones(B, 16, policy.act_dim) * 2
         )  # Vel is 2s
-        loss_v = policy._compute_loss(obs_seq, act_seq)
+        loss_v = policy._compute_loss(external_cond, act_seq)
         assert isinstance(loss_v, torch.Tensor)
 
         # Test Invalid prediction type
         policy.noise_scheduler.config["prediction_type"] = "invalid_type"
         with pytest.raises(ValueError, match="Unsupported prediction_type: invalid_type"):
-            policy._compute_loss(obs_seq, act_seq)
+            policy._compute_loss(external_cond, act_seq)
 
     def test_get_action_slicing_and_clamping(self, basic_kwargs):
         """Ensures get_action slices the predicted sequence correctly based on horizons and clamps

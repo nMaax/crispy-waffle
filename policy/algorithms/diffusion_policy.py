@@ -1,10 +1,11 @@
-from typing import Any, cast
+from typing import cast
 
 import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.utils import get_batch_size
+from policy.utils.typing_utils import TensorTree
 
 
 class DiffusionPolicy(BaseDiffusionAgent):
@@ -24,13 +25,11 @@ class DiffusionPolicy(BaseDiffusionAgent):
         if self.ema_config is None:
             raise ValueError("DiffusionPolicy requires an EMA model. Pass a valid `ema` config.")
 
-    def _compute_loss(
-        self, obs_seq: torch.Tensor, act_seq: torch.Tensor, **kwargs: Any
-    ) -> torch.Tensor:
+    def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
-            obs_seq: [B, obs_horizon * obs_dim] (flattened condition sequence)
+            external_cond: network conditioning tree (e.g. ``{"obs": ...}``)
             act_seq: [B, pred_horizon, act_dim] (target action chunk)
             returns: scalar loss tensor []
         """
@@ -44,7 +43,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 "Noise Scheduler not initialized. Call configure_model() before computing loss."
             )
 
-        B = obs_seq.shape[0]
+        B = act_seq.shape[0]
 
         noise = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
 
@@ -58,7 +57,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
         timesteps = cast(torch.IntTensor, timesteps)
 
         noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, obs=obs_seq, **kwargs)
+        prediction = self.network(noisy_act_seq, timesteps, external_cond=external_cond)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 
@@ -76,10 +75,9 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
     def _run_diffusion_loop(
         self,
-        obs_cond: torch.Tensor,
+        external_cond: TensorTree,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
-        **kwargs: Any,
     ):
         """Generic helper containing the actual reverse diffusion process loop."""
         if self.network is None:
@@ -97,7 +95,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 "EMA Model not initialized. Call configure_model() before getting action."
             )
 
-        B = get_batch_size(obs_cond)
+        B = get_batch_size(external_cond)
 
         self.ema.store(self.network.parameters())
         self.ema.copy_to(self.network.parameters())
@@ -118,8 +116,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 model_pred = self.network(
                     sample=latent_model_input,
                     timestep=t,
-                    obs=obs_cond,
-                    **kwargs,
+                    external_cond=external_cond,
                 )
 
                 output = self.noise_scheduler.step(

@@ -5,33 +5,32 @@ import torch
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
-from policy.utils import get_batch_size, get_total_dim
+from policy.utils import get_batch_size
+from policy.utils.typing_utils import TensorTree
 
 UNET_TARGET = "policy.algorithms.networks.unet1d.UNet1D"
-GPT_TARGET = "policy.algorithms.networks.diffusion_gpt.DiffusionGPT"
 
 
 class _MinimalDiffusionAgent(BaseDiffusionAgent):
     """Trivial concrete double so the shared BaseDiffusionAgent infra can be exercised without
     committing to DP's diffusers scheduler or BESO's Karras math."""
 
-    def _compute_loss(self, obs_seq: torch.Tensor, act_seq: torch.Tensor) -> torch.Tensor:
-        return obs_seq.sum() * 0.0
+    def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
+        return external_cond["obs"].sum() * 0.0
 
     def _run_diffusion_loop(
         self,
-        obs_cond: torch.Tensor,
-        goal_cond: torch.Tensor | None = None,
+        external_cond: TensorTree,
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
-        B = get_batch_size(obs_cond)
+        B = get_batch_size(external_cond)
         return torch.zeros((B, self.act_horizon, self.act_dim), device=self.device)
 
 
-def _basic_kwargs(network_target: str = UNET_TARGET, **overrides):
+def _basic_kwargs(**overrides):
     kw = dict(
-        network={"_target_": network_target},
+        network={"_target_": UNET_TARGET},
         optimizer={},
         obs_dim=3,
         act_dim=4,
@@ -84,27 +83,17 @@ class TestBaseDiffusionAgentLogic:
         assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
 
     # ------------------------------------------------------------------ #
-    # flatten_obs auto-detection + network_cond_dim
+    # _get_cond_dims / _build_external_cond
     # ------------------------------------------------------------------ #
-    def test_flatten_obs_auto_detect_unet(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(network_target=UNET_TARGET))
-        assert agent.flatten_obs is True
-        assert agent.network_cond_dim == agent.obs_horizon * get_total_dim(agent.obs_dim)
+    def test_get_cond_dims_wraps_obs_dim(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        assert agent._get_cond_dims() == {"obs": agent.obs_dim}
 
-    def test_flatten_obs_auto_detect_gpt(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(network_target=GPT_TARGET))
-        assert agent.flatten_obs is False
-        assert agent.network_cond_dim == get_total_dim(agent.obs_dim)
-
-    def test_flatten_obs_auto_detect_unknown_raises(self):
-        with pytest.raises(ValueError, match="Cannot auto-detect"):
-            _MinimalDiffusionAgent(
-                **_basic_kwargs(network_target="policy.algorithms.networks.MLP")
-            )
-
-    def test_flatten_obs_explicit_respected(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=False))
-        assert agent.flatten_obs is False
+    def test_build_external_cond_wraps_obs_unflattened(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        obs = torch.randn(2, 2, 3)
+        external_cond = agent._build_external_cond(obs)
+        assert external_cond == {"obs": obs}
 
     # ------------------------------------------------------------------ #
     # EMA optionality
@@ -138,26 +127,11 @@ class TestBaseDiffusionAgentLogic:
     # ------------------------------------------------------------------ #
     def test_abstract_compute_loss_raises(self):
         with pytest.raises(NotImplementedError):
-            BaseDiffusionAgent._compute_loss(None, torch.zeros(1), torch.zeros(1))
+            BaseDiffusionAgent._compute_loss(None, {"obs": torch.zeros(1)}, torch.zeros(1))
 
     def test_abstract_run_diffusion_loop_raises(self):
         with pytest.raises(NotImplementedError):
-            BaseDiffusionAgent._run_diffusion_loop(None, torch.zeros(1))
-
-    # ------------------------------------------------------------------ #
-    # _prepare_obs
-    # ------------------------------------------------------------------ #
-    def test_prepare_network_cond_flatten(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=True))
-        obs = {"a": torch.randn(2, 2, 3)}
-        obs_cond = agent._prepare_obs(obs)
-        assert obs_cond.shape == (2, 6)
-
-    def test_prepare_network_cond_concat(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=False))
-        obs = {"a": torch.randn(2, 2, 3)}
-        obs_cond = agent._prepare_obs(obs)
-        assert obs_cond.shape == (2, 2, 3)
+            BaseDiffusionAgent._run_diffusion_loop(None, {"obs": torch.zeros(1)})
 
     # ------------------------------------------------------------------ #
     # Obs-only template methods
@@ -172,7 +146,7 @@ class TestBaseDiffusionAgentLogic:
         assert agent.log.call_args[0][0] == "train/loss"
 
     def test_get_action_template(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(flatten_obs=True))
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
         obs_seq = torch.randn(2, 2, 3)
         out = agent.get_action(obs_seq)
         assert out.shape == (2, agent.act_horizon, agent.act_dim)
