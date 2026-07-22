@@ -100,9 +100,9 @@ class TestPnPCanonicalizer:
         tcp = obs["extra"]["tcp_pose"][..., :3]
         a = obs["extra"]["cubeA_pose"][..., :3]
         b = obs["extra"]["cubeB_pose"][..., :3]
-        assert torch.allclose(out["a_to_b"], a - b)
-        assert torch.allclose(out["tcp_to_a"], tcp - a)
-        assert torch.allclose(out["tcp_to_b"], tcp - b)
+        assert torch.allclose(out["a_to_b"], b - a)
+        assert torch.allclose(out["tcp_to_a"], a - tcp)
+        assert torch.allclose(out["tcp_to_b"], b - tcp)
 
     def test_batched_input(self):
         canon = PnPCanonicalizer("StackCube-v1")
