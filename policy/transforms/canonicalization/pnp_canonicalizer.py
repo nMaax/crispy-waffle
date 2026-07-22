@@ -9,7 +9,7 @@ class PnPCanonicalizer:
     """Standardizes different pick-and-place tasks into a unified dictionary format.
 
     Standardized dict format:
-    [proprio, tcp_pose, a_pose, b_pose, a_to_b, tcp_to_a, tcp_to_b]
+    [proprio, tcp_pose, a_pose, b_pose, tcp_to_a, tcp_to_b, a_to_b]
     """
 
     def __init__(self, env_id: str):
@@ -54,9 +54,9 @@ class PnPCanonicalizer:
             "tcp_pose": tcp_pose,
             "a_pose": cube_a_pose,
             "b_pose": cube_b_pose,
-            "a_to_b": cube_a_pose[..., :3] - cube_b_pose[..., :3],
-            "tcp_to_a": tcp_pose[..., :3] - cube_a_pose[..., :3],
-            "tcp_to_b": tcp_pose[..., :3] - cube_b_pose[..., :3],
+            "tcp_to_a": cube_a_pose[..., :3] - tcp_pose[..., :3],
+            "tcp_to_b": cube_b_pose[..., :3] - tcp_pose[..., :3],
+            "a_to_b": cube_b_pose[..., :3] - cube_a_pose[..., :3],
         }
 
     def _parse_stack_cube_swapped_dict(
@@ -94,9 +94,9 @@ class PnPCanonicalizer:
             "tcp_pose": tcp_pose,
             "a_pose": sphere_pose,
             "b_pose": bin_pose,
-            "a_to_b": sphere_pos - bin_pos,
-            "tcp_to_a": tcp_pose[..., :3] - sphere_pos,
-            "tcp_to_b": tcp_pose[..., :3] - bin_pos,
+            "tcp_to_a": sphere_pos - tcp_pose[..., :3],
+            "tcp_to_b": bin_pos - tcp_pose[..., :3],
+            "a_to_b": bin_pos - sphere_pos,
         }
 
     def _parse_place_sphere_wristcam_dict(
