@@ -38,6 +38,16 @@ class PnPCanonicalizer:
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
 
+    def _parse_stack_cube_swapped_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
+    def _parse_stack_cube_restricted_spawn_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
     def _parse_stack_cube_dict(self, obs: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         agent = get_subtree(obs, "agent")
         extra = get_subtree(obs, "extra")
@@ -49,25 +59,24 @@ class PnPCanonicalizer:
         cube_a_pose = get_tensor(extra, "cubeA_pose")
         cube_b_pose = get_tensor(extra, "cubeB_pose")
 
+        tcp_to_a = get_tensor(extra, "tcp_to_cubeA_pos")
+        tcp_to_b = get_tensor(extra, "tcp_to_cubeB_pos")
+        a_to_b = get_tensor(extra, "cubeA_to_cubeB_pos")
+
         return {
             "proprio": proprio,
             "tcp_pose": tcp_pose,
             "a_pose": cube_a_pose,
             "b_pose": cube_b_pose,
-            "tcp_to_a": cube_a_pose[..., :3] - tcp_pose[..., :3],
-            "tcp_to_b": cube_b_pose[..., :3] - tcp_pose[..., :3],
-            "a_to_b": cube_b_pose[..., :3] - cube_a_pose[..., :3],
+            "tcp_to_a": tcp_to_a,
+            "tcp_to_b": tcp_to_b,
+            "a_to_b": a_to_b,
         }
 
-    def _parse_stack_cube_swapped_dict(
+    def _parse_place_sphere_wristcam_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
-        return self._parse_stack_cube_dict(obs)
-
-    def _parse_stack_cube_restricted_spawn_dict(
-        self, obs: Mapping[str, TensorTree]
-    ) -> dict[str, torch.Tensor]:
-        return self._parse_stack_cube_dict(obs)
+        return self._parse_place_sphere_dict(obs)
 
     def _parse_place_sphere_dict(self, obs: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         agent = get_subtree(obs, "agent")
@@ -89,17 +98,16 @@ class PnPCanonicalizer:
         fake_quat_B = fake_quat.expand(*bin_pos.shape[:-1], 4)
         bin_pose = torch.cat([bin_pos, fake_quat_B], dim=-1)
 
+        tcp_to_a = get_tensor(extra, "tcp_to_obj_pos")
+        tcp_to_b = bin_pos - tcp_pose[..., :3]
+        a_to_b = bin_pos - sphere_pos
+
         return {
             "proprio": proprio,
             "tcp_pose": tcp_pose,
             "a_pose": sphere_pose,
             "b_pose": bin_pose,
-            "tcp_to_a": sphere_pos - tcp_pose[..., :3],
-            "tcp_to_b": bin_pos - tcp_pose[..., :3],
-            "a_to_b": bin_pos - sphere_pos,
+            "tcp_to_a": tcp_to_a,
+            "tcp_to_b": tcp_to_b,
+            "a_to_b": a_to_b,
         }
-
-    def _parse_place_sphere_wristcam_dict(
-        self, obs: Mapping[str, TensorTree]
-    ) -> dict[str, torch.Tensor]:
-        return self._parse_place_sphere_dict(obs)

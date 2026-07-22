@@ -9,32 +9,42 @@ def _shape(d, batch=False):
 
 
 def _stack_cube_obs(batch=False):
+    tcp_pose = torch.randn(*_shape(7, batch))
+    cube_a_pose = torch.randn(*_shape(7, batch))
+    cube_b_pose = torch.randn(*_shape(7, batch))
+
     return {
         "agent": {
             "qpos": torch.randn(*_shape(9, batch)),
             "qvel": torch.randn(*_shape(9, batch)),
         },
         "extra": {
-            "tcp_pose": torch.randn(*_shape(7, batch)),
-            "cubeA_pose": torch.randn(*_shape(7, batch)),
-            "cubeB_pose": torch.randn(*_shape(7, batch)),
-            "tcp_to_cubeA_pos": torch.randn(*_shape(3, batch)),
-            "tcp_to_cubeB_pos": torch.randn(*_shape(3, batch)),
-            "cubeA_to_cubeB_pos": torch.randn(*_shape(3, batch)),
+            "tcp_pose": tcp_pose,
+            "cubeA_pose": cube_a_pose,
+            "cubeB_pose": cube_b_pose,
+            "tcp_to_cubeA_pos": cube_a_pose[..., :3] - tcp_pose[..., :3],
+            "tcp_to_cubeB_pos": cube_b_pose[..., :3] - tcp_pose[..., :3],
+            "cubeA_to_cubeB_pos": cube_b_pose[..., :3] - cube_a_pose[..., :3],
         },
     }
 
 
 def _place_sphere_obs(batch=False):
+    tcp_pose = torch.randn(*_shape(7, batch))
+    obj_pose = torch.randn(*_shape(7, batch))
+    bin_pos = torch.randn(*_shape(3, batch))
+
     return {
         "agent": {
             "qpos": torch.randn(*_shape(9, batch)),
             "qvel": torch.randn(*_shape(9, batch)),
         },
         "extra": {
-            "tcp_pose": torch.randn(*_shape(7, batch)),
-            "obj_pose": torch.randn(*_shape(7, batch)),
-            "bin_pos": torch.randn(*_shape(3, batch)),
+            "is_grasped": torch.zeros(*_shape(1, batch)),
+            "tcp_pose": tcp_pose,
+            "bin_pos": bin_pos,
+            "obj_pose": obj_pose,
+            "tcp_to_obj_pos": obj_pose[..., :3] - tcp_pose[..., :3],
         },
     }
 
