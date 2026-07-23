@@ -51,6 +51,8 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     # Goal Conditioned BESO
     "experiment=GoalConditionedBESO__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedBESO__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCube-v1__default__test__ProprioToken trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCube-v1__default__train__ProprioToken trainer.max_epochs=1",
     "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy

@@ -7,7 +7,7 @@ _target_: policy.algorithms.multi_task_state_aligner.MultiTaskStateAligner
 _recursive_: false
 
 task_mapping:
-  PlaceSphereWristcam-v1: 0
+  PlaceSphere-v1: 0
   StackCubeSwapped-v1: 1
 
 network:

@@ -21,7 +21,6 @@ class PnPCanonicalizer:
             "StackCubeRestrictedSpawn-v1": self._parse_stack_cube_restricted_spawn_dict,
             "StackCubeSwapped-v1": self._parse_stack_cube_swapped_dict,
             "PlaceSphere-v1": self._parse_place_sphere_dict,
-            "PlaceSphereWristcam-v1": self._parse_place_sphere_wristcam_dict,
             "PlaceCubeLeft-v1": self._parse_place_cube_left_dict,
         }
 
@@ -78,11 +77,6 @@ class PnPCanonicalizer:
             "tcp_to_b": tcp_to_b,
             "a_to_b": a_to_b,
         }
-
-    def _parse_place_sphere_wristcam_dict(
-        self, obs: Mapping[str, TensorTree]
-    ) -> dict[str, torch.Tensor]:
-        return self._parse_place_sphere_dict(obs)
 
     def _parse_place_sphere_dict(self, obs: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         agent = get_subtree(obs, "agent")

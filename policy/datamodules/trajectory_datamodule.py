@@ -88,6 +88,7 @@ class TrajectoryDataModule(L.LightningDataModule):
             self.obs_mode,
             self.control_mode,
             self.physx_backend,
+            self.robot_uids,
         ) = self._load_metadata_from_json()
 
         rank_zero_info(f"Seed for episodes datasplit fetched from main seed: {seed}")
@@ -187,12 +188,13 @@ class TrajectoryDataModule(L.LightningDataModule):
         obs_mode = env_kwargs.get("obs_mode", "state")
         control_mode = env_kwargs.get("control_mode", "pd_joint_pos")
         physx_backend = env_kwargs.get("sim_backend", "physx_cpu")
+        robot_uids = env_kwargs.get("robot_uids", None)
 
         if physx_backend == "auto":
             rank_zero_warn("Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'.")
             physx_backend = "physx_cpu"
 
-        return env_id, obs_mode, control_mode, physx_backend
+        return env_id, obs_mode, control_mode, physx_backend, robot_uids
 
     def _split_episodes(self) -> tuple[list[dict], list[dict]]:
         with open(self.json_path) as f:

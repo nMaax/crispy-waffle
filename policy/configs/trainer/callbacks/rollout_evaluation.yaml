@@ -12,6 +12,7 @@ rollout_evaluation:
 
   # Fetch everything from the dataset automatically
   env_id: null
+  robot_uids: null
   obs_mode: null
   control_mode: null
   physx_backend: null

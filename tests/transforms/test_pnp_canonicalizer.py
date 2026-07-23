@@ -101,13 +101,6 @@ class TestPnPCanonicalizer:
         # a_pose is the sphere pose
         assert out["a_pose"].shape[-1] == 7
 
-    def test_place_sphere_wristcam_delegates(self):
-        obs = _place_sphere_obs()
-        out_base = PnPCanonicalizer("PlaceSphere-v1")(obs)
-        out_delegate = PnPCanonicalizer("PlaceSphereWristcam-v1")(obs)
-        for key in EXPECTED_KEYS:
-            assert torch.allclose(out_base[key], out_delegate[key])
-
     def test_relative_positions_correct(self):
         canon = PnPCanonicalizer("StackCube-v1")
         obs = _stack_cube_obs()

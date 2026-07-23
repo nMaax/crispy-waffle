@@ -16,5 +16,6 @@ trainer:
   max_steps: 5000
   callbacks:
     rollout_evaluation:
-      env_id: PlaceSphereWristcam-v1
+      env_id: PlaceSphere-v1
+      robot_uids: panda_wristcam
       max_episode_steps: 200

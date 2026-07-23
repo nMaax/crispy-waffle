@@ -56,6 +56,7 @@ class RolloutEvaluationCallback(L.Callback):
         seed: int | None = None,
         # Optional overrides to decouple from datamodule
         env_id: str | None = None,
+        robot_uids: str | None = None,
         obs_mode: str | None = None,
         control_mode: str | None = None,
         physx_backend: str | None = None,
@@ -90,6 +91,7 @@ class RolloutEvaluationCallback(L.Callback):
 
         # Set environment properties directly (fallback to datamodule happens in setup)
         self.env_id = env_id
+        self.robot_uids = robot_uids
         self.obs_mode = obs_mode
         self.control_mode = control_mode
         self.physx_backend = physx_backend
@@ -131,6 +133,7 @@ class RolloutEvaluationCallback(L.Callback):
         rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
         self.env_id = _resolve_param(self.env_id, "env_id")
+        self.robot_uids = _resolve_param(self.robot_uids, "robot_uids", strict=False, default=None)
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
@@ -176,6 +179,7 @@ class RolloutEvaluationCallback(L.Callback):
         rank_zero_info(
             f"Rollout Config setup complete:\n"
             f"\tenv_id: {self.env_id},\n"
+            f"\trobot_uids: {self.robot_uids},\n"
             f"\tobs_mode: {self.obs_mode},\n"
             f"\tcontrol_mode: {self.control_mode},\n"
             f"\tbackend: {self.physx_backend}\n"
@@ -184,6 +188,10 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tcanonical PnP state vector: {self.canonicalize}"
         )
 
+        make_kwargs = {}
+        if self.robot_uids is not None:
+            make_kwargs["robot_uids"] = self.robot_uids
+
         gym_env = gym.make(
             id=self.env_id,
             obs_mode=self.obs_mode,
@@ -191,6 +199,7 @@ class RolloutEvaluationCallback(L.Callback):
             render_mode=self.render_mode,
             num_envs=self.num_envs,
             max_episode_steps=self.max_episode_steps,
+            **make_kwargs,
         )
         frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
         vector_env = ManiSkillVectorEnv(

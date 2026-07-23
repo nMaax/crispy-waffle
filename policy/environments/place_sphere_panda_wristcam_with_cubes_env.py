@@ -6,12 +6,16 @@ from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs import Link, Pose
 
-from .place_sphere_panda_wristcam_env import PlaceSphereWristcamEnv
+from .place_sphere_env import PlaceSphereEnv
 
 
 @register_env("PlaceSphereWristcamWithCubes-v1", max_episode_steps=50)
-class PlaceSphereWristcamWithCubesEnv(PlaceSphereWristcamEnv):
+class PlaceSphereWristcamWithCubesEnv(PlaceSphereEnv):
     """Sanity check environment: uses PlaceSphere-v1 but physically spawns the StackCube-v1 Cube A and Cube B."""
+
+    def __init__(self, *args, robot_uids="panda_wristcam", robot_init_qpos_noise=0.02, **kwargs):
+        self.robot_init_qpos_noise = robot_init_qpos_noise
+        super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
     STATE_SCHEMA = {
         "agent": {

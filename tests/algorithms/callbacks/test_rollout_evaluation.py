@@ -624,3 +624,34 @@ def test_goal_conditioned_env_without_generate_heuristic_goal_raises(monkeypatch
     )
     with pytest.raises(AttributeError, match="generate_heuristic_goal"):
         trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+
+def test_rollout_evaluation_forwards_robot_uids(monkeypatch):
+    make_kwargs_captured = {}
+
+    monkeypatch.setattr(
+        gym, "envs", types.SimpleNamespace(registry={"FakeManiSkill-v0": object()})
+    )
+
+    def _make(id: str, num_envs: int, **kwargs):
+        make_kwargs_captured.update(kwargs)
+        return FakeVectorEnv(num_envs=num_envs)
+
+    monkeypatch.setattr(gym, "make", _make, raising=True)
+
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule(obs_horizon=2, act_horizon=1, act_dim=3)
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=1, seed=42, robot_uids="panda_wristcam")
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+    assert make_kwargs_captured.get("robot_uids") == "panda_wristcam"
