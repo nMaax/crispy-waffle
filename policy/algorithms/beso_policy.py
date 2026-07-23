@@ -303,7 +303,12 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self, obs: TensorTree, goal: TensorTree | None
     ) -> dict[str, TensorTree]:
         external_cond = self._build_obs_external_cond(obs)
-        if goal is not None:
+        if self.goal_horizon > 0:
+            if goal is None:
+                raise ValueError(
+                    f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
+                    "but received goal=None."
+                )
             goal_external_cond = self._build_goal_external_cond(goal)
             external_cond = merge_dicts([external_cond, goal_external_cond])
 

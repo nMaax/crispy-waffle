@@ -5,3 +5,4 @@ defaults:
 _target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy
 
 proprio_dim: 18
+goal_horizon: 1

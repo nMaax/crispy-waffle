@@ -227,6 +227,83 @@ class TestDiffusionPolicyLogic:
             embeddings = policy.extract_embeddings(torch.randn(2, 2, 48), goal=tensor_goal)
             assert embeddings["goal_embedding"].shape == (2, 30)
 
+    def test_goal_horizon_zero_unconditioned(self):
+        """goal_horizon=0 sets goal_conditioned=False and omits 'goal' key from cond_dims and
+        external_cond."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                goal_horizon=0,
+            )
+            policy.configure_model()
+            assert not policy.goal_conditioned
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
+
+            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
+            assert "goal" not in ext_cond
+
+    def test_goal_horizon_sequence(self):
+        """goal_horizon > 1 formats 2D/3D tensor and dict goal sequences properly."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                goal_horizon=2,
+            )
+            policy.configure_model()
+            assert policy.goal_conditioned
+            assert policy._get_cond_dims() == {
+                "obs": {"proprio": 18, "task": 30},
+                "goal": 30,
+            }
+
+            # 3D tensor goal [B, goal_horizon, obs_dim]
+            goal_3d = torch.randn(2, 2, 48)
+            prepared_3d = policy._build_goal_external_cond(goal_3d)["goal"]
+            assert prepared_3d.shape == (2, 2, 30)
+
+            # Dict goal with 3D leaves
+            dict_policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim={"proprio": 18, "task": 30},
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                goal_horizon=2,
+            )
+            dict_policy.configure_model()
+            dict_goal_3d = {
+                "proprio": torch.randn(2, 2, 18),
+                "task": torch.randn(2, 2, 30),
+            }
+            prepared_dict = dict_policy._build_goal_external_cond(dict_goal_3d)["goal"]
+            assert prepared_dict.shape == (2, 2, 30)
+
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):
         """Intercepts hydra_zen.instantiate in the base module to prevent Hydra from crashing on

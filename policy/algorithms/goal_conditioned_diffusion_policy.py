@@ -36,6 +36,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def __init__(
         self,
         *args,
+        goal_horizon: int = 1,
         proprio_dim: int = 18,
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
@@ -43,7 +44,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.goal_conditioned = True
+        self.goal_horizon = goal_horizon
+        self.goal_conditioned = goal_horizon > 0
 
         proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
 
@@ -75,11 +77,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         ``cond_dims``."""
         embed_dim = self._embedder_output_dim()
         obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
-        if self.exclude_proprio_from_goal:
-            goal_spec = embed_dim
+        if self.goal_horizon == 0:
+            return {"obs": obs_spec}
         else:
-            goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
-        return {"obs": obs_spec, "goal": goal_spec}
+            if self.exclude_proprio_from_goal:
+                goal_spec = embed_dim
+            else:
+                goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+
+            return {"obs": obs_spec, "goal": goal_spec}
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
@@ -214,7 +220,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self, obs: TensorTree, goal: TensorTree | None
     ) -> dict[str, TensorTree]:
         external_cond = self._build_obs_external_cond(obs)
-        if goal is not None:
+        if self.goal_horizon > 0:
+            if goal is None:
+                raise ValueError(
+                    f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
+                    "but received goal=None."
+                )
             goal_external_cond = self._build_goal_external_cond(goal)
             external_cond = merge_dicts([external_cond, goal_external_cond])
 
