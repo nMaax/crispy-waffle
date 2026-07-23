@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - GoalConditionedBESO__StackCube-v1__default__train__ProprioToken
+  - GoalConditionedBESO++__StackCube-v1__default__train
 
 name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???
