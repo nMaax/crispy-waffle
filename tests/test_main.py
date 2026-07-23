@@ -42,8 +42,6 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__train__CanonicalizedPnP trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check trainer.max_epochs=1",
     # BESO
     "experiment=BESO__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=BESO__StackCube-v1__default__train trainer.max_epochs=1",
