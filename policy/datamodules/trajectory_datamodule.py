@@ -35,7 +35,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         success_only: bool = False,
         lazy: bool = False,
         seed: int | None = None,
-        canonicalize: bool = False,
+        canonicalize: bool = True,
         no_proprio_vel: bool = False,
         as_dict: bool = False,
     ):

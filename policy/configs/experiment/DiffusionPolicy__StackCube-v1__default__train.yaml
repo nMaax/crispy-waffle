@@ -1,10 +1,10 @@
 # @package _global_
 defaults:
   - override /algorithm: diffusion_policy
-  - override /datamodule: trajectory_datamodule
+  - override /datamodule: canonical_trajectory_datamodule
   - override /trainer: default
 
-name: ${hydra:runtime.choices.experiment}
+name: ${hydra:runtime.choices.experiment}Extended
 
 algorithm:
   act_horizon: 8
@@ -14,9 +14,12 @@ datamodule:
   obs_horizon: 2
   pred_horizon: 16
   batch_size: 256
+  load_count: 500
 
 trainer:
+  max_steps: 250000
   callbacks:
+    early_stopping: null
     rollout_evaluation:
       max_episode_steps: 200 # WARN: HIGHLY IMPORTANT!!!
       clamp_action: true

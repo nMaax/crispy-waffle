@@ -67,6 +67,7 @@ def datamodule_factory(tmp_path: Path):
                     "env_states", data=np.ones((episode_length, env_state_dim), dtype=np.float32)
                 )
 
+        kwargs.setdefault("canonicalize", False)
         return TrajectoryDataModule(
             dataset_file=h5_path,
             val_split=val_split,

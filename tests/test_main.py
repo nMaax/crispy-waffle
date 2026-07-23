@@ -40,8 +40,8 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     # DiffusionPolicy
     "experiment=DiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__train__CanonicalizedPnP trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # BESO
     "experiment=BESO__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=BESO__StackCube-v1__default__train trainer.max_epochs=1",
@@ -60,12 +60,10 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     # Goal-Conditioned Diffusion Policy MLP
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
-    # DiffusionPolicy variants (canonicalization, tuning)
-    "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__CanonicalizedPnP__tuning trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__PlaceSphere-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCube-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP trainer.max_epochs=1",
+    # DiffusionPolicy variants (tuning)
+    "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__tuning trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceSphere-v1__default__train__tuning_5 trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__train__tuning_5 trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 

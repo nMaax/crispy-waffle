@@ -15,3 +15,4 @@ lazy: false
 seed: ${seed} # Seed is passed by config.py
 
 as_dict: false
+canonicalize: true

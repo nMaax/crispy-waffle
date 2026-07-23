@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - DiffusionPolicy__StackCube-v1__default__train__CanonicalizedPnP
+  - DiffusionPolicy__StackCube-v1__default__train
 
 name: ${hydra:runtime.choices.experiment}
 
