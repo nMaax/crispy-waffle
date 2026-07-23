@@ -25,6 +25,11 @@ class DiffusionPolicy(BaseDiffusionAgent):
         if self.ema_config is None:
             raise ValueError("DiffusionPolicy requires an EMA model. Pass a valid `ema` config.")
 
+        if self.noise_scheduler_config is None:
+            raise ValueError(
+                "DiffusionPolicy requires a noise scheduler. Pass a valid `noise_scheduler` config."
+            )
+
     def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 

@@ -37,19 +37,27 @@ This is used to check that all the experiment configs are covered by tests.
 """
 
 experiment_commands_to_test: list[str | ParameterSet] = [
+    # DiffusionPolicy
     "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__train__CanonicalizedPnP trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeWithSphereAndBin-v1__default__sanity_check trainer.max_epochs=1",
     "experiment=DiffusionPolicy__PlaceSphereWristcamWithCubes-v1__default__sanity_check trainer.max_epochs=1",
     # BESO
     "experiment=BESO__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=BESO__StackCube-v1__default__train trainer.max_epochs=1",
+    # Goal Conditioned BESO
     "experiment=GoalConditionedBESO__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedBESO__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy
     "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",

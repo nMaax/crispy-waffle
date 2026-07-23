@@ -11,7 +11,7 @@ class StackCubeSwappedEnv(StackCubeEnv):
     and let go."""
 
     # NOTE: Stack cube swapped only modifies the success and reward conditions. It doesn't actually swap any cube
-    # as it would be pointless. The task would be the same.
+    # as it would be pointless due to the spawn process being a uniform random sampling of (x,y) coordinates.
 
     def evaluate(self):
         pos_A = self.cubeA.pose.p

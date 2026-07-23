@@ -65,20 +65,16 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.ema: EMAModel | None = None
 
         self.noise_scheduler_config = noise_scheduler
-        if self.noise_scheduler_config is not None:
-            self.noise_scheduler: DiffusionSchedulerProtocol | None = hydra_zen.instantiate(
-                self.noise_scheduler_config
-            )
-        else:
-            self.noise_scheduler = None
+        self.noise_scheduler: DiffusionSchedulerProtocol | None = None
 
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
+        self._validate_horizons()
+
         self.act_dim = act_dim
         self.obs_dim = obs_dim
 
-        self._validate_horizons()
         self._instantiate_normalizers(obs_normalizer, act_normalizer)
 
     def _validate_horizons(self) -> None:
@@ -186,11 +182,15 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
     def configure_model(self) -> None:
         if self.network is not None:
             return
+
         cond_dims = self._get_cond_dims()
         self.network = hydra_zen.instantiate(self.network_config, cond_dims=cond_dims)
 
         if self.ema_config is not None:
             self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
+
+        if self.noise_scheduler_config is not None:
+            self.noise_scheduler = hydra_zen.instantiate(self.noise_scheduler_config)
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's

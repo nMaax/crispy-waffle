@@ -256,6 +256,12 @@ class TestDiffusionPolicyLogic:
         with pytest.raises(ValueError, match="requires an EMA model"):
             DiffusionPolicy(**kwargs)
 
+    def test_noise_scheduler_required_raises(self, basic_kwargs):
+        """DiffusionPolicy must reject construction without a noise_scheduler config."""
+        kwargs = {k: v for k, v in basic_kwargs.items() if k != "noise_scheduler"}
+        with pytest.raises(ValueError, match="requires a noise scheduler"):
+            DiffusionPolicy(**kwargs)
+
     def test_horizon_validations(self, basic_kwargs):
         """Ensures the init method strictly catches invalid horizon configurations."""
 

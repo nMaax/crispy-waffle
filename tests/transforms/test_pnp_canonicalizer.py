@@ -77,7 +77,12 @@ class TestPnPCanonicalizer:
 
     @pytest.mark.parametrize(
         "env_id",
-        ["StackCubeSwapped-v1", "StackCubeRestrictedSpawn-v1", "PlaceCubeLeft-v1"],
+        [
+            "StackCubeSwapped-v1",
+            "StackCubeRestrictedSpawn-v1",
+            "StackCubeLockedRotation-v1",
+            "PlaceCubeLeft-v1",
+        ],
     )
     def test_stack_cube_delegates(self, env_id):
         obs = _stack_cube_obs()

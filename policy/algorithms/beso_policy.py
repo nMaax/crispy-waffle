@@ -61,10 +61,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
             )
 
-        if self.noise_scheduler is not None:
+        if self.noise_scheduler_config is not None:
             raise ValueError(
                 "BesoPolicy does not support noise_schedulers as it implements its own custom one. "
-                f"Got noise_scheduler={self.noise_scheduler}. Please remove it."
+                f"Got noise_scheduler={self.noise_scheduler_config}. Please remove it."
             )
 
         if use_proprio_token and proprio_dim == 0:

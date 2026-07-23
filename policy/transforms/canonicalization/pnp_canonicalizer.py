@@ -17,6 +17,7 @@ class PnPCanonicalizer:
 
         self._parsers = {
             "StackCube-v1": self._parse_stack_cube_dict,
+            "StackCubeLockedRotation-v1": self._parse_stack_cube_locked_rotation_dict,
             "StackCubeRestrictedSpawn-v1": self._parse_stack_cube_restricted_spawn_dict,
             "StackCubeSwapped-v1": self._parse_stack_cube_swapped_dict,
             "PlaceSphere-v1": self._parse_place_sphere_dict,
@@ -34,6 +35,11 @@ class PnPCanonicalizer:
 
     # Dictionary parsers for ManiSkill native state_dict observations
     def _parse_place_cube_left_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
+    def _parse_stack_cube_locked_rotation_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
