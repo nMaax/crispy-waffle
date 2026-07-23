@@ -178,14 +178,6 @@ class DiffusionSchedulerProtocol(Protocol):
     ) -> Any | tuple: ...
 
 
-@runtime_checkable
-class AdapterProtocol(Protocol):
-    """Protocol for adapters used during rollouts."""
-
-    def apply(self, obs: TensorTree) -> TensorTree:
-        """Adapts the given observation to be compatible with the policy's expected input."""
-        ...
-
 
 @runtime_checkable
 class EnvProtocol(Protocol):

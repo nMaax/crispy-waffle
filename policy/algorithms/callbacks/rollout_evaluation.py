@@ -3,7 +3,6 @@ import warnings
 from typing import Any, cast
 
 import gymnasium as gym
-import hydra_zen
 import lightning as L
 import torch
 from gymnasium.spaces import Box
@@ -18,16 +17,13 @@ from rich.progress import Progress
 from tqdm import tqdm
 
 import policy.environments  # noqa: F401
-from policy.adapters.no_op_adapter import NoOpAdapter
 from policy.transforms import (
     observation_pipeline,
 )
 from policy.utils import to_tensor
 from policy.utils.typing_utils import (
-    AdapterProtocol,
     GoalConditionedEnvProtocol,
     GoalConditionedPolicyProtocol,
-    HydraConfigFor,
     PolicyProtocol,
 )
 
@@ -44,7 +40,6 @@ class RolloutEvaluationCallback(L.Callback):
 
     def __init__(
         self,
-        adapter: HydraConfigFor[AdapterProtocol] | None = None,
         num_inference_steps: int | None = None,
         num_episodes: int = 20,
         max_episode_steps: int | None = None,
@@ -66,9 +61,6 @@ class RolloutEvaluationCallback(L.Callback):
 
         if seed is None:
             raise ValueError("seed must be provided.")
-
-        self.adapter_config = adapter
-        self.adapter: AdapterProtocol | None = None
 
         self.num_inference_steps = num_inference_steps
         self.num_episodes = num_episodes
@@ -119,18 +111,6 @@ class RolloutEvaluationCallback(L.Callback):
                 )
             else:
                 return default
-
-        resolved_adapter = _resolve_param(
-            self.adapter_config, "adapter", strict=False, default=None
-        )
-        if isinstance(resolved_adapter, AdapterProtocol):
-            self.adapter = resolved_adapter
-        elif resolved_adapter is not None:
-            self.adapter = hydra_zen.instantiate(resolved_adapter)
-        else:
-            self.adapter = NoOpAdapter()
-
-        rank_zero_info(f"Using adapter: {type(self.adapter).__name__}")
 
         self.env_id = _resolve_param(self.env_id, "env_id")
         self.robot_uids = _resolve_param(self.robot_uids, "robot_uids", strict=False, default=None)
@@ -254,12 +234,6 @@ class RolloutEvaluationCallback(L.Callback):
                 f"but got {type(pl_module).__name__}."
             )
 
-        if not isinstance(self.adapter, AdapterProtocol):
-            raise AttributeError(
-                f"Expected the adapter to implement AdapterProtocol, "
-                f"but got {type(self.adapter).__name__}."
-            )
-
         self._validate_setup()
         assert self.env_id is not None
 
@@ -353,20 +327,18 @@ class RolloutEvaluationCallback(L.Callback):
 
         # On CUDA we run all episodes in parallel, on CPU we run sequentially
         while episodes_completed < num_episodes:
-            adapted_obs = self.adapter.apply(obs)
-
             with torch.no_grad():
                 if is_goal_conditioned:
                     assert isinstance(pl_module, GoalConditionedPolicyProtocol)
                     action_seq = pl_module.get_action(
-                        adapted_obs,
+                        obs,
                         goal_state,
                         num_inference_steps=self.num_inference_steps,
                     )
                 else:
                     assert isinstance(pl_module, PolicyProtocol)
                     action_seq = pl_module.get_action(
-                        adapted_obs, num_inference_steps=self.num_inference_steps
+                        obs, num_inference_steps=self.num_inference_steps
                     )
 
             # Execute the action chunk

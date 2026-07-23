@@ -11,7 +11,6 @@ from hydra_zen.typing import Builds
 from typing_extensions import TypeVar
 
 from .protocols import (
-    AdapterProtocol,
     DataModule,
     DiffusionNetworkProtocol,
     DiffusionSchedulerProtocol,
@@ -106,7 +105,6 @@ __all__ = [
     "T",
     "DataModule",
     "DiffusionSchedulerProtocol",
-    "AdapterProtocol",
     "PolicyProtocol",
     "GoalConditionedPolicyProtocol",
     "DiffusionNetworkProtocol",
