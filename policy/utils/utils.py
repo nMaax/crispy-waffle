@@ -295,6 +295,30 @@ def split_leaf_key(
     return tree[..., :size], tree[..., size:]
 
 
+def resolve_proprio_dim(obs_dim: DimSpec, proprio_dim: int | None = None) -> int:
+    """Resolves ``proprio_dim`` against ``obs_dim``.
+
+    An explicit value is validated against `obs_dim` (via :func:`validate_proprio_dim`) and
+    returned as-is. When omitted (``None``), it is derived from ``obs_dim["proprio"]`` when
+    `obs_dim` is a dict. A flat `obs_dim` carries no field names, so it cannot be inferred
+    and requires an explicit value.
+    """
+    if proprio_dim is not None:
+        validate_proprio_dim(obs_dim, proprio_dim)
+        return proprio_dim
+
+    if not isinstance(obs_dim, Mapping):
+        raise ValueError(
+            "proprio_dim must be provided explicitly when obs_dim is flat (not a dict), since "
+            "it cannot be inferred from a flat observation spec."
+        )
+
+    if "proprio" not in obs_dim:
+        raise ValueError("Observation dictionary spec must contain 'proprio' key.")
+
+    return get_total_dim(obs_dim["proprio"])
+
+
 def validate_proprio_dim(obs_dim: DimSpec, proprio_dim: int) -> None:
     """Validates that `proprio_dim` is consistent with `obs_dim`.
 

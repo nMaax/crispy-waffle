@@ -145,12 +145,13 @@ class TestDiffusionGPTProprioDim:
         net = _make_network(goal_horizon=0)
         assert net.use_proprio_token is False
         assert net.proprio_emb is None
-        assert net.proprio_dim == 0
+        assert net.proprio_dim is None
         assert net.task_dim == COND_DIM
         assert "proprio_emb" not in dict(net.named_parameters())
 
-    def test_proprio_dim_zero_state_dict_unaffected(self):
-        """Regression guard: proprio_dim=0 must not register any new parameters."""
+    def test_proprio_dim_none_state_dict_unaffected(self):
+        """Regression guard: an unset (default) proprio_dim must not register any new
+        parameters."""
         net = _make_network(goal_horizon=0)
         expected_top_level = {"obs_emb", "act_emb", "sigma_emb", "pos_emb", "blocks", "ln_f", "action_pred"}
         top_level_names = {name.split(".")[0] for name, _ in net.named_parameters()}
@@ -294,7 +295,7 @@ class TestDiffusionGPTProprioDim:
             )
 
     def test_use_proprio_token_requires_proprio_dim_raises(self):
-        with pytest.raises(ValueError, match="use_proprio_token=True requires proprio_dim > 0"):
+        with pytest.raises(ValueError, match="use_proprio_token=True requires proprio_dim to be set"):
             DiffusionGPT(
                 act_dim=ACT_DIM,
                 cond_dims={"obs": COND_DIM},

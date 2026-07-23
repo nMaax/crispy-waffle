@@ -1,4 +1,5 @@
 _target_: policy.algorithms.networks.mlp.MLP
-input_dim: ${..task_dim}
+# input_dim is threaded in at runtime by GoalConditionedDiffusionPolicy.configure_model(),
+# since task_dim is only known after obs_dim is resolved in __init__.
 output_dim: 64
 hidden_dims: [128, 128, 128]

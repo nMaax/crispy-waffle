@@ -1,5 +1,3 @@
 defaults:
   - goal_conditioned_diffusion_policy
   - override embedder: mlp
-
-task_dim: 30 # TCP, A, B, A-B, TCP-A, TCP-B

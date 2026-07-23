@@ -10,8 +10,8 @@ from policy.utils import (
     concat_leaf_tensors,
     derive_task_dim,
     merge_dicts,
+    resolve_proprio_dim,
     split_leaf_key,
-    validate_proprio_dim,
 )
 from policy.utils.typing_utils import (
     DimSpec,
@@ -37,7 +37,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self,
         *args,
         goal_horizon: int = 1,
-        proprio_dim: int = 18,
+        proprio_dim: int | None = None,
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
         exclude_proprio_from_goal: bool = True,
@@ -57,8 +57,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
 
-    def _validate_obs_dim(self, proprio_dim: int, task_dim: int | None) -> tuple[int, int]:
-        validate_proprio_dim(self.obs_dim, proprio_dim)
+    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
+        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
         task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
         return proprio_dim, task_dim
 
@@ -66,7 +66,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if self.network is not None:
             return
         self.embedder = (
-            hydra_zen.instantiate(self.embedder_config)
+            hydra_zen.instantiate(self.embedder_config, input_dim=self.task_dim)
             if self.embedder_config is not None
             else nn.Identity()
         )

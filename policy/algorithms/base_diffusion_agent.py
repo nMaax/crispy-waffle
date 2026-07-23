@@ -184,13 +184,24 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             return
 
         cond_dims = self._get_cond_dims()
-        self.network = hydra_zen.instantiate(self.network_config, cond_dims=cond_dims)
+        self.network = hydra_zen.instantiate(
+            self.network_config, cond_dims=cond_dims, **self._network_extra_kwargs()
+        )
 
         if self.ema_config is not None:
             self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
 
         if self.noise_scheduler_config is not None:
             self.noise_scheduler = hydra_zen.instantiate(self.noise_scheduler_config)
+
+    def _network_extra_kwargs(self) -> dict[str, Any]:
+        """Extra kwargs threaded to network instantiation on top of ``cond_dims``.
+
+        Overridden by subclasses that derive values (e.g. ``proprio_dim``) at runtime, after
+        ``__init__``, rather than baking them into the network's Hydra config -- since those
+        derived values aren't known yet at config-composition time.
+        """
+        return {}
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's

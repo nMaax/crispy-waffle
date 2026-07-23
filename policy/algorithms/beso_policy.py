@@ -15,7 +15,7 @@ from policy.utils import (
     get_total_dim,
     map_leaves,
     merge_dicts,
-    validate_proprio_dim,
+    resolve_proprio_dim,
 )
 from policy.utils.typing_utils import DimSpec, GoalConditionedPolicyProtocol, TensorTree
 
@@ -39,7 +39,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self,
         *args,
         goal_horizon: int = 0,
-        proprio_dim: int = 0,
+        proprio_dim: int | None = None,
         task_dim: int | None = None,
         use_proprio_token: bool = False,
         alpha: float = 0.5,
@@ -67,16 +67,12 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 f"Got noise_scheduler={self.noise_scheduler_config}. Please remove it."
             )
 
-        if use_proprio_token and proprio_dim == 0:
-            raise ValueError("use_proprio_token=True requires proprio_dim > 0.")
+        self.use_proprio_token = use_proprio_token
 
-        if proprio_dim > 0 or task_dim is not None:
-            validate_proprio_dim(self.obs_dim, proprio_dim)
-            task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
+        proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
 
         self.proprio_dim = proprio_dim
         self.task_dim = task_dim
-        self.use_proprio_token = use_proprio_token
 
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
@@ -98,6 +94,15 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         self.num_parallel_samples = num_parallel_samples
+
+    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
+        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
+        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
+        return proprio_dim, task_dim
+
+    def _network_extra_kwargs(self) -> dict[str, Any]:
+        # DiffusionGPT only cares about proprio_dim when it's actually splitting a token for it
+        return {"proprio_dim": self.proprio_dim if self.use_proprio_token else None}
 
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""

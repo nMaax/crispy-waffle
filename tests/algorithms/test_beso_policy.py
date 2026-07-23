@@ -8,13 +8,19 @@ from policy.algorithms.beso_policy import BesoPolicy
 
 
 def _basic_kwargs(**overrides):
-    """Mock kwargs that construct a BesoPolicy without invoking hydra_zen.instantiate."""
+    """Mock kwargs that construct a BesoPolicy without invoking hydra_zen.instantiate.
+
+    ``proprio_dim=0`` here means "this synthetic obs_dim=3 fixture has no proprioception at all"
+    -- a real, explicit claim (not a placeholder), required because a flat obs_dim can't derive
+    it. Tests that specifically exercise derivation/omission override it back to ``None``.
+    """
     kw = dict(
         network={"_target_": "policy.algorithms.networks.diffusion_gpt.DiffusionGPT"},
         ema={},
         optimizer={},
         act_dim=4,
         obs_dim=3,
+        proprio_dim=0,
         pred_horizon=16,
         obs_horizon=2,
     )
@@ -88,9 +94,52 @@ class TestBesoPolicyLogic:
         with pytest.raises(ValueError, match="does not match task_dim"):
             BesoPolicy(**_basic_kwargs(proprio_dim=1, task_dim=5, obs_dim=3))
 
+    def test_flat_obs_requires_explicit_proprio_dim(self, basic_kwargs):
+        """A flat obs_dim can't auto-derive proprio_dim, so it must always be given explicitly --
+        regardless of use_proprio_token -- rather than silently defaulting to 0."""
+        kwargs = _basic_kwargs(proprio_dim=None)
+        with pytest.raises(ValueError, match="proprio_dim must be provided explicitly"):
+            BesoPolicy(**kwargs)
+
     def test_use_proprio_token_requires_proprio_dim(self, basic_kwargs):
-        with pytest.raises(ValueError, match="use_proprio_token=True requires proprio_dim > 0"):
-            BesoPolicy(**_basic_kwargs(use_proprio_token=True))
+        """With a flat obs_dim, proprio_dim can't be auto-derived and must be given explicitly."""
+        with pytest.raises(ValueError, match="proprio_dim must be provided explicitly"):
+            BesoPolicy(**_basic_kwargs(use_proprio_token=True, proprio_dim=None))
+
+    def test_use_proprio_token_requires_proprio_dim_dict_obs(self, basic_kwargs):
+        """With a dict obs_dim lacking a 'proprio' key, the same misconfiguration is still caught,
+        since there's nothing to derive from."""
+        kwargs = _basic_kwargs(use_proprio_token=True, proprio_dim=None)
+        kwargs["obs_dim"] = {"task": 3}
+        with pytest.raises(ValueError, match="must contain 'proprio' key"):
+            BesoPolicy(**kwargs)
+
+    def test_use_proprio_token_derives_proprio_dim_from_dict_obs(self, basic_kwargs):
+        """With a dict obs_dim, proprio_dim is auto-derived from obs_dim['proprio'] when
+        use_proprio_token=True and proprio_dim is omitted."""
+        kwargs = _basic_kwargs(use_proprio_token=True, proprio_dim=None)
+        kwargs["obs_dim"] = {"proprio": 2, "task": 1}
+        policy = BesoPolicy(**kwargs)
+        assert policy.proprio_dim == 2
+        assert policy.task_dim == 1
+
+    def test_derives_proprio_dim_from_dict_obs_even_without_proprio_token(self, basic_kwargs):
+        """A dict obs_dim always records its own proprio width, so proprio_dim/task_dim are
+        resolved from it regardless of use_proprio_token, instead of staying at an inert
+        placeholder."""
+        kwargs = _basic_kwargs(use_proprio_token=False, proprio_dim=None)
+        kwargs["obs_dim"] = {"proprio": 2, "task": 1}
+        policy = BesoPolicy(**kwargs)
+        assert policy.proprio_dim == 2
+        assert policy.task_dim == 1
+
+    def test_flat_obs_without_proprio_token_still_resolves_task_dim(self, basic_kwargs):
+        """A flat obs_dim with an explicit proprio_dim=0 ("no proprioception") still derives a real
+        task_dim (the full obs width), never None -- even though use_proprio_token=False means
+        nothing is actually split."""
+        policy = BesoPolicy(**basic_kwargs)  # obs_dim=3 (flat), proprio_dim=0, no token
+        assert policy.proprio_dim == 0
+        assert policy.task_dim == 3
 
     # ------------------------------------------------------------------ #
     # output_clip_range (post-unnormalize physical-space clamping)

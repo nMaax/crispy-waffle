@@ -9,7 +9,6 @@ name: ${hydra:runtime.choices.experiment}
 algorithm:
   act_horizon: 1
   goal_horizon: 1
-  proprio_dim: 18
   use_proprio_token: true
 
 datamodule:

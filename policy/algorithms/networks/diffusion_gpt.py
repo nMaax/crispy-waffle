@@ -83,7 +83,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         embed_dim: int = 256,
         obs_horizon: int = 8,
         goal_horizon: int = 0,
-        proprio_dim: int = 0,
+        proprio_dim: int | None = None,
         use_proprio_token: bool = False,
         pred_horizon: int = 8,
         n_layers: int = 4,
@@ -94,9 +94,10 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
     ):
         """
         Extra Args:
-            proprio_dim: per-timestep proprioception width. Only read when ``use_proprio_token``
-                is set -- otherwise it's an inert value (proprio, if any, stays glued to the rest
-                of the state features, undifferentiated).
+            proprio_dim: per-timestep proprioception width. Only meaningful -- and required --
+                when ``use_proprio_token`` is set. ``None`` (default) means this instance doesn't
+                reason about proprioception at all: proprio, if any, stays glued to the rest of
+                the state features, undifferentiated.
             use_proprio_token: ``False`` (default) is equivalent to original BESO". ``True`` opts for
                 a "robot-agnostic BESO" variant to better compare with GCDP: proprioception gets its
                 own dedicated per-timestep token and related embedding, separate from the task-only
@@ -110,24 +111,24 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 "Observation horizon and act horizon must be equal for DiffusionGPT. (For now)"
             )
 
-        if use_proprio_token and proprio_dim == 0:
-            raise ValueError("use_proprio_token=True requires proprio_dim > 0.")
-
         # Dimension and horizons
         self.obs_dim = get_total_dim(
             cond_dims["obs"] if isinstance(cond_dims, Mapping) else cond_dims
         )
 
-        if proprio_dim >= self.obs_dim:
-            raise ValueError(
-                f"proprio_dim ({proprio_dim}) must be smaller than the per-timestep obs "
-                f"width ({self.obs_dim}) -- there must be a nonempty task remainder."
-            )
-
         self.proprio_dim = proprio_dim
         self.use_proprio_token = use_proprio_token
+        self.proprio_emb: nn.Linear | None = None
         if use_proprio_token:
+            if proprio_dim is None:
+                raise ValueError("use_proprio_token=True requires proprio_dim to be set.")
+            if proprio_dim >= self.obs_dim:
+                raise ValueError(
+                    f"proprio_dim ({proprio_dim}) must be smaller than the per-timestep obs "
+                    f"width ({self.obs_dim}) -- there must be a nonempty task remainder."
+                )
             self.task_dim = self.obs_dim - proprio_dim
+            self.proprio_emb = nn.Linear(proprio_dim, embed_dim)
         else:
             self.task_dim = self.obs_dim
 
@@ -162,9 +163,6 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
         # Encoders
         self.obs_emb = nn.Linear(self.task_dim, embed_dim)
-        self.proprio_emb: nn.Linear | None = (
-            nn.Linear(proprio_dim, embed_dim) if use_proprio_token else None
-        )
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 
@@ -222,6 +220,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         obs = external_cond["obs"]
         proprio = None
         if self.use_proprio_token:
+            assert self.proprio_dim is not None
             proprio, obs = split_leaf_key(obs, "proprio", self.proprio_dim)
             if proprio is None:
                 raise ValueError(
@@ -245,8 +244,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
         goal = external_cond.get("goal", None)
         if self.use_proprio_token and isinstance(goal, Mapping):
-            # Goal tokens are always task-only; a "proprio" key, if present (real or zeroed), is
-            # discarded rather than embedded. Tolerant of the key being absent entirely.
+            assert self.proprio_dim is not None
             _, goal = split_leaf_key(goal, "proprio", self.proprio_dim)
         if isinstance(goal, Mapping):
             # e.g. with concat_leaf_tensors(dim=-1) a external_cond["goal"] tree like

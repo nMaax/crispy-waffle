@@ -30,8 +30,7 @@ sigma_data: 0.5
 
 pred_last_action_only: false
 
-goal_horizon: 0 # Default to no goal-conditioning
-proprio_dim: 0 # Default to original architecture
+goal_horizon: 1
 use_proprio_token: false
 num_parallel_samples: 1
 goal_drop_prob: 0.0
@@ -42,7 +41,6 @@ network:
   obs_horizon: ${..obs_horizon}
   pred_horizon: ${..pred_horizon}
   goal_horizon: ${..goal_horizon}
-  proprio_dim: ${..proprio_dim}
   use_proprio_token: ${..use_proprio_token}
 
 optimizer:
