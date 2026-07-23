@@ -10,7 +10,7 @@ def observation_pipeline(
     env_id: str,
     is_flat: bool,
     canonicalize: bool,
-    as_dict: bool,
+    as_dict: bool = True,
     no_proprio_vel: bool = False,
 ) -> Callable[[TensorTree], TensorTree]:
     """Builds and composes a sequence of observation transforms based on format flags and

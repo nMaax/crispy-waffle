@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 
 from policy.utils import print_mapping_tree, to_tensor
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_dimension
-from policy.utils.typing_utils import TensorTree
+from policy.utils.typing_utils import DimSpec, TensorTree
 
 
 class TrajectoryDataset(Dataset):
@@ -24,7 +24,7 @@ class TrajectoryDataset(Dataset):
         dataset_file: str | Path,
         obs_horizon: int,
         pred_horizon: int,
-        obs_dim: int | None = None,
+        obs_dim: DimSpec | None = None,
         act_dim: int | None = None,
         obs_left_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,
         obs_right_pad_as_zero_mask: list[bool] | np.ndarray | torch.Tensor | None = None,

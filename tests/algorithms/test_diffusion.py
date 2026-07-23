@@ -57,8 +57,13 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         assert isinstance(out, torch.Tensor)
         assert torch.isfinite(out).all(), "Output contains NaN or Inf"
         assert out.device == algorithm.device
+        batch_size = (
+            next(iter(obs_seq.values())).shape[0]
+            if isinstance(obs_seq, Mapping)
+            else obs_seq.shape[0]
+        )
         assert out.shape == (
-            obs_seq.shape[0],
+            batch_size,
             algorithm.act_horizon,
             algorithm.act_dim,
         )

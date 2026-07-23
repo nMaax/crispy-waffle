@@ -12,6 +12,16 @@ class PnPCanonicalizer:
     [proprio, tcp_pose, a_pose, b_pose, tcp_to_a, tcp_to_b, a_to_b]
     """
 
+    DIM_SPEC: dict[str, int] = {
+        "proprio": 18,
+        "tcp_pose": 7,
+        "a_pose": 7,
+        "b_pose": 7,
+        "tcp_to_a": 3,
+        "tcp_to_b": 3,
+        "a_to_b": 3,
+    }
+
     def __init__(self, env_id: str):
         self.task_id = env_id
 

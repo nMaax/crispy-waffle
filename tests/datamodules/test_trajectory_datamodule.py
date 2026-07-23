@@ -68,6 +68,7 @@ def datamodule_factory(tmp_path: Path):
                 )
 
         kwargs.setdefault("canonicalize", False)
+        kwargs.setdefault("as_dict", False)
         return TrajectoryDataModule(
             dataset_file=h5_path,
             val_split=val_split,

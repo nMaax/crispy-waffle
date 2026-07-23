@@ -118,7 +118,7 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
-        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=False)
+        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=True)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(

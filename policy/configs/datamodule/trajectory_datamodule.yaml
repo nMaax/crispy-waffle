@@ -4,7 +4,14 @@ dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajec
 obs_horizon: 2
 pred_horizon: 16
 
-obs_dim: 48
+obs_dim:
+  proprio: 18
+  tcp_pose: 7
+  a_pose: 7
+  b_pose: 7
+  tcp_to_a: 3
+  tcp_to_b: 3
+  a_to_b: 3
 act_dim: 4
 
 batch_size: 256
@@ -14,5 +21,5 @@ val_split: 0.1
 lazy: false
 seed: ${seed} # Seed is passed by config.py
 
-as_dict: false
+as_dict: true
 canonicalize: true

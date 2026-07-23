@@ -1,4 +1,5 @@
 import types
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,7 @@ class FakeRolloutDataModule(L.LightningDataModule):
     control_mode: str = "pd_joint_pos"
     physx_backend: str | None = None  # set to "cuda" to trigger batched mode
     use_physx_env_states: bool = False
+    as_dict: bool = False
 
     def __post_init__(self):
         super().__init__()
@@ -69,12 +71,17 @@ class FakeRolloutPolicyModule(L.LightningModule):
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
-        assert isinstance(obs_seq, torch.Tensor)
-        b = obs_seq.shape[0]
+        if isinstance(obs_seq, Mapping):
+            first_t = next(iter(obs_seq.values()))
+            b = first_t.shape[0]
+            device = first_t.device
+        else:
+            b = obs_seq.shape[0]
+            device = obs_seq.device
         if self.record_nit:
             self.last_num_inference_steps = num_inference_steps
         return (
-            torch.ones((b, self.act_horizon, self.act_dim), device=obs_seq.device)
+            torch.ones((b, self.act_horizon, self.act_dim), device=device)
             * self.action_scale
         )
 
