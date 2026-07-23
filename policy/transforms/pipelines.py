@@ -9,7 +9,7 @@ from policy.utils.typing_utils import TensorTree
 def observation_pipeline(
     env_id: str,
     is_flat: bool,
-    canonicalize: bool,
+    canonicalize: bool = True,
     as_dict: bool = True,
     no_proprio_vel: bool = False,
 ) -> Callable[[TensorTree], TensorTree]:
@@ -36,6 +36,3 @@ def observation_pipeline(
     if not as_dict and (not is_flat or transforms):
         transforms.append(DictFlattener())
     return compose(transforms)
-
-
-build_canonicalization_transforms = observation_pipeline

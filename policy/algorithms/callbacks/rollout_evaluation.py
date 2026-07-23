@@ -56,6 +56,8 @@ class RolloutEvaluationCallback(L.Callback):
         control_mode: str | None = None,
         physx_backend: str | None = None,
         canonicalize: bool | None = None,
+        as_dict: bool | None = None,
+        remove_proprio_vel: bool | None = None,
     ):
         super().__init__()
 
@@ -69,6 +71,8 @@ class RolloutEvaluationCallback(L.Callback):
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
         self.canonicalize = canonicalize
+        self.as_dict = as_dict
+        self.remove_proprio_vel = remove_proprio_vel
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -118,7 +122,10 @@ class RolloutEvaluationCallback(L.Callback):
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
-        self.as_dict = _resolve_param(None, "as_dict", strict=False, default=True)
+        self.as_dict = _resolve_param(self.as_dict, "as_dict", strict=False, default=True)
+        self.remove_proprio_vel = _resolve_param(
+            self.remove_proprio_vel, "as_dict", strict=False, default=False
+        )
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(

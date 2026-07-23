@@ -81,6 +81,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.success_only = success_only
         self.lazy = lazy
         self.seed = seed
+
         self.canonicalize = canonicalize
         self.no_proprio_vel = no_proprio_vel
         self.as_dict = as_dict

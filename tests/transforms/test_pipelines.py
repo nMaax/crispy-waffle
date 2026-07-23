@@ -1,6 +1,6 @@
 import torch
 
-from policy.transforms.pipelines import build_canonicalization_transforms, observation_pipeline
+from policy.transforms.pipelines import observation_pipeline
 
 
 class TestObservationPipeline:
@@ -54,6 +54,3 @@ class TestObservationPipeline:
         out = pipeline(obs)
         assert isinstance(out, torch.Tensor)
         assert out.shape[-1] == 7
-
-    def test_alias(self):
-        assert build_canonicalization_transforms is observation_pipeline
