@@ -9,35 +9,13 @@ from policy.environments.stack_cube_env import StackCubeEnv
 @register_env("StackCubeLockedRotation-v1", max_episode_steps=50, override=True)
 class StackCubeLockedRotationEnv(StackCubeEnv):
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
+        # Reuse the parent's placement logic, then re-roll only the cube
+        # orientations so z-axis rotation is locked (parent locks x/y only).
+        super()._initialize_episode(env_idx, options)
         with torch.device(self.device):
             b = len(env_idx)
-            self.table_scene.initialize(env_idx)
+            qs = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=True)
+            self.cubeA.set_pose(Pose.create_from_pq(p=self.cubeA.pose.p[env_idx], q=qs))
 
-            xyz = torch.zeros((b, 3))
-            xyz[:, 2] = 0.02
-            xy = torch.rand((b, 2)) * 0.2 - 0.1
-            region = ([-0.1, -0.2], [0.1, 0.2])
-            sampler = randomization.UniformPlacementSampler(
-                bounds=region, batch_size=b, device=self.device
-            )
-            radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + 0.001
-            cubeA_xy = xy + sampler.sample(radius, 100)
-            cubeB_xy = xy + sampler.sample(radius, 100, verbose=False)
-
-            xyz[:, :2] = cubeA_xy
-            qs = randomization.random_quaternions(
-                b,
-                lock_x=True,
-                lock_y=True,
-                lock_z=True,
-            )
-            self.cubeA.set_pose(Pose.create_from_pq(p=xyz.clone(), q=qs))
-
-            xyz[:, :2] = cubeB_xy
-            qs = randomization.random_quaternions(
-                b,
-                lock_x=True,
-                lock_y=True,
-                lock_z=True,
-            )
-            self.cubeB.set_pose(Pose.create_from_pq(p=xyz, q=qs))
+            qs = randomization.random_quaternions(b, lock_x=True, lock_y=True, lock_z=True)
+            self.cubeB.set_pose(Pose.create_from_pq(p=self.cubeB.pose.p[env_idx], q=qs))
