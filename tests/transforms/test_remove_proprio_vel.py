@@ -1,6 +1,6 @@
 import torch
 
-from policy.transforms.canonicalization.remove_proprio_vel import RemoveProprioVel
+from policy.transforms.canonicalization.no_proprio_vel import RemoveProprioVel
 
 
 class TestRemoveProprioVel:
