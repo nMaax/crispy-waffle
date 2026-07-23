@@ -38,7 +38,7 @@ This is used to check that all the experiment configs are covered by tests.
 
 experiment_commands_to_test: list[str | ParameterSet] = [
     # DiffusionPolicy
-    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__PlaceSphereToStackCubeAdapter trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceSphere-v1__default__test__PlaceSphereToStackCubeAdapter trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
@@ -78,11 +78,11 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     ),
     # Neural Adapters (DEPRECATED)
     pytest.param(
-        "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
+        "experiment=DiffusionPolicy__PlaceSphere-v1__default__test__MultiTaskNeuralAdapter trainer.max_epochs=1 seed=99420",
         marks=pytest.mark.skip(reason="MultiTaskNeuralAdapter is deprecated"),
     ),
     pytest.param(
-        "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__test__NeuralAdapter trainer.max_epochs=1 seed=99420",
+        "experiment=DiffusionPolicy__PlaceSphere-v1__default__test__NeuralAdapter trainer.max_epochs=1 seed=99420",
         marks=pytest.mark.skip(reason="NeuralAdapter is deprecated"),
     ),
     pytest.param(
@@ -95,7 +95,7 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     ),
     # DiffusionPolicy variants (adapters, canonicalization, tuning)
     "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__CanonicalizedPnP__tuning trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__PlaceSphereWristcam-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceSphere-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__test__StackCubeSwappedToStackCubeAdapter trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCubeSwapped-v1__default__train__CanonicalizedPnP__tuning_5 trainer.max_epochs=1",
     "experiment=DiffusionPolicy__StackCube-v1__default__test__CanonicalizedPnP trainer.max_epochs=1",
