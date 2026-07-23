@@ -99,9 +99,11 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 reason about proprioception at all: proprio, if any, stays glued to the rest of
                 the state features, undifferentiated.
             use_proprio_token: ``False`` (default) is equivalent to original BESO". ``True`` opts for
-                a "robot-agnostic BESO" variant to better compare with GCDP: proprioception gets its
-                own dedicated per-timestep token and related embedding, separate from the task-only
-                ``obs_emb`` shared by obs-state and goal tokens. Context then becomes:
+                a variant to better compare with GCDP that allows proprioception to get its own dedicated
+                per-timestep token and related embedding, separate from the task-only. Goal are assumed to
+                not provide proprioception.
+
+                Context then becomes:
                 [simga, goal_1, ..., goal_G, proprio_1, obs_1, act_1, proprio_2, obs_2, act_2, ...]
         """
         super().__init__()
