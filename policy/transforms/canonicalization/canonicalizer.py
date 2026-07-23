@@ -5,7 +5,7 @@ import torch
 from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
 
 
-class PnPCanonicalizer:
+class Canonicalizer:
     """Standardizes different pick-and-place tasks into a unified dictionary format.
 
     Standardized dict format:
@@ -37,7 +37,7 @@ class PnPCanonicalizer:
     def __call__(self, obs: TensorTree) -> dict[str, torch.Tensor]:
         if not isinstance(obs, Mapping):
             raise TypeError(
-                f"PnPCanonicalizer expects a mapping observation, got {type(obs).__name__}."
+                f"Canonicalizer expects a mapping observation, got {type(obs).__name__}."
             )
         parser = self._parsers[self.task_id]
         return parser(obs)

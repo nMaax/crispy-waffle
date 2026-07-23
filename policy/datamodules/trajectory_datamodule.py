@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
 from policy.transforms import (
-    PnPCanonicalizer,
+    Canonicalizer,
     observation_pipeline,
 )
 from policy.utils.h5_utils import peek_trajectory_is_dataset
@@ -26,7 +26,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         dataset_file: str | Path,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
-        obs_dim: DimSpec = PnPCanonicalizer.DIM_SPEC,
+        obs_dim: DimSpec = Canonicalizer.DIM_SPEC,
         act_dim: int = 4,
         batch_size: int = 256,
         num_workers: int = 4,

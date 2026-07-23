@@ -1,6 +1,6 @@
 from policy.utils.functional_utils import compose
 
-from .canonicalization import PnPCanonicalizer, RemoveProprioVel
+from .canonicalization import Canonicalizer, NoProprioVel
 from .normalization import MinMaxNormalizer, ZScoreNormalizer
 from .pipelines import observation_pipeline
 from .schema import DictFlattener, ManiSkillStateDeFlattener
@@ -8,8 +8,8 @@ from .schema import DictFlattener, ManiSkillStateDeFlattener
 __all__ = [
     "ZScoreNormalizer",
     "MinMaxNormalizer",
-    "PnPCanonicalizer",
-    "RemoveProprioVel",
+    "Canonicalizer",
+    "NoProprioVel",
     "ManiSkillStateDeFlattener",
     "DictFlattener",
     "observation_pipeline",

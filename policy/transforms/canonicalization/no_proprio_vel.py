@@ -5,7 +5,7 @@ import torch
 from policy.utils.typing_utils import TensorTree, get_tensor
 
 
-class RemoveProprioVel:
+class NoProprioVel:
     def __init__(self, qpos_dim: int = 9, qvel_dim: int = 9, fill_with_zeroes: bool = False):
         """Wrapper utility to mask or remove robot joint velocities (qvel) from ManiSkill state
         observations."""

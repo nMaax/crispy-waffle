@@ -1,7 +1,7 @@
-from .pnp_canonicalizer import PnPCanonicalizer
-from .remove_proprio_vel import RemoveProprioVel
+from .canonicalizer import Canonicalizer
+from .no_proprio_vel import NoProprioVel
 
 __all__ = [
-    "PnPCanonicalizer",
-    "RemoveProprioVel",
+    "Canonicalizer",
+    "NoProprioVel",
 ]

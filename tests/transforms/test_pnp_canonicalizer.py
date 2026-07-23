@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from policy.transforms.canonicalization.pnp_canonicalizer import PnPCanonicalizer
+from policy.transforms.canonicalization.canonicalizer import Canonicalizer
 
 
 def _shape(d, batch=False):
@@ -52,19 +52,19 @@ def _place_sphere_obs(batch=False):
 EXPECTED_KEYS = {"proprio", "tcp_pose", "a_pose", "b_pose", "a_to_b", "tcp_to_a", "tcp_to_b"}
 
 
-class TestPnPCanonicalizer:
+class TestCanonicalizer:
     def test_call_non_mapping_raises(self):
-        canon = PnPCanonicalizer("StackCube-v1")
+        canon = Canonicalizer("StackCube-v1")
         with pytest.raises(TypeError, match="expects a mapping"):
             canon(torch.randn(48))
 
     def test_unsupported_env_raises_keyerror(self):
-        canon = PnPCanonicalizer("UnknownEnv-v0")
+        canon = Canonicalizer("UnknownEnv-v0")
         with pytest.raises(KeyError):
             canon({"agent": {}})
 
     def test_parse_stack_cube(self):
-        canon = PnPCanonicalizer("StackCube-v1")
+        canon = Canonicalizer("StackCube-v1")
         out = canon(_stack_cube_obs())
         assert set(out.keys()) == EXPECTED_KEYS
         assert out["proprio"].shape[-1] == 18  # qpos(9) + qvel(9)
@@ -86,13 +86,13 @@ class TestPnPCanonicalizer:
     )
     def test_stack_cube_delegates(self, env_id):
         obs = _stack_cube_obs()
-        out_base = PnPCanonicalizer("StackCube-v1")(obs)
-        out_delegate = PnPCanonicalizer(env_id)(obs)
+        out_base = Canonicalizer("StackCube-v1")(obs)
+        out_delegate = Canonicalizer(env_id)(obs)
         for key in EXPECTED_KEYS:
             assert torch.allclose(out_base[key], out_delegate[key])
 
     def test_parse_place_sphere(self):
-        canon = PnPCanonicalizer("PlaceSphere-v1")
+        canon = Canonicalizer("PlaceSphere-v1")
         out = canon(_place_sphere_obs())
         assert set(out.keys()) == EXPECTED_KEYS
         # b_pose should have a fake quaternion [1,0,0,0] appended to bin_pos
@@ -102,7 +102,7 @@ class TestPnPCanonicalizer:
         assert out["a_pose"].shape[-1] == 7
 
     def test_relative_positions_correct(self):
-        canon = PnPCanonicalizer("StackCube-v1")
+        canon = Canonicalizer("StackCube-v1")
         obs = _stack_cube_obs()
         out = canon(obs)
         tcp = obs["extra"]["tcp_pose"][..., :3]
@@ -113,7 +113,7 @@ class TestPnPCanonicalizer:
         assert torch.allclose(out["tcp_to_b"], b - tcp)
 
     def test_batched_input(self):
-        canon = PnPCanonicalizer("StackCube-v1")
+        canon = Canonicalizer("StackCube-v1")
         out = canon(_stack_cube_obs(batch=True))
         for key in EXPECTED_KEYS:
             assert out[key].shape[0] == 2
