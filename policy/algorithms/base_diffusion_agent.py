@@ -195,21 +195,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             self.noise_scheduler = hydra_zen.instantiate(self.noise_scheduler_config)
 
     def _network_extra_kwargs(self) -> dict[str, Any]:
-        """Extra kwargs threaded to network instantiation on top of ``cond_dims``.
-
-        Overridden by subclasses that derive values (e.g. ``proprio_dim``) at runtime, after
-        ``__init__``, rather than baking them into the network's Hydra config -- since those
-        derived values aren't known yet at config-composition time.
-        """
+        """Extra kwargs threaded to network instantiation on top of ``cond_dims``."""
         return {}
 
     def _get_cond_dims(self) -> DimSpec:
-        """Reports the per-timestep conditioning dimensionality passed to the network's
-        ``cond_dims``.
-
-        Widths here are *not* multiplied by ``obs_horizon`` -- each network knows its own horizon
-        (via config) and is responsible for resolving how it consumes the time axis of each key.
-        """
+        """Reports the per-timestep conditioning dimensionality passed to the network."""
         return {"obs": get_total_dim(self.obs_dim)}
 
     def configure_optimizers(self) -> Optimizer | dict:

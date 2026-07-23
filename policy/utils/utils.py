@@ -281,7 +281,7 @@ def split_leaf_key(
 ) -> tuple[torch.Tensor | None, TensorTree]:
     """Pops a named leaf out of a tree.
 
-    A Mapping pops `key` and returns the remaining Mapping (unchanged, with `None` popped, if
+    A Mapping pops `key` and returns the remaining Mapping (unchanged if
     `key` isn't present). A flat Tensor instead slices the first `size` features off the last
     dim, assuming the popped leaf occupies the leading `size` features by convention.
     """

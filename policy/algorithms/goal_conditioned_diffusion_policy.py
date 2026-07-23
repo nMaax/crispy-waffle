@@ -22,16 +22,7 @@ from policy.utils.typing_utils import (
 
 
 class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProtocol):
-    """Goal-conditioned diffusion policy using diffusers noise schedulers.
-
-    Proprioception is always kept raw and never routed through the embedder, so embedders stay
-    robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
-    embedder); other embedders (e.g. an MLP) are selected via config.
-
-    Propriception of the historical states is the re-routed to be concatenated alongside the embedder outputs to
-    condition the network denoising process. Among such proprioception we can optionally include the one associated
-    to the goal by turning exclude_proprio_from_goal to False.
-    """
+    """Goal-conditioned diffusion policy using diffusers noise schedulers."""
 
     def __init__(
         self,
@@ -185,8 +176,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         )
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        """Main step logic for training and validation step logging in goal-conditioned
-        policies."""
+        """Main step logic for training and validation."""
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
         goal = batch.get("goal", None)
@@ -219,6 +209,14 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def _build_external_cond(
         self, obs: TensorTree, goal: TensorTree | None
     ) -> dict[str, TensorTree]:
+
+        # NOTE: Proprioception is always kept raw and never routed through the embedder, so embedders stay
+        # robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
+        # embedder); other embedders (e.g. an MLP) are selected via config.
+        # Propriception of the historical states is the re-routed to be concatenated alongside the embedder outputs to
+        # condition the network denoising process. Among such proprioception we can optionally include the one associated
+        # to the goal by turning exclude_proprio_from_goal to False if our inference setting provides reasonable proprioception data.
+
         external_cond = self._build_obs_external_cond(obs)
         if self.goal_horizon > 0:
             if goal is None:
@@ -243,18 +241,17 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return {"goal": {"proprio": proprio, "task": goal_embedded}}
 
     def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprio/task and embeds the task components.
-
-        Handles both a horizon window (``task`` is ``[B, T, task_dim]``, e.g. obs) and a single
-        timestep with no time axis at all (``task`` is ``[B, task_dim]``, e.g. goal) uniformly:
-        a missing time axis is unsqueezed to ``T=1`` before embedding, then squeezed back out of
-        the result so the returned shape matches whatever was passed in.
-        """
+        """Splits proprio/task and embeds the task components."""
         if self.embedder is None:
             raise ValueError(
                 "Embedder not initialized. Call configure_model() before using the embedder."
             )
         proprio, task = self._split_proprio_task(states)
+
+        # Handles both a horizon window (``task`` is ``[B, T, task_dim]``, e.g. obs) and a single
+        # timestep with no time axis at all (``task`` is ``[B, task_dim]``, e.g. goal) uniformly:
+        # a missing time axis is unsqueezed to ``T=1`` before embedding, then squeezed back out of
+        # the result so the returned shape matches whatever was passed in.
 
         had_no_time_axis = task.ndim == 2
         if had_no_time_axis:

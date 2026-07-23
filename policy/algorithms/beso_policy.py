@@ -184,15 +184,13 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
     def _get_cond_dims(self) -> DimSpec:
-        """Reports the per-timestep conditioning dimensionality passed to the network's
-        ``cond_dims``.
+        """Reports the per-timestep conditioning dimensionality passed to the network."""
 
-        Adds a ``"goal"`` key (absent from the base class) whenever goal-conditioning is active,
-        so DiffusionGPT's own width validation actually has something to check. Goal width is
-        the task-only width (``obs_total - proprio_dim``) when ``use_proprio_token`` is on;
-        otherwise it's ``obs_total``, i.e. today's implicit (unchecked) invariant that goal and
-        obs share the same width.
-        """
+        # Adds a "goal" key (absent from the base class) whenever goal-conditioning is active,
+        # so DiffusionGPT's own width validation actually has something to check. Goal width is
+        # the task-only width (obs_total - proprio_dim) when use_proprio_token is true;
+        # otherwise it's obs_total.
+
         cond_dims = cast(Mapping[str, DimSpec], super()._get_cond_dims())
         if self.goal_horizon > 0:
             obs_total = get_total_dim(cond_dims["obs"])
@@ -253,7 +251,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         B = get_batch_size(external_cond)
 
-        # NOTE: since we need to mask the goal for CFG
+        # Since we need to mask the goal for CFG
         # we unpack the external_cond and pack it back later
 
         # Unpack data
