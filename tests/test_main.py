@@ -58,7 +58,7 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
     # DiffusionPolicy variants (tuning)
-    "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__train__tuning trainer.max_epochs=1",
+    "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__tuning trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
