@@ -1,3 +1,5 @@
+import warnings
+
 from mani_skill.envs.tasks.tabletop.place_sphere import (
     PlaceSphereEnv as ManiSkillPlaceSphereEnv,
 )
@@ -19,3 +21,14 @@ class PlaceSphereEnv(ManiSkillPlaceSphereEnv):
             "tcp_to_obj_pos": (36, 39),
         },
     }
+
+    def __init__(self, *args, robot_uids="panda_wristcam", **kwargs):
+        if robot_uids != "panda_wristcam":
+            warnings.warn(
+                f"Initializing {self.__class__.__name__} with robot_uids='{robot_uids}'. "
+                "Note that PlaceSphere environments in this codebase were trained with "
+                "robot_uids='panda_wristcam'; results may differ when using a different robot UID.",
+                UserWarning,
+                stacklevel=2,
+            )
+        super().__init__(*args, robot_uids=robot_uids, **kwargs)

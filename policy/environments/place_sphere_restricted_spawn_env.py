@@ -6,8 +6,8 @@ from mani_skill.utils.structs.pose import Pose
 from .place_sphere_env import PlaceSphereEnv
 
 
-@register_env("PlaceSphereWristcamRestrictedSpawnEnv-v1", max_episode_steps=50)
-class PlaceSphereWristcamRestrictedSpawnEnv(PlaceSphereEnv):
+@register_env("PlaceSphereRestrictedSpawn-v1", max_episode_steps=50, override=True)
+class PlaceSphereRestrictedSpawnEnv(PlaceSphereEnv):
     """PlaceSphere-v1 but with the Sphere and Bin spawned within a restricted in-distribution range
     taken from StackCube-v1."""
 
