@@ -56,54 +56,26 @@ uv run pre-commit run --all-files
 uv run pytest --cov=policy --cov-fail-under=70
 ```
 
-## Debugging and quick runs
+### Debugging and quick runs
 
-  1. trainer=debug
-  Ideal for a "smoke test" to ensure your code runs without crashing before starting a long training session.
+`trainer=` arg for `uv run python policy/...` presents some handy options useful for quick debugging, more specifically:
 
-- Action: Runs exactly 1 training and 1 validation batch (fast_dev_run: true).
-- Disables checkpointing and enables detect_anomaly: true to help catch NaNs or gradients issues.
-
-  1. trainer=overfit_one_batch
-  Useful for verifying that your model is actually capable of learning (i.e., it can memorize a single batch).
-
-- Trains on only 1 batch for up to 50 epochs (overfit_batches: 1).
-- You should see the loss drop almost to zero quickly. If it doesn't, there's likely a bug in your architecture or loss function.
-
-  1. trainer=cpu
-  Forces training on the CPU, which is occasionally useful for debugging CUDA-specific errors.
-
-  2. Direct CLI Overrides
-  Since it's just a standard Lightning Trainer, you can also pass any Lightning Trainer flag (<https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-flags>) directly from the command line:
-
-- Quick check: trainer.fast_dev_run=true (what I used earlier).
-- Limit data: trainer.limit_train_batches=10 (only use 10 batches per epoch).
-- Precision: trainer.precision=16-mixed (use half-precision).
-- Deterministic: trainer.deterministic=true (for reproducibility).
+1. `trainer=debug`: ideal for a "smoke test" to ensure your code runs without crashing before starting a long training session. It runs exactly 1 training and 1 validation batch (`fast_dev_run: true`), disables checkpointing and enables `detect_anomaly: true` to help catch NaNs or gradients issues.
+2. `trainer=overfit_one_batch`: useful for verifying that your model is actually capable of learning (i.e., it can memorize a single batch). Trains on only 1 batch for up to 50 epochs. You should see the loss drop almost to zero quickly. If it doesn't, there's likely a bug in your architecture or loss function.
+3. `trainer=cpu`: forces training on the CPU, which is occasionally useful for debugging CUDA-specific errors.
+4. Extra Lightning CLI overrides: since this is just a standard Lightning Trainer, you can also pass any [Lightning Trainer flag](https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-flags) directly from the command line, e.g., `trainer.fast_dev_run=true`, `trainer.limit_train_batches=10`, `trainer.precision=16-mixed`, `trainer.deterministic=true` 
 
 ---
 
-### ManiSkill fork
+## Custom ManiSkill code and replays
 
-crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`,
-`StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are
-defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla
-ManiSkill. `pyproject.toml` pulls `mani-skill` straight from that fork via `[tool.uv.sources]`,
-pinned by `uv.lock` to the exact commit resolved at lock time — `uv sync` always reproduces the
-same environment definitions, and re-resolving to a newer fork commit is an explicit,
-opt-in `uv lock -P mani-skill`.
+crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, currently it is pinned to a specific commit, if you introduce new modifications you can re-resolve to the newer fork commit via `uv lock -P mani-skill`.
 
-`policy/environments/*.py` no longer duplicates any task/physics logic. Each file there is a thin
-subclass of the corresponding fork env that only adds crispy-waffle-specific glue this project
-needs (the `STATE_SCHEMA` used by `ManiSkillStateDeFlattener`, and `generate_heuristic_goal()` for
-goal-conditioned policies) — it is not itself a source of task-behavior truth. **New or modified
-tasks should be implemented in the fork** (`mani_skill/envs/tasks/tabletop/`), not here.
+If you plan to implement some custom code for environments/motionplanning that is not tirival, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced.
 
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
-For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
-
-### Setup Maniskill source code
+For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning from ManiSkil. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
 
 Clone the fork from [here](https://github.com/nMaax/ManiSkill) (not the original ManiSkill) and set up using `uv sync`. This allows you to run example scripts and motion planning solvers that are not always packaged in the standard pip release, against the exact same task definitions used by the main project.
 
@@ -153,9 +125,10 @@ Alternatively, if ManiSkill already provides such trajectories you can directly 
 uv run python -m mani_skill.utils.download_demo "StackCube-v1"
 ```
 
-By design, ManiSkill will reproduce the trajectories with **no observations** and in **pd_joint_pose** control_mode. If you want to convert these to different control mode, include observations (e.g. `state`), or run again on CUDA. You can do something like:
+By design, ManiSkill will reproduce the trajectories with **no observations** and in **pd_joint_pose** control_mode. If you want to convert these to different control mode, include observations (e.g. `state`), or run them on CUDA. You can do something like:
 
 ```bash
+# Run with a specific control mode and observation mode (must be done on CPU)
 uv run python -m mani_skill.trajectory.replay_trajectory \
   --traj-path ~/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.h5 \
   -b "physx_cpu" \
@@ -165,6 +138,7 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
 ```
 
 ```bash
+# Covert the above result in CUDA
 uv run python -m mani_skill.trajectory.replay_trajectory \
   --traj-path ~/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
   --use-first-env-state \
