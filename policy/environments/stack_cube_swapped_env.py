@@ -1,80 +1,16 @@
 import torch
+from mani_skill.envs.tasks.tabletop.stack_cube_swapped import (
+    StackCubeSwappedEnv as ManiSkillStackCubeSwappedEnv,
+)
 from mani_skill.utils.registration import register_env
-from mani_skill.utils.structs import Link
 
-from .stack_cube_env import StackCubeEnv
+from policy.environments.stack_cube_env import StackCubeEnv
 
 
-@register_env("StackCubeSwapped-v1", max_episode_steps=50)
-class StackCubeSwappedEnv(StackCubeEnv):
-    """The goal is to pick up the green cube (Cube B) and stack it on top of the red cube (Cube A)
-    and let go."""
-
-    # NOTE: Stack cube swapped only modifies the success and reward conditions. It doesn't actually swap any cube
-    # as it would be pointless due to the spawn process being a uniform random sampling of (x,y) coordinates.
-
-    def evaluate(self):
-        pos_A = self.cubeA.pose.p
-        pos_B = self.cubeB.pose.p
-
-        offset = pos_B - pos_A
-
-        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
-        xy_flag = (
-            torch.linalg.norm(offset[..., :2], axis=1)
-            <= torch.linalg.norm(cube_half_size[:2]) + 0.005
-        )
-        z_flag = torch.abs(offset[..., 2] - cube_half_size[..., 2] * 2) <= 0.005
-        is_cubeB_on_cubeA = torch.logical_and(xy_flag, z_flag)
-
-        is_cubeB_static = self.cubeB.is_static(lin_thresh=1e-2, ang_thresh=0.5)
-        is_cubeB_grasped = self.agent.is_grasping(self.cubeB)
-
-        success = is_cubeB_on_cubeA * is_cubeB_static * (~is_cubeB_grasped)
-
-        return {
-            "is_cubeB_grasped": is_cubeB_grasped,
-            "is_cubeB_on_cubeA": is_cubeB_on_cubeA,
-            "is_cubeB_static": is_cubeB_static,
-            "success": success.bool(),
-        }
-
-    def compute_dense_reward(self, obs, action, info):
-        # reaching reward (robot to Cube B)
-        assert isinstance(self.agent.tcp, Link)
-        tcp_pose = self.agent.tcp.pose.p
-        cubeB_pos = self.cubeB.pose.p
-        cubeB_to_tcp_dist = torch.linalg.norm(tcp_pose - cubeB_pos, axis=1)
-        reward = 2 * (1 - torch.tanh(5 * cubeB_to_tcp_dist))
-
-        # grasp and place reward (Cube B onto Cube A)
-        cubeA_pos = self.cubeA.pose.p
-        cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
-        goal_xyz = torch.hstack(
-            [cubeA_pos[:, 0:2], (cubeA_pos[:, 2] + cube_half_size[2] * 2)[:, None]]
-        )
-        cubeB_to_goal_dist = torch.linalg.norm(goal_xyz - cubeB_pos, axis=1)
-        place_reward = 1 - torch.tanh(5.0 * cubeB_to_goal_dist)
-
-        reward[info["is_cubeB_grasped"]] = (4 + place_reward)[info["is_cubeB_grasped"]]
-
-        # ungrasp and static reward
-        gripper_width = (self.agent.robot.get_qlimits()[0, -1, 1] * 2).to(self.device)
-        is_cubeB_grasped = info["is_cubeB_grasped"]
-        ungrasp_reward = torch.sum(self.agent.robot.get_qpos()[:, -2:], dim=1) / gripper_width
-        ungrasp_reward[~is_cubeB_grasped] = 1.0
-
-        v = torch.linalg.norm(self.cubeB.linear_velocity, axis=1)
-        av = torch.linalg.norm(self.cubeB.angular_velocity, axis=1)
-        static_reward = 1 - torch.tanh(v * 10 + av)
-
-        reward[info["is_cubeB_on_cubeA"]] = (6 + (ungrasp_reward + static_reward) / 2.0)[
-            info["is_cubeB_on_cubeA"]
-        ]
-
-        reward[info["success"]] = 8
-
-        return reward
+@register_env("StackCubeSwapped-v1", max_episode_steps=50, override=True)
+class StackCubeSwappedEnv(ManiSkillStackCubeSwappedEnv):
+    # Same observation layout as StackCube (see StackCubeEnv.STATE_SCHEMA).
+    STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 
     def generate_heuristic_goal(self) -> torch.Tensor | dict:
         """Generates a heuristic goal state based on the current observation.

@@ -19,7 +19,7 @@ dependencies = [
   "optree>=0.15.0",
   "hydra-colorlog>=1.2.0",
   "hydra-orion-sweeper>=1.6.4 ; python_full_version < '3.11'",
-  "mani-skill>=3.0.0b22",
+  "mani-skill",
   "torch-geometric>=2.7.0",
   "diffusers==0.30.3",
   "accelerate>=0.34.0",
@@ -95,6 +95,12 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cuda" }
 torchvision = { index = "pytorch-cuda" }
+# Custom fork with the crispy-waffle task environments (StackCubeSwapped, PlaceCubeLeft,
+# StackCubeLockedRotation, *RestrictedSpawn, etc.) defined as first-class mani_skill envs,
+# instead of duplicating them locally under policy/environments/. uv.lock pins the exact
+# resolved commit, so `uv sync` stays reproducible; re-run `uv lock -P mani-skill` to move
+# to a newer commit on `dev` on purpose.
+mani-skill = { git = "https://github.com/nMaax/ManiSkill", branch = "dev" }
 
 [tool.hatch.metadata]
 allow-direct-references = true

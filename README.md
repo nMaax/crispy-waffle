@@ -83,17 +83,33 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 ---
 
+### ManiSkill fork
+
+crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`,
+`StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are
+defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla
+ManiSkill. `pyproject.toml` pulls `mani-skill` straight from that fork via `[tool.uv.sources]`,
+pinned by `uv.lock` to the exact commit resolved at lock time — `uv sync` always reproduces the
+same environment definitions, and re-resolving to a newer fork commit is an explicit,
+opt-in `uv lock -P mani-skill`.
+
+`policy/environments/*.py` no longer duplicates any task/physics logic. Each file there is a thin
+subclass of the corresponding fork env that only adds crispy-waffle-specific glue this project
+needs (the `STATE_SCHEMA` used by `ManiSkillStateDeFlattener`, and `generate_heuristic_goal()` for
+goal-conditioned policies) — it is not itself a source of task-behavior truth. **New or modified
+tasks should be implemented in the fork** (`mani_skill/envs/tasks/tabletop/`), not here.
+
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
 For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
 
 ### Setup Maniskill source code
 
-First, clone the ManiSkill repository and set up a development environment using `uv`. This allows you to run example scripts and motion planning solvers that are not always packaged in the standard pip release.
+Clone the fork from [here](https://github.com/nMaax/ManiSkill) (not the original ManiSkill) and set up using `uv sync`. This allows you to run example scripts and motion planning solvers that are not always packaged in the standard pip release, against the exact same task definitions used by the main project.
 
 ```bash
-# Clone the repository
-git clone https://github.com/haosulab/ManiSkill.git
+# Clone the fork
+git clone -b dev https://github.com/nMaax/ManiSkill.git
 cd ManiSkill
 
 # Install ManiSkill in editable/dev mode using uv
