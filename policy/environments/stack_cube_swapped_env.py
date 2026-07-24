@@ -9,7 +9,6 @@ from policy.environments.stack_cube_env import StackCubeEnv
 
 @register_env("StackCubeSwapped-v1", max_episode_steps=50, override=True)
 class StackCubeSwappedEnv(ManiSkillStackCubeSwappedEnv):
-    # Same observation layout as StackCube (see StackCubeEnv.STATE_SCHEMA).
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 
     def generate_heuristic_goal(self) -> torch.Tensor | dict:

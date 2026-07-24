@@ -9,10 +9,8 @@ from policy.environments.stack_cube_env import StackCubeEnv
 
 @register_env("PlaceCubeLeft-v1", max_episode_steps=50, override=True)
 class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
-    # Same observation layout as StackCube (see StackCubeEnv.STATE_SCHEMA).
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 
-    # Matches the hardcoded 0.08 offset in the upstream evaluate()/compute_dense_reward().
     Y_OFFSET = 0.08
 
     def generate_heuristic_goal(self) -> torch.Tensor | dict:

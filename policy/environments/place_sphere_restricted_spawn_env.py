@@ -10,7 +10,6 @@ from .place_sphere_env import PlaceSphereEnv
 
 @register_env("PlaceSphereRestrictedSpawn-v1", max_episode_steps=50, override=True)
 class PlaceSphereRestrictedSpawnEnv(ManiSkillPlaceSphereRestrictedSpawnEnv):
-    # Same observation layout as PlaceSphere (see PlaceSphereEnv.STATE_SCHEMA).
     STATE_SCHEMA = PlaceSphereEnv.STATE_SCHEMA
 
     def __init__(self, *args, robot_uids="panda_wristcam", **kwargs):
