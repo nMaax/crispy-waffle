@@ -285,7 +285,7 @@ class TestBesoPolicyLogic:
         assert policy.network.call_count == 2
 
     def test_no_cfg_single_network_call(self, basic_kwargs):
-        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=0.0, goal_horizon=1))
+        policy = BesoPolicy(**_basic_kwargs(cfg_lambda=None, goal_horizon=1))
         _mock_loop_internals(policy)
         obs_cond = torch.zeros((1, 2, 3))
         goal_cond = torch.randn(1, 3)
