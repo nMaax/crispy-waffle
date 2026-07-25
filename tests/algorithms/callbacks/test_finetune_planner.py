@@ -67,7 +67,7 @@ def test_finetune_planner_legacy_kwargs():
 def test_finetune_planner_custom_attributes():
     module = DummyCustomModule()
     callback = FinetunePlannerCallback(
-        unfreeze_step=50, backbone_lr=1e-4, backbone_attr="backbone", adapter_attr="adapter"
+        unfreeze_step=50, backbone_lr=1e-4, backbone_attr="backbone", planner_attr="adapter"
     )
     callback.freeze_before_training(module)
 
