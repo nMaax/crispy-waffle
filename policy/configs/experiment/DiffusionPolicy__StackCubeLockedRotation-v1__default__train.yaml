@@ -17,6 +17,3 @@ datamodule:
 trainer:
   callbacks:
     early_stopping: null
-    rollout_evaluation:
-      max_episode_steps: 200 # WARN: HIGHLY IMPORTANT!!!
-      clamp_action: true
