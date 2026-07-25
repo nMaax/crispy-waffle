@@ -89,6 +89,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         return self.embedder_config.get("output_dim")
 
+
+
     @torch.no_grad()
     def extract_embeddings(
         self,
