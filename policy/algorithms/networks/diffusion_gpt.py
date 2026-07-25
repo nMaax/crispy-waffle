@@ -328,6 +328,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 )
 
             goal_tokens = self.obs_emb(goal_seq)  # [B, goal_horizon, embed_dim]
+            # Even if there should be the sigma token position embedding, we didn't add it before (following what done in original BESO)
             goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_horizon, :])
             pos_emb_sa = self.pos_emb[
                 :, self.goal_horizon : cur_obs_horizon + self.goal_horizon, :

@@ -15,7 +15,7 @@ datamodule:
   pred_horizon: 5
   batch_size: 256
   load_count: 500
-  her_ratio: 0.8
+  her_ratio: 1.0
 
 trainer:
   max_steps: 250000

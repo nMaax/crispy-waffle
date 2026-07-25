@@ -18,23 +18,62 @@ obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
 # Training: Log-logistic parameters
+#
+# cfg_lambda=None (default): CFG disabled, single network call, model_pred=cond_pred.
+#   Mathematically identical to lambda=1 below, just without paying for the extra call.
+# cfg_lambda=0.0: two network calls, blend collapses to uncond_pred -- the policy
+#   ignores the goal entirely (paper's Fig. 5 diagnostic for a well-formed unconditional
+#   policy). NOT the same as leaving cfg_lambda unset.
+# cfg_lambda=0.5: blends toward uncond_pred, i.e. weaker goal influence than plain
+#   conditioning (paper's tuned value for Block-Push, action_dim=2).
+# cfg_lambda=1.0: blend collapses to cond_pred -- same output as disabling CFG, but
+#   costs the redundant unconditional forward pass. Useful only to sanity-check the
+#   two branches agree.
+# cfg_lambda=1.25: extrapolates past cond_pred, amplifying goal influence beyond plain
+#   conditioning (paper's tuned value for Kitchen/CALVIN, action_dim=9).
+# cfg_lambda>1 in general: stronger extrapolation/guidance; the paper reports
+#   instability at higher values in higher-dimensional action spaces.
+#
+# From the paper:
+#
+# "Training Noise distribution. During training, noise values are
+# sampled from a predefined noise distribution P(σ). The standard distribution
+# used in diffusion literature [17] is the lognormal, introducing two
+# additional hyperparameters σstd, σmax, that require additional tuning.
+# Our experiments revealed that the recommended values from prior work [17]
+# are not optimal for action diffusion. Hence, we opted for the log-logistic
+# distribution LogLogistic(α = 0.5, β = 0.5), which does not require
+# additional parameters and works well in all our experiments."
 alpha: 0.5
 beta: 0.5
 
 # Inference: Continuous-DDIM
+#
+# From the paper:
+# "BESO performs optimally when actions are diffused within a range of [−1, 1] with a noise
+# range of {0.005, 1}. We adopted this noise range for all three environments,
+# scaling the action output accordingly."
 sigma_max: 1.0
 sigma_min: 0.005
 
 # Karras scaling
+# We operate in a space [-1, +1]^4, thus 0.5 is the natural choice
 sigma_data: 0.5
 
-pred_last_action_only: false
+# Condition-free guidance
+#
+# From the paper:
+# "Empirical evaluations suggest the best λ value is 1.25 for most tested environments.
+# Experiments with higher values resulted in a lower average performance in environments with
+# high-dimensional action spaces, indicating instability in the action generation."
+goal_drop_prob: 0.1
+cfg_lambda: 1.25
 
 goal_horizon: 1
-use_proprio_token: false
+pred_last_action_only: false
 num_parallel_samples: 1
-goal_drop_prob: 0.0
-cfg_lambda: 0.0
+
+use_proprio_token: false
 
 network:
   act_dim: ${..act_dim}

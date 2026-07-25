@@ -49,8 +49,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         sigma_data: float = 0.5,
         pred_last_action_only: bool = False,
         num_parallel_samples: int = 1,
-        goal_drop_prob: float = 0.0,
-        cfg_lambda: float = 0.0,
+        goal_drop_prob: float = 0.1,
+        cfg_lambda: float | None = None,
         **kwargs,
     ):
 
@@ -429,7 +429,21 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 )
 
                 # Unconditional Prediction (goal zeroed out)
-                if self.cfg_lambda > 0.0 and goal_cond is not None:
+                # cfg_lambda=None (default): CFG disabled, single network call, model_pred=cond_pred.
+                #   Mathematically identical to lambda=1 below, just without paying for the extra call.
+                # cfg_lambda=0.0: two network calls, blend collapses to uncond_pred -- the policy
+                #   ignores the goal entirely (paper's Fig. 5 diagnostic for a well-formed unconditional
+                #   policy). NOT the same as leaving cfg_lambda unset.
+                # cfg_lambda=0.5: blends toward uncond_pred, i.e. weaker goal influence than plain
+                #   conditioning (paper's tuned value for Block-Push, action_dim=2).
+                # cfg_lambda=1.0: blend collapses to cond_pred -- same output as disabling CFG, but
+                #   costs the redundant unconditional forward pass. Useful only to sanity-check the
+                #   two branches agree.
+                # cfg_lambda=1.25: extrapolates past cond_pred, amplifying goal influence beyond plain
+                #   conditioning (paper's tuned value for Kitchen/CALVIN, action_dim=9).
+                # cfg_lambda>1 in general: stronger extrapolation/guidance; the paper reports
+                #   instability at higher values in higher-dimensional action spaces.
+                if self.cfg_lambda is not None and goal_cond is not None:
                     uncond_goal = map_leaves(torch.zeros_like, goal_cond)
                     uncond_pred = self.network(
                         sample=scaled_sample,
