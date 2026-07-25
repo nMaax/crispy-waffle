@@ -13,7 +13,7 @@ fast_dev_run: false
 
 min_epochs: -1 # -1 disables epoch limits
 max_epochs: -1 # -1 disables epoch limits
-max_steps: 200,000 # Train for exactly 100,000 iterations (batches)
+max_steps: 200000 # Train for exactly 200,000 iterations (batches)
 log_every_n_steps: 50 # Log progress (e.g. wandb) every 50 batches
 
 num_sanity_val_steps: 2 # Set to 0 to avoid sanity check, tho this should not be done...

@@ -5,14 +5,14 @@ Compose your configuration from those groups (group=option)
 
 algorithm: beso_policy, diffusion_policy, goal_conditioned_diffusion_policy, goal_conditioned_diffusion_policy_mlp, no_op
 algorithm/ema: default
-algorithm/embedder: mlp
+algorithm/embedder: mlp, residual_mlp
 algorithm/lr_scheduler: CosineAnnealingLR, StepLR, cosine_with_warmup
-algorithm/network: conditioned_linear, conditioned_mlp, diffusion_gpt, linear, mlp, unet1d
+algorithm/network: conditioned_linear, conditioned_mlp, diffusion_gpt, linear, mlp, residual_mlp, unet1d
 algorithm/noise_scheduler: ddpm, edm
 algorithm/normalizer: min_max, z_score
 algorithm/optimizer: Adam, AdamW, SGD
-datamodule: canonical_trajectory_datamodule, goal_conditioned_trajectory_datamodule, trajectory_datamodule
-experiment: BESO__StackCube-v1__default__test, BESO__StackCube-v1__default__train, DiffusionPolicy__PlaceCubeLeft-v1__default__train__tuning, DiffusionPolicy__PlaceSphere-v1__default__train__tuning_5, DiffusionPolicy__StackCube-v1__default__test, DiffusionPolicy__StackCube-v1__default__train, DiffusionPolicy__StackCubeLockedRotation-v1__default__test, DiffusionPolicy__StackCubeLockedRotation-v1__default__train, DiffusionPolicy__StackCubeSwapped-v1__default__train__tuning_5, GoalConditionedBESO__StackCube-v1__default__test, GoalConditionedBESO__StackCube-v1__default__test__ProprioToken, GoalConditionedBESO__StackCube-v1__default__train, GoalConditionedBESO__StackCube-v1__default__train__ProprioToken, GoalConditionedBESO__StackCubeLockedRotation-v1__default__test, GoalConditionedBESO__StackCubeLockedRotation-v1__default__train, GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test, GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train, GoalConditionedDiffusionPolicy__StackCube-v1__default__test, GoalConditionedDiffusionPolicy__StackCube-v1__default__train, GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test, GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train
+datamodule: goal_conditioned_trajectory_datamodule, trajectory_datamodule
+experiment: DiffusionPolicy__PlaceCubeLeft-v1__default__tuning, DiffusionPolicy__StackCube-v1__default__test, DiffusionPolicy__StackCube-v1__default__train, DiffusionPolicy__StackCubeLockedRotation-v1__default__test, DiffusionPolicy__StackCubeLockedRotation-v1__default__train, GoalConditionedBESO++__StackCube-v1__default__test, GoalConditionedBESO++__StackCube-v1__default__train, GoalConditionedBESO__StackCube-v1__default__test, GoalConditionedBESO__StackCube-v1__default__train, GoalConditionedBESO__StackCubeLockedRotation-v1__default__test, GoalConditionedBESO__StackCubeLockedRotation-v1__default__train, GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test, GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train, GoalConditionedDiffusionPolicy__StackCube-v1__default__test, GoalConditionedDiffusionPolicy__StackCube-v1__default__train, GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test, GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train
 render: live, video
 trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, differential_lr, early_stopping, finetune_planner, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation, tqdm_progress_bar
@@ -64,10 +64,10 @@ trainer:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       _recursive_: false
       num_episodes: 25
-      max_episode_steps: 200
       num_envs: null
+      max_episode_steps: 200
       ignore_terminations: true
-      clamp_action: false
+      clamp_action: true
       video_dir: null
       seed: ${seed}
       env_id: null
@@ -89,7 +89,7 @@ trainer:
   fast_dev_run: false
   min_epochs: -1
   max_epochs: -1
-  max_steps: 100000
+  max_steps: 200,000
   log_every_n_steps: 50
   num_sanity_val_steps: 2
   val_check_interval: 5000

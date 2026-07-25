@@ -10,7 +10,3 @@ trainer:
     rollout_evaluation:
       num_inference_steps: 3
       num_episodes: 100
-      env_id: "StackCube-v1"
-      obs_mode: "state"
-      control_mode: "pd_ee_delta_pos"
-      physx_backend: "physx_cuda"
