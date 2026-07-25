@@ -15,7 +15,6 @@ datamodule:
   pred_horizon: 16
 
 trainer:
-  max_steps: 250000
   callbacks:
     early_stopping: null
     rollout_evaluation:
