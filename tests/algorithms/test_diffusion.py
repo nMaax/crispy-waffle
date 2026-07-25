@@ -1,10 +1,13 @@
 from collections.abc import Mapping
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+import torch.nn as nn
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.algorithms.embedded_diffusion_policy import EmbeddedDiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.utils import get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
@@ -91,6 +94,147 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
             additional_label=get_gpu_arch_name(),
             include_gpu_name_in_stats=False,
         )
+
+
+@pytest.mark.parametrize("algorithm_config", ["embedded_diffusion_policy"], indirect=True)
+@pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)
+class TestEmbeddedDiffusionPolicy(LightningModuleTests[EmbeddedDiffusionPolicy]):
+    """Test suite for EmbeddedDiffusionPolicy (DiffusionPolicy + optional state embedder, no goal-
+    conditioning)."""
+
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        pytest.skip("Diffusion policies do not use a standard forward pass during training.")
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        """Check that get_action produces a finite tensor of the expected shape and device on a
+        sample batch."""
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        batch_size = (
+            next(iter(obs_seq.values())).shape[0]
+            if isinstance(obs_seq, Mapping)
+            else obs_seq.shape[0]
+        )
+        assert out.shape == (
+            batch_size,
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
+    def test_get_action_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        """Check that get_action produces the same action tensor given a fixed random seed."""
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq)
+
+        tensor_regression.check(
+            {"action": out},
+            default_tolerance={"rtol": 1e-5, "atol": 1e-6},
+            additional_label=get_gpu_arch_name(),
+            include_gpu_name_in_stats=False,
+        )
+
+
+class TestEmbeddedDiffusionPolicyLogic:
+    """Isolated unit tests for the state-embedding machinery in EmbeddedDiffusionPolicy.
+
+    This is the logic that ``GoalConditionedDiffusionPolicy`` now inherits rather than
+    duplicates; ``TestGoalConditionedDiffusionPolicy``'s own logic tests below (e.g.
+    ``test_goal_horizon_zero_unconditioned``) double as regression coverage that the refactor
+    didn't change GCDP's behavior.
+    """
+
+    @pytest.fixture
+    def basic_kwargs(self):
+        return {
+            "network": {"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+            "ema": {},
+            "noise_scheduler": {},
+            "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": 48,
+            "proprio_dim": 18,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
+        }
+
+    def test_get_cond_dims_identity_embedder(self, basic_kwargs):
+        """With no embedder config, the task width is reported unchanged (identity embedder)."""
+        policy = EmbeddedDiffusionPolicy(**basic_kwargs)
+        assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
+
+    def test_get_cond_dims_reports_embedder_output_dim(self, basic_kwargs):
+        """The embedder's output_dim (read from config, no instantiation needed) is reported."""
+        policy = EmbeddedDiffusionPolicy(
+            **basic_kwargs,
+            embedder=cast(
+                Any, {"_target_": "policy.algorithms.networks.mlp.MLP", "output_dim": 64}
+            ),
+        )
+        assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 64}}
+
+    def test_build_obs_external_cond_splits_flat_tensor(self, basic_kwargs):
+        """_build_obs_external_cond splits proprio/task for a flat-tensor obs spec."""
+        policy = EmbeddedDiffusionPolicy(**basic_kwargs)
+        policy.embedder = nn.Identity()
+
+        obs_seq = torch.randn(2, 2, 48)
+        obs_cond = policy._build_obs_external_cond(obs_seq)["obs"]
+        assert isinstance(obs_cond, Mapping)
+        assert torch.equal(obs_cond["proprio"], obs_seq[..., :18])
+        assert torch.equal(obs_cond["task"], obs_seq[..., 18:])
+
+    def test_build_obs_external_cond_splits_dict_obs(self, basic_kwargs):
+        """_build_obs_external_cond splits proprio/task for a dict obs spec, concatenating the non-
+        proprio leaves into a single task tensor."""
+        kwargs = {**basic_kwargs, "obs_dim": {"proprio": 18, "task_a": 10, "task_b": 20}}
+        policy = EmbeddedDiffusionPolicy(**kwargs)
+        policy.embedder = nn.Identity()
+
+        dict_obs = {
+            "proprio": torch.randn(2, 2, 18),
+            "task_a": torch.randn(2, 2, 10),
+            "task_b": torch.randn(2, 2, 20),
+        }
+        obs_cond = policy._build_obs_external_cond(dict_obs)["obs"]
+        assert isinstance(obs_cond, Mapping)
+        assert torch.equal(obs_cond["proprio"], dict_obs["proprio"])
+        assert torch.equal(obs_cond["task"][..., :10], dict_obs["task_a"])
+        assert torch.equal(obs_cond["task"][..., 10:], dict_obs["task_b"])
+
+    def test_extract_embeddings(self, basic_kwargs):
+        policy = EmbeddedDiffusionPolicy(**basic_kwargs)
+        policy.embedder = nn.Identity()
+
+        embeddings = policy.extract_embeddings(torch.randn(2, 2, 48))
+        assert embeddings["obs_embeddings"].shape == (2, 2, 30)
 
 
 @pytest.mark.parametrize("algorithm_config", ["goal_conditioned_diffusion_policy"], indirect=True)

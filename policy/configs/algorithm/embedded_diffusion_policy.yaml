@@ -1,0 +1,5 @@
+defaults:
+  - diffusion_policy
+  - embedder: null
+
+_target_: policy.algorithms.embedded_diffusion_policy.EmbeddedDiffusionPolicy

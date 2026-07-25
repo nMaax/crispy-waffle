@@ -1,36 +1,24 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
-import hydra_zen
 import torch
-import torch.nn as nn
 
-from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import (
-    concat_leaf_tensors,
-    derive_task_dim,
-    merge_dicts,
-    resolve_proprio_dim,
-    split_leaf_key,
-)
+from policy.algorithms.embedded_diffusion_policy import EmbeddedDiffusionPolicy
+from policy.utils import merge_dicts
 from policy.utils.typing_utils import (
     DimSpec,
     GoalConditionedPolicyProtocol,
-    HydraConfigFor,
     TensorTree,
 )
 
 
-class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProtocol):
+class GoalConditionedDiffusionPolicy(EmbeddedDiffusionPolicy, GoalConditionedPolicyProtocol):
     """Goal-conditioned diffusion policy using diffusers noise schedulers."""
 
     def __init__(
         self,
         *args,
         goal_horizon: int = 1,
-        proprio_dim: int | None = None,
-        task_dim: int | None = None,
-        embedder: HydraConfigFor[nn.Module] | None = None,
         exclude_proprio_from_goal: bool = True,
         **kwargs,
     ):
@@ -38,58 +26,29 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
 
-        proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
-
-        self.proprio_dim = proprio_dim
-        self.task_dim = task_dim
-        self.goal_dim = task_dim
+        self.goal_dim = self.task_dim
         self.exclude_proprio_from_goal = exclude_proprio_from_goal
-
-        self.embedder_config = embedder
-        self.embedder: nn.Module | None = None
-
-    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
-        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
-        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
-        return proprio_dim, task_dim
-
-    def configure_model(self) -> None:
-        if self.network is not None:
-            return
-        self.embedder = (
-            hydra_zen.instantiate(self.embedder_config, input_dim=self.task_dim)
-            if self.embedder_config is not None
-            else nn.Identity()
-        )
-        super().configure_model()
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's
         ``cond_dims``."""
-        embed_dim = self._embedder_output_dim()
-        obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+        cond_dims = super()._get_cond_dims()
         if self.goal_horizon == 0:
-            return {"obs": obs_spec}
+            return cond_dims
+
+        if not isinstance(cond_dims, Mapping):
+            raise TypeError(
+                f"Expected a Mapping cond_dims from {EmbeddedDiffusionPolicy.__name__}, "
+                f"but got {type(cond_dims)}."
+            )
+
+        embed_dim = self._embedder_output_dim()
+        if self.exclude_proprio_from_goal:
+            goal_spec = embed_dim
         else:
-            if self.exclude_proprio_from_goal:
-                goal_spec = embed_dim
-            else:
-                goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+            goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
 
-            return {"obs": obs_spec, "goal": goal_spec}
-
-    def _embedder_output_dim(self) -> int:
-        """Lookup of the embedder's output dim.
-
-        Reads config only, never an instantiated module, so that
-        :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`.
-        """
-        if self.embedder_config is None:
-            return self.task_dim
-
-        return self.embedder_config.get("output_dim")
-
-
+        return {**cond_dims, "goal": goal_spec}
 
     @torch.no_grad()
     def extract_embeddings(
@@ -101,10 +60,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         Helper function for visualizing the embeddings.
         """
-        if isinstance(obs, Mapping):
-            obs = {k: v.to(self.device) for k, v in obs.items()}
-        else:
-            obs = obs.to(self.device)
+        res = super().extract_embeddings(obs)
 
         if goal is not None:
             if isinstance(goal, Mapping):
@@ -112,30 +68,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             else:
                 goal = goal.to(self.device)
 
-        if self.obs_normalizer is not None:
-            obs = self.obs_normalizer.normalize(obs)
-            if goal is not None:
+            if self.obs_normalizer is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        external_cond = self._build_external_cond(obs, goal)
-        obs_embeddings = external_cond.get("obs")
-        if obs_embeddings is None:
-            raise ValueError("Failed to extract observation embeddings from external_cond.")
-
-        if isinstance(obs_embeddings, Mapping):
-            obs_task_embeddings = obs_embeddings.get("task")
-        else:
-            obs_task_embeddings = obs_embeddings
-
-        if not isinstance(obs_task_embeddings, torch.Tensor):
-            raise ValueError(
-                f"Expected obs_task_embeddings to be a torch.Tensor, but got {type(obs_task_embeddings)}."
-            )
-
-        res = {"obs_embeddings": obs_task_embeddings.cpu()}
-
-        goal_embedding = external_cond.get("goal", None)
-        if goal_embedding is not None:
+            goal_embedding = self._build_goal_external_cond(cast(TensorTree, goal))["goal"]
             if isinstance(goal_embedding, Mapping):
                 goal_task_embedding = goal_embedding.get("task")
             else:
@@ -231,51 +167,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         return external_cond
 
-    def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
-        proprio, task_embedded = self._embed_states(obs)
-        return {"obs": {"proprio": proprio, "task": task_embedded}}
-
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
         proprio, goal_embedded = self._embed_states(goal)
         if self.exclude_proprio_from_goal:
             return {"goal": goal_embedded}
         else:
             return {"goal": {"proprio": proprio, "task": goal_embedded}}
-
-    def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprio/task and embeds the task components."""
-        if self.embedder is None:
-            raise ValueError(
-                "Embedder not initialized. Call configure_model() before using the embedder."
-            )
-        proprio, task = self._split_proprio_task(states)
-
-        # Handles both a horizon window (``task`` is ``[B, T, task_dim]``, e.g. obs) and a single
-        # timestep with no time axis at all (``task`` is ``[B, task_dim]``, e.g. goal) uniformly:
-        # a missing time axis is unsqueezed to ``T=1`` before embedding, then squeezed back out of
-        # the result so the returned shape matches whatever was passed in.
-
-        had_no_time_axis = task.ndim == 2
-        if had_no_time_axis:
-            task = task.unsqueeze(1)
-
-        B, T = task.shape[0], task.shape[1]
-        task_flat = task.reshape(B * T, self.task_dim)
-        task_embedded = self.embedder(task_flat).reshape(B, T, -1)
-
-        if had_no_time_axis:
-            task_embedded = task_embedded.squeeze(1)
-
-        return proprio, task_embedded
-
-    def _split_proprio_task(
-        self, x: torch.Tensor | Mapping[str, Any]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprioception from the (concatenated) task-relevant components."""
-        proprio, remainder = split_leaf_key(x, "proprio", self.proprio_dim)
-        if proprio is None:
-            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
-        task = (
-            concat_leaf_tensors(remainder, dim=-1) if isinstance(remainder, Mapping) else remainder
-        )
-        return proprio, task

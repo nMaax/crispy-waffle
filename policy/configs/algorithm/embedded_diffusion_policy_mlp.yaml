@@ -1,0 +1,3 @@
+defaults:
+  - embedded_diffusion_policy
+  - override embedder: mlp
