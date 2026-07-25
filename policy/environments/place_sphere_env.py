@@ -54,7 +54,7 @@ class PlaceSphereEnv(ManiSkillPlaceSphereEnv):
 
         goal_tcp_pos = goal_obj_pos.clone()
         goal_tcp_pos[..., 2] += 0.03  # 3cm above
-        goal_tcp_quat = goal_obj_quat.clone()
+        goal_tcp_quat = obs_dict["extra"]["tcp_pose"][..., 3:7].clone()
 
         agent_qpos = torch.zeros_like(obs_dict["agent"]["qpos"])
         agent_qvel = torch.zeros_like(obs_dict["agent"]["qvel"])

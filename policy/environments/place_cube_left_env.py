@@ -39,7 +39,7 @@ class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
         # Goal: TCP is at Cube A's position, slightly above
         goal_tcp_pos = goal_cube_A_pos.clone()
         goal_tcp_pos[..., 2] += 0.03  # Just 3cm above the cube
-        goal_tcp_quat = goal_cube_A_quat.clone()
+        goal_tcp_quat = obs_dict["extra"]["tcp_pose"][..., 3:7].clone()
 
         agent_qpos = torch.zeros_like(obs_dict["agent"]["qpos"])
         agent_qvel = torch.zeros_like(obs_dict["agent"]["qvel"])
