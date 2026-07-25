@@ -190,13 +190,14 @@ class RolloutEvaluationCallback(L.Callback):
             max_episode_steps=self.max_episode_steps,
             **make_kwargs,
         )
+        inner_env = gym_env.unwrapped
         frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
         vector_env = ManiSkillVectorEnv(
             frame_stack_env, ignore_terminations=self.ignore_terminations, record_metrics=True
         )
 
-        self._inner_env = cast(BaseEnv, gym_env.unwrapped)
         self._gym_env = gym_env
+        self._inner_env = inner_env
         self._frame_stack_env = frame_stack_env
         self._vector_env = vector_env
 
@@ -231,7 +232,8 @@ class RolloutEvaluationCallback(L.Callback):
         # "We currently do not properly support exposing multiple
         # visible CUDA devices to a single process as it has some rendering bugs at the moment."
         # The global rank 0 is not necessarely GPU 0, if e.g. you set CUDA_VISIBLE_DEVICES=1 env variable then (1->0, 2->1, etc.)
-        # Reference: https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization
+        # Reference:
+        # https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/quickstart.html#additional-gpu-simulation-rendering-customization
 
         # Prevent secondary GPUs from spawning SAPIEN environments
         if not trainer.is_global_zero:
@@ -322,7 +324,9 @@ class RolloutEvaluationCallback(L.Callback):
                     f"but got {type(self._inner_env).__name__}."
                 )
 
-            goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
+            goal_env = self._inner_env
+            assert isinstance(goal_env, GoalConditionedEnvProtocol)
+
             goal_state = goal_env.generate_heuristic_goal()
 
             goal_state = to_tensor(goal_state, device=pl_module.device, dtype=torch.float32)
@@ -370,7 +374,9 @@ class RolloutEvaluationCallback(L.Callback):
                 obs = apply_transforms(obs)
 
                 if is_goal_conditioned:
-                    goal_env = cast(GoalConditionedEnvProtocol, self._inner_env)
+                    goal_env = self._inner_env
+                    assert isinstance(goal_env, GoalConditionedEnvProtocol)
+
                     goal_state = goal_env.generate_heuristic_goal()
 
                     goal_state = to_tensor(

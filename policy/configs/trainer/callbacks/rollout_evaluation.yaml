@@ -4,7 +4,7 @@ rollout_evaluation:
   num_episodes: 25 # default for training
   max_episode_steps: 200
   num_envs: null # =1: CPU backend, >1: GPU backend, null: auto, i.e., min(num_val_episodes, num_test_episodes)
-  ignore_terminations: true
+  ignore_terminations: true # WARN: HIGHLY IMPORTANT!!!
   clamp_action: false
   video_dir: null
   seed: ${seed} # Seed is passed by config.py
