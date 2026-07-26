@@ -8,5 +8,4 @@ ckpt_path: ???
 trainer:
   callbacks:
     rollout_evaluation:
-      num_inference_steps: 3
       num_episodes: 100
