@@ -130,7 +130,9 @@ class RolloutEvaluationCallback(L.Callback):
         self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
-        self.canonicalize = _resolve_param(self.canonicalize, "canonicalize", strict=False)
+        self.canonicalize = _resolve_param(
+            self.canonicalize, "canonicalize", strict=False, default=True
+        )
         self.as_dict = _resolve_param(self.as_dict, "as_dict", strict=False, default=True)
         self.no_proprio_vel = _resolve_param(
             self.no_proprio_vel, "no_proprio_vel", strict=False, default=False
