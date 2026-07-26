@@ -65,11 +65,12 @@ class RolloutEvaluationCallback(L.Callback):
             raise ValueError("seed must be provided.")
 
         self.num_inference_steps = num_inference_steps
-        self.num_episodes = num_episodes
 
+        self.num_episodes = num_episodes
         self.num_envs = num_envs
         self.ignore_terminations = ignore_terminations
         self.max_episode_steps = max_episode_steps
+
         self.canonicalize = canonicalize
         self.as_dict = as_dict
         self.no_proprio_vel = no_proprio_vel
@@ -93,9 +94,17 @@ class RolloutEvaluationCallback(L.Callback):
         self.physx_backend = physx_backend
 
         rank_zero_info(
+            f"Num inference steps: {self.num_inference_steps}\n"
+            f"Num episodes: {self.num_episodes}\n"
+            f"Num envs: {self.num_envs}\n"
+            f"Ignore terminations: {self.ignore_terminations}\n"
+            f"Max episode steps: {self.max_episode_steps}\n"
+        )
+
+        rank_zero_info(
             f"Seeds for rollout simulation fetched from main seed: {seed}\n"
             f"\tValidation seed: {self.val_seed}\n"
-            f"\tTest seed: {self.test_seed}"
+            f"\tTest seed: {self.test_seed}\n"
         )
 
     def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: str | None) -> None:
