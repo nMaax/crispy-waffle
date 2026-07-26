@@ -20,10 +20,13 @@ class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
 
         Heuristic:
         - Cube A is on the left of Cube B (same x,z, offset y by some small distance)
-        - Orientations of Cube A and TCP match Cube B
+        - Orientations of Cube A and TCP are kept as currently observed
         - TCP is positioned exactly at Cube A
         """
         obs_dict = cast(dict[str, Any], self._get_obs_state_dict(info={}))
+
+        cube_A_pose: torch.Tensor = obs_dict["extra"]["cubeA_pose"]
+        cube_A_quat = cube_A_pose[..., 3:7]
 
         cube_B_pose: torch.Tensor = obs_dict["extra"]["cubeB_pose"]
         cube_B_pos = cube_B_pose[..., :3]
@@ -34,7 +37,7 @@ class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
 
         goal_cube_A_pos = cube_B_pos.clone()
         goal_cube_A_pos[..., 1] += self.Y_OFFSET  # This will be roughly 8cm
-        goal_cube_A_quat = cube_B_quat.clone()  # Keep same orientation for simplicity
+        goal_cube_A_quat = cube_A_quat.clone()
 
         # Goal: TCP is at Cube A's position, slightly above
         goal_tcp_pos = goal_cube_A_pos.clone()

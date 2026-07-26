@@ -27,13 +27,16 @@ class StackCubeSwappedEnv(ManiSkillStackCubeSwappedEnv):
         cube_A_pos = cube_A_pose[..., :3]
         cube_A_quat = cube_A_pose[..., 3:7]
 
+        cube_B_pose: torch.Tensor = obs_dict["extra"]["cubeB_pose"]
+        cube_B_quat = cube_B_pose[..., 3:7]
+
         goal_cube_A_pos = cube_A_pos.clone()
         goal_cube_A_quat = cube_A_quat.clone()
 
         cube_half_size = torch.as_tensor(self.cube_half_size, device=self.device)
         goal_cube_B_pos = cube_A_pos.clone()
         goal_cube_B_pos[..., 2] += cube_half_size[2] * 2
-        goal_cube_B_quat = cube_A_quat.clone()  # Keep same orientation for simplicity
+        goal_cube_B_quat = cube_B_quat.clone()
 
         # Goal: TCP is at Cube B's position, slightly above
         goal_tcp_pos = goal_cube_B_pos.clone()

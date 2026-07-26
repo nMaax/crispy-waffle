@@ -50,6 +50,7 @@ class PlaceSphereEnv(ManiSkillPlaceSphereEnv):
         obj_quat = obj_pose[..., 3:7]
 
         goal_obj_pos = bin_pos.clone()
+        goal_obj_pos[..., 2] += self.radius + self.block_half_size[0]
         goal_obj_quat = obj_quat.clone()
 
         goal_tcp_pos = goal_obj_pos.clone()

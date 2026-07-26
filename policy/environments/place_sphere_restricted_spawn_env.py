@@ -11,6 +11,7 @@ from .place_sphere_env import PlaceSphereEnv
 @register_env("PlaceSphereRestrictedSpawn-v1", max_episode_steps=50, override=True)
 class PlaceSphereRestrictedSpawnEnv(ManiSkillPlaceSphereRestrictedSpawnEnv):
     STATE_SCHEMA = PlaceSphereEnv.STATE_SCHEMA
+    generate_heuristic_goal = PlaceSphereEnv.generate_heuristic_goal
 
     def __init__(self, *args, robot_uids="panda_wristcam", **kwargs):
         if robot_uids != "panda_wristcam":
