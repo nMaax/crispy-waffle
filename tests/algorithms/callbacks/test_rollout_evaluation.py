@@ -25,6 +25,7 @@ class FakeRolloutDataModule(L.LightningDataModule):
     physx_backend: str | None = None  # set to "cuda" to trigger batched mode
     use_physx_env_states: bool = False
     as_dict: bool = False
+    canonicalize: bool = False
 
     def __post_init__(self):
         super().__init__()
