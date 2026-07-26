@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      num_episodes: 100

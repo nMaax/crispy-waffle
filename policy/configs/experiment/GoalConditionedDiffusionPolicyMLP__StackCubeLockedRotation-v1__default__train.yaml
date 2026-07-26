@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - override /algorithm: goal_conditioned_diffusion_policy_mlp
+  - override /datamodule: goal_conditioned_trajectory_datamodule
+  - override /trainer: default
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  act_horizon: 8
+
+datamodule:
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+  obs_horizon: 2
+  pred_horizon: 16
+
+trainer:
+  callbacks:
+    early_stopping: null
