@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 
 torch.set_float32_matmul_precision("high")
 
-# torch.autograd.set_detect_anomaly(True)
-
 
 def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
     """Finds and returns the seed used in the checkpoint's run from its .hydra/config.yaml."""

@@ -17,7 +17,7 @@ uv sync
 
 ## Usage
 
-```console
+```bash
 . .venv/bin/activate
 python policy/main.py --help
 ```
@@ -63,7 +63,7 @@ uv run pytest --cov=policy --cov-fail-under=70
 1. `trainer=debug`: ideal for a "smoke test" to ensure your code runs without crashing before starting a long training session. It runs exactly 1 training and 1 validation batch (`fast_dev_run: true`), disables checkpointing and enables `detect_anomaly: true` to help catch NaNs or gradients issues.
 2. `trainer=overfit_one_batch`: useful for verifying that your model is actually capable of learning (i.e., it can memorize a single batch). Trains on only 1 batch for up to 50 epochs. You should see the loss drop almost to zero quickly. If it doesn't, there's likely a bug in your architecture or loss function.
 3. `trainer=cpu`: forces training on the CPU, which is occasionally useful for debugging CUDA-specific errors.
-4. Extra Lightning CLI overrides: since this is just a standard Lightning Trainer, you can also pass any [Lightning Trainer flag](https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-flags) directly from the command line, e.g., `trainer.fast_dev_run=true`, `trainer.limit_train_batches=10`, `trainer.precision=16-mixed`, `trainer.deterministic=true` 
+4. Extra Lightning CLI overrides: since this is just a standard Lightning Trainer, you can also pass any [Lightning Trainer flag](https://lightning.ai/docs/pytorch/stable/common/trainer.html#trainer-flags) directly from the command line, e.g., `trainer.fast_dev_run=true`, `trainer.limit_train_batches=10`, `trainer.precision=16-mixed`, `trainer.deterministic=true`
 
 ---
 
@@ -71,7 +71,7 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, currently it is pinned to a specific commit, if you introduce new modifications you can re-resolve to the newer fork commit via `uv lock -P mani-skill`.
 
-If you plan to implement some custom code for environments/motionplanning that is not tirival, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced.
+If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced.
 
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
@@ -138,7 +138,7 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
 ```
 
 ```bash
-# Covert the above result in CUDA
+# Convert the above result in CUDA
 uv run python -m mani_skill.trajectory.replay_trajectory \
   --traj-path ~/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
   --use-first-env-state \

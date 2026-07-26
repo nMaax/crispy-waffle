@@ -328,7 +328,7 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                 )
 
             goal_tokens = self.obs_emb(goal_seq)  # [B, goal_horizon, embed_dim]
-            # Even if there should be the sigma token position embedding, we didn't add it before (following what done in original BESO)
+            # Even if there should be the sigma token position embedding before the goal tokens, we didn't add it before (following what done in original BESO --- see NOTE above)
             goal_tokens = self.drop(goal_tokens + self.pos_emb[:, : self.goal_horizon, :])
             pos_emb_sa = self.pos_emb[
                 :, self.goal_horizon : cur_obs_horizon + self.goal_horizon, :
@@ -366,11 +366,8 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
         # Extract Action Tokens
         # Because we interleaved [sigma, goal, (p1,) s1, a1, (p2,) s2, a2...], the actions are now
-        # evenly spaced. First, strip off the sigma token and goal tokens:
-        if self.goal_horizon > 0:
-            x_sa = x[:, 1 + self.goal_horizon :, :]
-        else:
-            x_sa = x[:, 1:, :]
+        # evenly spaced. First, strip off the sigma token and goal tokens
+        x_sa = x[:, 1 + self.goal_horizon :, :]
 
         # Reshape back to groups [B, cur_obs_horizon, interleave_width, embed_dim]
         x_sa = x_sa.view(B, cur_obs_horizon, interleave_width, self.embed_dim)

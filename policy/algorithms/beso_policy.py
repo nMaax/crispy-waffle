@@ -420,12 +420,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 # Scale input and predict
                 scaled_sample = running_seq * c_in
 
-                # Conditional Prediction (with the goal)
-                cond_external_cond: dict[str, TensorTree] = {"obs": sliced_obs_cond}
-                if goal_cond is not None:
-                    cond_external_cond["goal"] = goal_cond
+                # Repack and send it to the network
                 cond_pred = self.network(
-                    sample=scaled_sample, timestep=sigma_t, external_cond=cond_external_cond
+                    sample=scaled_sample,
+                    timestep=sigma_t,
+                    external_cond=self._build_external_cond(sliced_obs_cond, goal_cond),
                 )
 
                 # Unconditional Prediction (goal zeroed out)
@@ -448,7 +447,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                     uncond_pred = self.network(
                         sample=scaled_sample,
                         timestep=sigma_t,
-                        external_cond={"obs": sliced_obs_cond, "goal": uncond_goal},
+                        external_cond=self._build_external_cond(sliced_obs_cond, uncond_goal),
                     )
 
                     model_pred = uncond_pred + self.cfg_lambda * (cond_pred - uncond_pred)

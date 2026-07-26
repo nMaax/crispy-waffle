@@ -19,21 +19,6 @@ act_dim: ${datamodule.act_dim}
 
 # Training: Log-logistic parameters
 #
-# cfg_lambda=None (default): CFG disabled, single network call, model_pred=cond_pred.
-#   Mathematically identical to lambda=1 below, just without paying for the extra call.
-# cfg_lambda=0.0: two network calls, blend collapses to uncond_pred -- the policy
-#   ignores the goal entirely (paper's Fig. 5 diagnostic for a well-formed unconditional
-#   policy). NOT the same as leaving cfg_lambda unset.
-# cfg_lambda=0.5: blends toward uncond_pred, i.e. weaker goal influence than plain
-#   conditioning (paper's tuned value for Block-Push, action_dim=2).
-# cfg_lambda=1.0: blend collapses to cond_pred -- same output as disabling CFG, but
-#   costs the redundant unconditional forward pass. Useful only to sanity-check the
-#   two branches agree.
-# cfg_lambda=1.25: extrapolates past cond_pred, amplifying goal influence beyond plain
-#   conditioning (paper's tuned value for Kitchen/CALVIN, action_dim=9).
-# cfg_lambda>1 in general: stronger extrapolation/guidance; the paper reports
-#   instability at higher values in higher-dimensional action spaces.
-#
 # From the paper:
 #
 # "Training Noise distribution. During training, noise values are
@@ -61,6 +46,21 @@ sigma_min: 0.005
 sigma_data: 0.5
 
 # Condition-free guidance
+#
+# cfg_lambda=None (default): CFG disabled, single network call, model_pred=cond_pred.
+#   Mathematically identical to lambda=1 below, just without paying for the extra call.
+# cfg_lambda=0.0: two network calls, blend collapses to uncond_pred -- the policy
+#   ignores the goal entirely (paper's Fig. 5 diagnostic for a well-formed unconditional
+#   policy). NOT the same as leaving cfg_lambda unset.
+# cfg_lambda=0.5: blends toward uncond_pred, i.e. weaker goal influence than plain
+#   conditioning (paper's tuned value for Block-Push, action_dim=2).
+# cfg_lambda=1.0: blend collapses to cond_pred -- same output as disabling CFG, but
+#   costs the redundant unconditional forward pass. Useful only to sanity-check the
+#   two branches agree.
+# cfg_lambda=1.25: extrapolates past cond_pred, amplifying goal influence beyond plain
+#   conditioning (paper's tuned value for Kitchen/CALVIN, action_dim=9).
+# cfg_lambda>1 in general: stronger extrapolation/guidance; the paper reports
+#   instability at higher values in higher-dimensional action spaces.
 #
 # From the paper:
 # "Empirical evaluations suggest the best λ value is 1.25 for most tested environments.
