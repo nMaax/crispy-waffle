@@ -9,7 +9,7 @@ defaults:
 model_checkpoint:
   monitor: "val/success_once_rate" # name of the logged metric which determines when model is improving
   mode: "max" # "max" means higher metric value is better, can be also "min"
-  save_top_k: 3 # save k best models (determined by above metric)
+  save_top_k: 5 # save k best models (determined by above metric)
   save_last: true # additionally always save model from last epoch
   verbose: false
   dirpath: "${hydra:runtime.output_dir}/checkpoints"
