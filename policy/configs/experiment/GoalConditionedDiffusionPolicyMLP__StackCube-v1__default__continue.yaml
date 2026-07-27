@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__pretrain
+
+# Full trainer-state resume (not finetuning_ckpt_path): this restores global_step,
+# optimizer state, and the LR scheduler exactly where the pretrain phase left off,
+# so the cosine schedule continues instead of restarting. Requires the same `seed`
+# as the pretrain run (main.py enforces this, and will tell you the value to pass
+# if you forget).
+ckpt_path: ???
+
+# Fixed at the full budget, not "remaining steps": Lightning resumes counting from
+# the restored global_step, so this just means "train until step 100000 total".
+trainer:
+  max_steps: 100000
+  callbacks:
+    freeze_embedder:
+      _target_: policy.algorithms.callbacks.freeze_module.FreezeModuleCallback
+      attr_name: embedder

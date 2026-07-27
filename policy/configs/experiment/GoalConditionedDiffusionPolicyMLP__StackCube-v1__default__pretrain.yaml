@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train
+
+name: ${hydra:runtime.choices.experiment}__${trainer.max_steps}
+
+algorithm:
+  lr_scheduler:
+    num_training_steps: 100000
