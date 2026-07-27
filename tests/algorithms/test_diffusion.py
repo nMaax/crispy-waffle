@@ -296,8 +296,9 @@ class TestDiffusionPolicyLogic:
             assert embeddings["plan_embedding"].shape == (2, 90)
 
     def test_goal_horizon_zero_unconditioned(self):
-        """goal_horizon=0 sets goal_conditioned=False and omits 'goal' key from cond_dims and
-        external_cond."""
+        """goal_horizon=0 sets goal_conditioned=False, omits 'goal' from cond_dims/external_cond,
+        and ignores any goal passed in (the mixer still runs, self-fusing the obs task-embedding
+        sequence on its own)."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -316,10 +317,16 @@ class TestDiffusionPolicyLogic:
             )
             policy.configure_model()
             assert not policy.goal_conditioned
-            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
+            # "plan" = obs_horizon(2) * 30 + goal_horizon(0) * 30 = 60.
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18}, "plan": 60}
 
-            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
-            assert "goal" not in ext_cond
+            obs_seq = torch.randn(2, 2, 48)
+            # Even if a goal is (incorrectly) passed, it must be ignored: cond_dims never reserved
+            # room for it.
+            ext_cond = policy._build_external_cond(obs_seq, goal=torch.randn(2, 48))
+            assert set(ext_cond) == {"obs", "plan"}
+            assert ext_cond["plan"].shape == (2, 60)
+            assert torch.equal(ext_cond["plan"], obs_seq[..., 18:].reshape(2, -1))
 
     def test_goal_horizon_sequence(self):
         """goal_horizon > 1 formats 2D/3D tensor and dict goal sequences properly, and the mixer's
