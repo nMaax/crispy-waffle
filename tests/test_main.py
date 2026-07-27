@@ -56,11 +56,15 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicy__PlaceCubeLeft-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicy__StackCubeSwapped-v1__default__test trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLP__PlaceCubeLeft-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeSwapped-v1__default__test trainer.max_epochs=1",
     # DiffusionPolicy variants (tuning)
     "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__tuning trainer.max_epochs=1",
 ]
