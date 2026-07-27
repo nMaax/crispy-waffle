@@ -9,7 +9,6 @@ from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.utils import (
     concat_leaf_tensors,
     derive_task_dim,
-    merge_dicts,
     resolve_proprio_dim,
     split_leaf_key,
 )
@@ -74,33 +73,28 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.mixer = (
             hydra_zen.instantiate(self.mixer_config, input_dim=self._mixer_input_dim())
             if self.mixer_config is not None
-            else None
+            else nn.Identity()
         )
         super().configure_model()
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's
         ``cond_dims``."""
-        embed_dim = self._embedder_output_dim()
-        obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
         if self.goal_horizon == 0:
-            return {"obs": obs_spec}
+            return {"obs": {"proprio": self.proprio_dim, "task": self._embedder_output_dim()}}
 
-        if self.mixer_config is not None:
-            cond_dims: dict[str, DimSpec] = {
-                "obs": {"proprio": self.proprio_dim},
-                "plan": self._mixer_output_dim(),
-            }
-            if not self.exclude_proprio_from_goal:
-                cond_dims["goal"] = {"proprio": self.proprio_dim}
-            return cond_dims
-
-        if self.exclude_proprio_from_goal:
-            goal_spec = embed_dim
-        else:
-            goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
-
-        return {"obs": obs_spec, "goal": goal_spec}
+        # Goal-conditioned: the obs task-embedding sequence and the goal embedding are always
+        # fused into a single "plan" entry (see _build_mixed_external_cond). With no mixer
+        # configured, the mixer is an identity/concatenation, so "plan" is just the two
+        # embeddings concatenated -- numerically equivalent to the old separate obs["task"] /
+        # goal entries, just reported under one key.
+        cond_dims: dict[str, DimSpec] = {
+            "obs": {"proprio": self.proprio_dim},
+            "plan": self._mixer_output_dim(),
+        }
+        if not self.exclude_proprio_from_goal:
+            cond_dims["goal"] = {"proprio": self.proprio_dim}
+        return cond_dims
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
@@ -117,25 +111,28 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         """Lookup of the mixer's output dim.
 
         Reads config only, never an instantiated module, so that
-        :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`.
+        :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`. With no
+        mixer configured, the (identity) mixer preserves its input width.
         """
         if self.mixer_config is None:
-            raise ValueError("mixer_config is not set.")
+            return self._mixer_input_dim()
         return self.mixer_config.get("output_dim")
 
     def _mixer_input_dim(self) -> int:
         """Width of the mixer's input: the flattened obs task-embedding sequence concatenated with
-        the goal task-embedding."""
+        the flattened goal task-embedding (goal_horizon may be > 1)."""
         embed_dim = self._embedder_output_dim()
-        return self.obs_horizon * embed_dim + embed_dim
+        return (self.obs_horizon + self.goal_horizon) * embed_dim
 
-    def _mix(self, task_embeddings_seq: torch.Tensor, goal_embedding: torch.Tensor) -> torch.Tensor:
+    def _mix(
+        self, task_embeddings_seq: torch.Tensor, goal_embedding: torch.Tensor
+    ) -> torch.Tensor:
         """Fuses the observation task-embedding sequence and the goal task-embedding into a single
         "plan" embedding via the mixer module.
 
         Shapes:
             task_embeddings_seq: [B, obs_horizon, embed_dim]
-            goal_embedding: [B, embed_dim]
+            goal_embedding: [B, embed_dim] or [B, goal_horizon, embed_dim]
             returns: [B, mixer_output_dim]
         """
         if self.mixer is None:
@@ -143,7 +140,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 "Mixer not initialized. Call configure_model() before using the mixer."
             )
         B = task_embeddings_seq.shape[0]
-        mixer_input = torch.cat([task_embeddings_seq.reshape(B, -1), goal_embedding], dim=-1)
+        mixer_input = torch.cat(
+            [task_embeddings_seq.reshape(B, -1), goal_embedding.reshape(B, -1)], dim=-1
+        )
         return self.mixer(mixer_input)
 
     @torch.no_grad()
@@ -179,9 +178,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if goal is not None:
             _, goal_task_embedding = self._embed_states(goal)
             res["goal_embedding"] = goal_task_embedding.cpu()
-
-            if self.mixer is not None:
-                res["plan_embedding"] = self._mix(obs_task_embeddings, goal_task_embedding).cpu()
+            res["plan_embedding"] = self._mix(obs_task_embeddings, goal_task_embedding).cpu()
 
         return res
 
@@ -251,9 +248,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         # NOTE: Proprioception is always kept raw and never routed through the embedder, so embedders stay
         # robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
         # embedder); other embedders (e.g. an MLP) are selected via config.
-        # Propriception of the historical states is the re-routed to be concatenated alongside the embedder outputs to
-        # condition the network denoising process. Among such proprioception we can optionally include the one associated
-        # to the goal by turning exclude_proprio_from_goal to False if our inference setting provides reasonable proprioception data.
+        # When goal-conditioned, the obs task-embedding sequence and the goal embedding are always
+        # fused via the mixer (an identity/concatenation when no ``mixer`` is configured) into a
+        # single "plan" entry -- proprioception itself is never routed through the mixer either,
+        # and stays raw under "obs"/"goal". Among such proprioception we can optionally include the
+        # one associated to the goal by turning exclude_proprio_from_goal to False if our inference
+        # setting provides reasonable proprioception data.
 
         if self.goal_horizon == 0:
             return self._build_obs_external_cond(obs)
@@ -264,12 +264,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 "but received goal=None."
             )
 
-        if self.mixer is not None:
-            return self._build_mixed_external_cond(obs, goal)
-
-        external_cond = self._build_obs_external_cond(obs)
-        goal_external_cond = self._build_goal_external_cond(goal)
-        return merge_dicts([external_cond, goal_external_cond])
+        return self._build_mixed_external_cond(obs, goal)
 
     def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
         proprio, task_embedded = self._embed_states(obs)
@@ -279,8 +274,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self, obs: TensorTree, goal: TensorTree
     ) -> dict[str, TensorTree]:
         """Fuses the obs task-embedding sequence with the goal task-embedding via the mixer,
-        keeping proprioception raw and unmixed (same principle as
-        :meth:`_build_goal_external_cond`)."""
+        keeping proprioception raw and unmixed."""
         proprio_seq, task_embeddings_seq = self._embed_states(obs)
         goal_proprio, goal_embedding = self._embed_states(goal)
 
@@ -290,13 +284,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if not self.exclude_proprio_from_goal:
             external_cond["goal"] = {"proprio": goal_proprio}
         return external_cond
-
-    def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
-        proprio, goal_embedded = self._embed_states(goal)
-        if self.exclude_proprio_from_goal:
-            return {"goal": goal_embedded}
-        else:
-            return {"goal": {"proprio": proprio, "task": goal_embedded}}
 
     def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits proprio/task and embeds the task components."""

@@ -186,9 +186,10 @@ class TestDiffusionPolicyLogic:
     diffusers-scheduler reverse loop (slicing + clamping + EMA store/restore).
     """
 
-    def test_prepare_goal_excludes_proprioception(self):
-        """Check that _build_goal_external_cond excludes proprioception entries for both tensor and
-        dict goals, and that _get_cond_dims reports the identity-embedder cond shape."""
+    def test_default_mixer_excludes_proprioception_and_concatenates(self):
+        """With no mixer configured (the default), obs/goal are still fused into a single "plan"
+        entry via an identity mixer, which just concatenates the (proprio-excluded) task
+        embeddings -- numerically equivalent to the old separate obs["task"] / goal entries."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -208,16 +209,22 @@ class TestDiffusionPolicyLogic:
             policy_flat.configure_model()
             assert policy_flat.goal_dim == 30
             # _get_cond_dims reports per-timestep widths; obs_horizon multiplication is the
-            # network's responsibility, not reported here.
+            # network's responsibility, not reported here. "plan" = obs_horizon(2) * 30 +
+            # goal_horizon(1) * 30 = 90.
             assert policy_flat._get_cond_dims() == {
-                "obs": {"proprio": 18, "task": 30},
-                "goal": 30,
+                "obs": {"proprio": 18},
+                "plan": 90,
             }
 
+            obs_seq = torch.randn(2, 2, 48)
             tensor_goal = torch.randn(2, 48)
-            prepared_tensor = policy_flat._build_goal_external_cond(tensor_goal)["goal"]
-            assert prepared_tensor.shape == (2, 30)
-            assert torch.equal(prepared_tensor, tensor_goal[:, 18:])
+            ext_cond = policy_flat._build_external_cond(obs_seq, tensor_goal)
+            assert set(ext_cond) == {"obs", "plan"}
+            assert torch.equal(ext_cond["obs"]["proprio"], obs_seq[..., :18])
+            expected_plan = torch.cat(
+                [obs_seq[..., 18:].reshape(2, -1), tensor_goal[:, 18:]], dim=-1
+            )
+            assert torch.equal(ext_cond["plan"], expected_plan)
 
             # Mapping (dict) case
             dict_obs_dim = {"proprio": 18, "task_a": 10, "task_b": 20}
@@ -234,18 +241,28 @@ class TestDiffusionPolicyLogic:
             )
             policy_dict.configure_model()
             assert policy_dict.goal_dim == 30
+            dict_obs = {
+                "proprio": torch.randn(2, 2, 18),
+                "task_a": torch.randn(2, 2, 10),
+                "task_b": torch.randn(2, 2, 20),
+            }
             dict_goal = {
                 "proprio": torch.randn(2, 18),
                 "task_a": torch.randn(2, 10),
                 "task_b": torch.randn(2, 20),
             }
-            prepared_dict = policy_dict._build_goal_external_cond(dict_goal)["goal"]
-            assert prepared_dict.shape == (2, 30)
-            assert torch.equal(prepared_dict[:, :10], dict_goal["task_a"])
-            assert torch.equal(prepared_dict[:, 10:], dict_goal["task_b"])
+            ext_cond = policy_dict._build_external_cond(dict_obs, dict_goal)
+            assert set(ext_cond) == {"obs", "plan"}
+            assert ext_cond["plan"].shape == (2, 90)
+            # Per timestep, leaves are concatenated in the obs_dim declaration order (task_a then
+            # task_b) *before* being flattened across the time axis.
+            obs_task = torch.cat([dict_obs["task_a"], dict_obs["task_b"]], dim=-1).reshape(2, -1)
+            goal_task = torch.cat([dict_goal["task_a"], dict_goal["task_b"]], dim=-1)
+            expected_plan = torch.cat([obs_task, goal_task], dim=-1)
+            assert torch.equal(ext_cond["plan"], expected_plan)
 
     def test_prepare_goal_includes_proprioception_when_configured(self):
-        """exclude_proprio_from_goal=False keeps proprio in the goal's cond shape/output."""
+        """exclude_proprio_from_goal=False keeps a raw goal-proprio entry alongside "plan"."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -264,18 +281,19 @@ class TestDiffusionPolicyLogic:
             )
             policy.configure_model()
             assert policy._get_cond_dims() == {
-                "obs": {"proprio": 18, "task": 30},
-                "goal": {"proprio": 18, "task": 30},
+                "obs": {"proprio": 18},
+                "plan": 90,
+                "goal": {"proprio": 18},
             }
 
             tensor_goal = torch.randn(2, 48)
-            prepared_goal = policy._build_goal_external_cond(tensor_goal)["goal"]
-            assert isinstance(prepared_goal, Mapping)
-            assert torch.equal(prepared_goal["proprio"], tensor_goal[:, :18])
-            assert torch.equal(prepared_goal["task"], tensor_goal[:, 18:])
+            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), tensor_goal)
+            assert set(ext_cond) == {"obs", "plan", "goal"}
+            assert torch.equal(ext_cond["goal"]["proprio"], tensor_goal[:, :18])
 
             embeddings = policy.extract_embeddings(torch.randn(2, 2, 48), goal=tensor_goal)
             assert embeddings["goal_embedding"].shape == (2, 30)
+            assert embeddings["plan_embedding"].shape == (2, 90)
 
     def test_goal_horizon_zero_unconditioned(self):
         """goal_horizon=0 sets goal_conditioned=False and omits 'goal' key from cond_dims and
@@ -304,7 +322,9 @@ class TestDiffusionPolicyLogic:
             assert "goal" not in ext_cond
 
     def test_goal_horizon_sequence(self):
-        """goal_horizon > 1 formats 2D/3D tensor and dict goal sequences properly."""
+        """goal_horizon > 1 formats 2D/3D tensor and dict goal sequences properly, and the mixer's
+        input width correctly accounts for the (flattened) goal sequence rather than assuming a
+        single goal frame."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -323,15 +343,21 @@ class TestDiffusionPolicyLogic:
             )
             policy.configure_model()
             assert policy.goal_conditioned
+            # "plan" = obs_horizon(2) * 30 + goal_horizon(2) * 30 = 120.
             assert policy._get_cond_dims() == {
-                "obs": {"proprio": 18, "task": 30},
-                "goal": 30,
+                "obs": {"proprio": 18},
+                "plan": 120,
             }
 
             # 3D tensor goal [B, goal_horizon, obs_dim]
+            obs_seq = torch.randn(2, 2, 48)
             goal_3d = torch.randn(2, 2, 48)
-            prepared_3d = policy._build_goal_external_cond(goal_3d)["goal"]
-            assert prepared_3d.shape == (2, 2, 30)
+            ext_cond = policy._build_external_cond(obs_seq, goal_3d)
+            assert ext_cond["plan"].shape == (2, 120)
+            expected_plan = torch.cat(
+                [obs_seq[..., 18:].reshape(2, -1), goal_3d[..., 18:].reshape(2, -1)], dim=-1
+            )
+            assert torch.equal(ext_cond["plan"], expected_plan)
 
             # Dict goal with 3D leaves
             dict_policy = GoalConditionedDiffusionPolicy(
@@ -347,12 +373,16 @@ class TestDiffusionPolicyLogic:
                 goal_horizon=2,
             )
             dict_policy.configure_model()
+            dict_obs_3d = {
+                "proprio": torch.randn(2, 2, 18),
+                "task": torch.randn(2, 2, 30),
+            }
             dict_goal_3d = {
                 "proprio": torch.randn(2, 2, 18),
                 "task": torch.randn(2, 2, 30),
             }
-            prepared_dict = dict_policy._build_goal_external_cond(dict_goal_3d)["goal"]
-            assert prepared_dict.shape == (2, 2, 30)
+            ext_cond = dict_policy._build_external_cond(dict_obs_3d, dict_goal_3d)
+            assert ext_cond["plan"].shape == (2, 120)
 
     def test_mixer_requires_goal_horizon(self):
         """Configuring a mixer with goal_horizon=0 raises, since there's no goal to mix with."""
