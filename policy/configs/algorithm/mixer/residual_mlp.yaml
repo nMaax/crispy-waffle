@@ -1,0 +1,4 @@
+_target_: policy.algorithms.networks.residual_mlp.ResidualMLP
+output_dim: 128
+hidden_dims: [256, 256]
+use_linear_shortcut: true

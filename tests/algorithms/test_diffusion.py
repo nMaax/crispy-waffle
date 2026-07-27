@@ -131,6 +131,51 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
             algorithm.act_dim,
         )
 
+
+@pytest.mark.parametrize(
+    "algorithm_config", ["goal_conditioned_diffusion_policy_mlp_mixer"], indirect=True
+)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicyMixer(LightningModuleTests[GoalConditionedDiffusionPolicy]):
+    """Test suite for GoalConditionedDiffusionPolicy configured with a mixer (MixerStateEmbedding:
+
+    obs task-embeddings and the goal embedding are fused via an MLP instead of being concatenated).
+    """
+
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        pytest.skip("Diffusion policies do not use standard forward pass during training.")
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch.get("goal", None)
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            training_step_content.batch["act_seq"].shape[0],
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
+
 class TestDiffusionPolicyLogic:
     """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
 
@@ -308,6 +353,114 @@ class TestDiffusionPolicyLogic:
             }
             prepared_dict = dict_policy._build_goal_external_cond(dict_goal_3d)["goal"]
             assert prepared_dict.shape == (2, 2, 30)
+
+    def test_mixer_requires_goal_horizon(self):
+        """Configuring a mixer with goal_horizon=0 raises, since there's no goal to mix with."""
+        with pytest.raises(ValueError, match="mixer requires goal_horizon"):
+            GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                goal_horizon=0,
+                mixer={"_target_": "policy.algorithms.networks.mlp.MLP", "output_dim": 128},
+            )
+
+    def test_mixer_cond_dims_and_external_cond(self):
+        """With a mixer configured, cond_dims/external_cond report a single 'plan' entry instead of
+        separate obs 'task' and 'goal' entries, and proprioception stays raw."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                mixer={"_target_": "policy.algorithms.networks.mlp.MLP", "output_dim": 128},
+            )
+            policy.configure_model()
+            policy.mixer = lambda x: torch.zeros(x.shape[0], 128)
+
+            assert policy._get_cond_dims() == {
+                "obs": {"proprio": 18},
+                "plan": 128,
+            }
+
+            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
+            assert set(ext_cond) == {"obs", "plan"}
+            assert set(ext_cond["obs"]) == {"proprio"}
+            assert ext_cond["obs"]["proprio"].shape == (2, 2, 18)
+            assert ext_cond["plan"].shape == (2, 128)
+
+    def test_mixer_cond_dims_include_goal_proprio_when_configured(self):
+        """exclude_proprio_from_goal=False keeps a raw 'goal' proprio entry alongside 'plan'."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                mixer={"_target_": "policy.algorithms.networks.mlp.MLP", "output_dim": 128},
+                exclude_proprio_from_goal=False,
+            )
+            policy.configure_model()
+            policy.mixer = lambda x: torch.zeros(x.shape[0], 128)
+
+            assert policy._get_cond_dims() == {
+                "obs": {"proprio": 18},
+                "plan": 128,
+                "goal": {"proprio": 18},
+            }
+
+            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
+            assert set(ext_cond) == {"obs", "plan", "goal"}
+            assert ext_cond["goal"]["proprio"].shape == (2, 18)
+
+    def test_extract_embeddings_includes_plan_when_mixer_configured(self):
+        """extract_embeddings() reports a plan_embedding when a mixer is active."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = GoalConditionedDiffusionPolicy(
+                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+                ema={},
+                noise_scheduler={},
+                optimizer={},
+                act_dim=4,
+                obs_dim=48,
+                proprio_dim=18,
+                pred_horizon=16,
+                obs_horizon=2,
+                mixer={"_target_": "policy.algorithms.networks.mlp.MLP", "output_dim": 128},
+            )
+            policy.configure_model()
+            policy.mixer = lambda x: torch.zeros(x.shape[0], 128)
+
+            embeddings = policy.extract_embeddings(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
+            assert embeddings["obs_embeddings"].shape == (2, 2, 30)
+            assert embeddings["goal_embedding"].shape == (2, 30)
+            assert embeddings["plan_embedding"].shape == (2, 128)
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

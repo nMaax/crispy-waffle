@@ -1,0 +1,4 @@
+defaults:
+  - goal_conditioned_diffusion_policy
+  - override embedder: mlp
+  - override mixer: mlp

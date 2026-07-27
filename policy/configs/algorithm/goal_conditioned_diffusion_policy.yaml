@@ -1,6 +1,7 @@
 defaults:
   - diffusion_policy
   - embedder: null
+  - mixer: null
 
 _target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy
 

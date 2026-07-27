@@ -31,12 +31,19 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         proprio_dim: int | None = None,
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
+        mixer: HydraConfigFor[nn.Module] | None = None,
         exclude_proprio_from_goal: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
+
+        if mixer is not None and goal_horizon == 0:
+            raise ValueError(
+                "mixer requires goal_horizon > 0: it mixes the observation task-embedding "
+                "sequence with a goal embedding, so there must be a goal to mix with."
+            )
 
         proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
 
@@ -47,6 +54,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
+
+        self.mixer_config = mixer
+        self.mixer: nn.Module | None = None
 
     def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
         proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
@@ -61,6 +71,11 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             if self.embedder_config is not None
             else nn.Identity()
         )
+        self.mixer = (
+            hydra_zen.instantiate(self.mixer_config, input_dim=self._mixer_input_dim())
+            if self.mixer_config is not None
+            else None
+        )
         super().configure_model()
 
     def _get_cond_dims(self) -> DimSpec:
@@ -70,13 +85,22 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
         if self.goal_horizon == 0:
             return {"obs": obs_spec}
-        else:
-            if self.exclude_proprio_from_goal:
-                goal_spec = embed_dim
-            else:
-                goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
 
-            return {"obs": obs_spec, "goal": goal_spec}
+        if self.mixer_config is not None:
+            cond_dims: dict[str, DimSpec] = {
+                "obs": {"proprio": self.proprio_dim},
+                "plan": self._mixer_output_dim(),
+            }
+            if not self.exclude_proprio_from_goal:
+                cond_dims["goal"] = {"proprio": self.proprio_dim}
+            return cond_dims
+
+        if self.exclude_proprio_from_goal:
+            goal_spec = embed_dim
+        else:
+            goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+
+        return {"obs": obs_spec, "goal": goal_spec}
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
@@ -89,7 +113,38 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         return self.embedder_config.get("output_dim")
 
+    def _mixer_output_dim(self) -> int:
+        """Lookup of the mixer's output dim.
 
+        Reads config only, never an instantiated module, so that
+        :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`.
+        """
+        if self.mixer_config is None:
+            raise ValueError("mixer_config is not set.")
+        return self.mixer_config.get("output_dim")
+
+    def _mixer_input_dim(self) -> int:
+        """Width of the mixer's input: the flattened obs task-embedding sequence concatenated with
+        the goal task-embedding."""
+        embed_dim = self._embedder_output_dim()
+        return self.obs_horizon * embed_dim + embed_dim
+
+    def _mix(self, task_embeddings_seq: torch.Tensor, goal_embedding: torch.Tensor) -> torch.Tensor:
+        """Fuses the observation task-embedding sequence and the goal task-embedding into a single
+        "plan" embedding via the mixer module.
+
+        Shapes:
+            task_embeddings_seq: [B, obs_horizon, embed_dim]
+            goal_embedding: [B, embed_dim]
+            returns: [B, mixer_output_dim]
+        """
+        if self.mixer is None:
+            raise ValueError(
+                "Mixer not initialized. Call configure_model() before using the mixer."
+            )
+        B = task_embeddings_seq.shape[0]
+        mixer_input = torch.cat([task_embeddings_seq.reshape(B, -1), goal_embedding], dim=-1)
+        return self.mixer(mixer_input)
 
     @torch.no_grad()
     def extract_embeddings(
@@ -97,7 +152,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         obs: torch.Tensor | dict,
         goal: torch.Tensor | dict | None = None,
     ):
-        """Extracts embedder outputs for observations (and optionally a goal).
+        """Extracts embedder (and, if configured, mixer) outputs for observations (and optionally a
+        goal).
 
         Helper function for visualizing the embeddings.
         """
@@ -117,35 +173,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             if goal is not None:
                 goal = self.obs_normalizer.normalize(goal)
 
-        external_cond = self._build_external_cond(obs, goal)
-        obs_embeddings = external_cond.get("obs")
-        if obs_embeddings is None:
-            raise ValueError("Failed to extract observation embeddings from external_cond.")
-
-        if isinstance(obs_embeddings, Mapping):
-            obs_task_embeddings = obs_embeddings.get("task")
-        else:
-            obs_task_embeddings = obs_embeddings
-
-        if not isinstance(obs_task_embeddings, torch.Tensor):
-            raise ValueError(
-                f"Expected obs_task_embeddings to be a torch.Tensor, but got {type(obs_task_embeddings)}."
-            )
-
+        _, obs_task_embeddings = self._embed_states(obs)
         res = {"obs_embeddings": obs_task_embeddings.cpu()}
 
-        goal_embedding = external_cond.get("goal", None)
-        if goal_embedding is not None:
-            if isinstance(goal_embedding, Mapping):
-                goal_task_embedding = goal_embedding.get("task")
-            else:
-                goal_task_embedding = goal_embedding
-
-            if not isinstance(goal_task_embedding, torch.Tensor):
-                raise ValueError(
-                    f"Expected goal_task_embedding to be a torch.Tensor, but got {type(goal_task_embedding)}."
-                )
+        if goal is not None:
+            _, goal_task_embedding = self._embed_states(goal)
             res["goal_embedding"] = goal_task_embedding.cpu()
+
+            if self.mixer is not None:
+                res["plan_embedding"] = self._mix(obs_task_embeddings, goal_task_embedding).cpu()
 
         return res
 
@@ -219,21 +255,41 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         # condition the network denoising process. Among such proprioception we can optionally include the one associated
         # to the goal by turning exclude_proprio_from_goal to False if our inference setting provides reasonable proprioception data.
 
-        external_cond = self._build_obs_external_cond(obs)
-        if self.goal_horizon > 0:
-            if goal is None:
-                raise ValueError(
-                    f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
-                    "but received goal=None."
-                )
-            goal_external_cond = self._build_goal_external_cond(goal)
-            external_cond = merge_dicts([external_cond, goal_external_cond])
+        if self.goal_horizon == 0:
+            return self._build_obs_external_cond(obs)
 
-        return external_cond
+        if goal is None:
+            raise ValueError(
+                f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
+                "but received goal=None."
+            )
+
+        if self.mixer is not None:
+            return self._build_mixed_external_cond(obs, goal)
+
+        external_cond = self._build_obs_external_cond(obs)
+        goal_external_cond = self._build_goal_external_cond(goal)
+        return merge_dicts([external_cond, goal_external_cond])
 
     def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
         proprio, task_embedded = self._embed_states(obs)
         return {"obs": {"proprio": proprio, "task": task_embedded}}
+
+    def _build_mixed_external_cond(
+        self, obs: TensorTree, goal: TensorTree
+    ) -> dict[str, TensorTree]:
+        """Fuses the obs task-embedding sequence with the goal task-embedding via the mixer,
+        keeping proprioception raw and unmixed (same principle as
+        :meth:`_build_goal_external_cond`)."""
+        proprio_seq, task_embeddings_seq = self._embed_states(obs)
+        goal_proprio, goal_embedding = self._embed_states(goal)
+
+        plan = self._mix(task_embeddings_seq, goal_embedding)
+
+        external_cond: dict[str, TensorTree] = {"obs": {"proprio": proprio_seq}, "plan": plan}
+        if not self.exclude_proprio_from_goal:
+            external_cond["goal"] = {"proprio": goal_proprio}
+        return external_cond
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
         proprio, goal_embedded = self._embed_states(goal)
