@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
   - GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__pretrain
+  - override /trainer/callbacks@trainer.callbacks: freeze_embedder
 
 # Full trainer-state resume (not finetuning_ckpt_path): this restores global_step,
 # optimizer state, and the LR scheduler exactly where the pretrain phase left off,
@@ -13,7 +14,3 @@ ckpt_path: ???
 # the restored global_step, so this just means "train until step 100000 total".
 trainer:
   max_steps: 100000
-  callbacks:
-    freeze_embedder:
-      _target_: policy.algorithms.callbacks.freeze_module.FreezeModuleCallback
-      attr_name: embedder

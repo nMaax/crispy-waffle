@@ -65,6 +65,11 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__PlaceCubeLeft-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeSwapped-v1__default__test trainer.max_epochs=1",
+    # Embedder-freezing ablation: `__pretrain` trains end-to-end, `__continue` resumes from its
+    # checkpoint with the embedder frozen. `ckpt_path` is only read once training actually starts,
+    # so a placeholder suffices here; `test_can_run_experiment` skips `__continue` for that reason.
+    "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__pretrain trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__continue trainer.max_epochs=1 ckpt_path=/nonexistent/last.ckpt",
     # DiffusionPolicy variants (tuning)
     "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__tuning trainer.max_epochs=1",
 ]
@@ -157,6 +162,11 @@ def test_can_run_experiment(
     # Get a unique hash id:
     # Sets a unique name to avoid collisions between tests and reusing previous results.
     name = f"{request.function.__name__}_{uuid.uuid4().hex}"
+    if any("__continue" in arg for arg in command_line_overrides):
+        pytest.skip(
+            reason="Resuming needs a real checkpoint from the matching `__pretrain` run, which "
+            "this sanity check doesn't produce."
+        )
     command_line_args = ["policy/main.py"] + list(command_line_overrides)
     if any(
         x in arg for arg in command_line_overrides for x in ["__train", "__test", "__sanity_check"]

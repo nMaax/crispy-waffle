@@ -1,0 +1,7 @@
+defaults:
+  - default.yaml
+  - _self_
+
+freeze_embedder:
+  _target_: policy.algorithms.callbacks.freeze_module.FreezeModuleCallback
+  attr_name: embedder
