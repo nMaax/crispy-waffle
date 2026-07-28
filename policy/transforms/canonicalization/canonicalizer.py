@@ -33,6 +33,7 @@ class Canonicalizer:
             "PlaceSphere-v1": self._parse_place_sphere_dict,
             "PlaceSphereRestrictedSpawn-v1": self._parse_place_sphere_restricted_spawn_dict,
             "PlaceCubeLeft-v1": self._parse_place_cube_left_dict,
+            "PlaceCubeRight-v1": self._parse_place_cube_right_dict,
         }
 
     def __call__(self, obs: TensorTree) -> dict[str, torch.Tensor]:
@@ -45,6 +46,11 @@ class Canonicalizer:
 
     # Dictionary parsers for ManiSkill native state_dict observations
     def _parse_place_cube_left_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
+    def _parse_place_cube_right_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)

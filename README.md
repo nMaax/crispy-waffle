@@ -69,7 +69,7 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 ## Custom ManiSkill code and replays
 
-crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, currently it is pinned to a specific commit, if you introduce new modifications you can re-resolve to the newer fork commit via `uv lock -P mani-skill`.
+crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `PlaceCubeRight-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, currently it is pinned to a specific commit, if you introduce new modifications you can re-resolve to the newer fork commit via `uv lock -P mani-skill`.
 
 If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced.
 
