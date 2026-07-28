@@ -13,13 +13,12 @@ from policy.environments.stack_cube_env import StackCubeEnv
 class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 
-    Y_OFFSET = 0.08
-
     def generate_heuristic_goal(self) -> dict[str, Any]:
         """Generates a heuristic goal state based on the current observation.
 
         Heuristic:
-        - Cube A is on the left of Cube B (same x,z, offset y by some small distance)
+        - Cube A is displaced from Cube B along y by the task's ``TARGET_Y_OFFSET``
+          (same x,z), so the goal matches whatever offset the upstream task rewards.
         - Orientations of Cube A and TCP are kept as currently observed
         - TCP is positioned exactly at Cube A
         """
@@ -36,7 +35,9 @@ class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
         goal_cube_B_quat = cube_B_quat.clone()
 
         goal_cube_A_pos = cube_B_pos.clone()
-        goal_cube_A_pos[..., 1] += self.Y_OFFSET  # This will be roughly 8cm
+        # Read the target offset off the upstream task so goal generation stays in
+        # sync with the success criterion (positive y is left, negative is right).
+        goal_cube_A_pos[..., 1] += self.TARGET_Y_OFFSET
         goal_cube_A_quat = cube_A_quat.clone()
 
         # Goal: TCP is at Cube A's position, slightly above
