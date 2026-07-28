@@ -13,7 +13,7 @@ from policy.environments.stack_cube_env import StackCubeEnv
 class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 
-    Y_OFFSET = 0.08
+    Y_OFFSET = 0.16
 
     def generate_heuristic_goal(self) -> dict[str, Any]:
         """Generates a heuristic goal state based on the current observation.
