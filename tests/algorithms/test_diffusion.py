@@ -6,6 +6,7 @@ import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
+from policy.algorithms.networks.mlp import MLP
 from policy.utils import get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
@@ -308,6 +309,156 @@ class TestDiffusionPolicyLogic:
             }
             prepared_dict = dict_policy._build_goal_external_cond(dict_goal_3d)["goal"]
             assert prepared_dict.shape == (2, 2, 30)
+
+    @staticmethod
+    def _make_goal_delta_policy(**overrides) -> GoalConditionedDiffusionPolicy:
+        kwargs = {
+            "network": {"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+            "ema": {},
+            "noise_scheduler": {},
+            "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": 48,
+            "proprio_dim": 18,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
+            "goal_delta": True,
+        }
+        kwargs.update(overrides)
+        return GoalConditionedDiffusionPolicy(**kwargs)
+
+    def test_goal_delta_folds_goal_into_obs(self):
+        """goal_delta=True replaces the obs task embeddings with (g - s_t) and drops the standalone
+        goal entry, for both tensor and dict inputs."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = self._make_goal_delta_policy()
+            policy.configure_model()
+
+            # No "goal" width: the goal is folded into the obs entry, so the reported widths
+            # match the unconditioned case.
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            ext_cond = policy._build_external_cond(obs, goal)
+
+            assert set(ext_cond) == {"obs"}
+            obs_cond = ext_cond["obs"]
+            assert isinstance(obs_cond, Mapping)
+            # Proprio passes through raw (exclude_proprio_from_goal defaults to True).
+            assert torch.equal(obs_cond["proprio"], obs[:, :, :18])
+            assert obs_cond["task"].shape == (2, 2, 30)
+            expected = goal[:, 18:].unsqueeze(1) - obs[:, :, 18:]
+            assert torch.equal(obs_cond["task"], expected)
+
+            # Dict inputs behave identically.
+            dict_policy = self._make_goal_delta_policy(
+                obs_dim={"proprio": 18, "task_a": 10, "task_b": 20}
+            )
+            dict_policy.configure_model()
+            dict_obs = {
+                "proprio": torch.randn(2, 2, 18),
+                "task_a": torch.randn(2, 2, 10),
+                "task_b": torch.randn(2, 2, 20),
+            }
+            dict_goal = {
+                "proprio": torch.randn(2, 18),
+                "task_a": torch.randn(2, 10),
+                "task_b": torch.randn(2, 20),
+            }
+            dict_cond = dict_policy._build_external_cond(dict_obs, dict_goal)["obs"]
+            assert isinstance(dict_cond, Mapping)
+            assert torch.equal(dict_cond["proprio"], dict_obs["proprio"])
+            expected_a = dict_goal["task_a"].unsqueeze(1) - dict_obs["task_a"]
+            assert torch.equal(dict_cond["task"][:, :, :10], expected_a)
+
+    def test_goal_delta_differences_proprio_when_included(self):
+        """goal_delta=True with exclude_proprio_from_goal=False differences proprio as well."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = self._make_goal_delta_policy(exclude_proprio_from_goal=False)
+            policy.configure_model()
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            obs_cond = policy._build_external_cond(obs, goal)["obs"]
+            assert isinstance(obs_cond, Mapping)
+            assert torch.equal(
+                obs_cond["proprio"], goal[:, :18].unsqueeze(1) - obs[:, :, :18]
+            )
+
+    def test_goal_delta_is_taken_in_input_space(self):
+        """The difference is embed(g - s_t), i.e. taken *before* the embedder.
+
+        The default identity embedder makes the two orderings indistinguishable, so this uses a
+        real (nonlinear) MLP embedder, where embed(g - s_t) != embed(g) - embed(s_t). The
+        embedding-space variant lives on ``feature/goal-state-delta-conditioning``.
+        """
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            torch.manual_seed(0)
+            policy = self._make_goal_delta_policy(
+                embedder={
+                    "_target_": "policy.algorithms.networks.mlp.MLP",
+                    "output_dim": 8,
+                    "hidden_dims": [16],
+                }
+            )
+            policy.configure_model()
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 8}}
+
+            # configure_model() gets a mocked embedder (the patch above lands on the shared
+            # hydra_zen module), so swap in the real thing this test is about.
+            embedder = MLP(input_dim=policy.task_dim, output_dim=8, hidden_dims=[16])
+            policy.embedder = embedder
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            obs_cond = policy._build_external_cond(obs, goal)["obs"]
+            assert isinstance(obs_cond, Mapping)
+
+            obs_task, goal_task = obs[:, :, 18:], goal[:, 18:]
+            with torch.no_grad():
+                embedded_space = embedder(goal_task).unsqueeze(1) - embedder(obs_task)
+                input_space = embedder(goal_task.unsqueeze(1) - obs_task)
+
+            assert obs_cond["task"].shape == (2, 2, 8)
+            assert torch.allclose(obs_cond["task"], input_space)
+            # Guards the test itself: the two orderings must actually disagree here, otherwise the
+            # assertion above would pass for either implementation.
+            assert not torch.allclose(input_space, embedded_space)
+
+    def test_goal_delta_reports_absolute_embeddings(self):
+        """extract_embeddings stays absolute (not differenced) under goal_delta=True."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = self._make_goal_delta_policy()
+            policy.configure_model()
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            embeddings = policy.extract_embeddings(obs, goal=goal)
+            assert torch.equal(embeddings["obs_embeddings"], obs[:, :, 18:])
+            assert torch.equal(embeddings["goal_embedding"], goal[:, 18:])
+
+    def test_goal_delta_requires_goal_conditioning(self):
+        """goal_delta=True is meaningless without a goal, so goal_horizon=0 must be rejected."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            with pytest.raises(ValueError, match="goal_delta=True requires goal_horizon > 0"):
+                self._make_goal_delta_policy(goal_horizon=0)
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

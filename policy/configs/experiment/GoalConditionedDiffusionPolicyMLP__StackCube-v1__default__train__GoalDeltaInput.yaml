@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train
+
+name: ${hydra:runtime.choices.experiment}
+
+# Conditions on the per-timestep goal-state differences (g - s_1, ..., g - s_T) instead of the
+# observation embeddings and the goal embedding as separate entries (s_1, ..., s_T, g).
+# This branch differences in input space: embed(g - s_t), i.e. before the MLP embedder, so the
+# embedder only ever sees goal-relative features.
+algorithm:
+  goal_delta: true

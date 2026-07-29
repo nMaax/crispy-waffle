@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train
+
+name: ${hydra:runtime.choices.experiment}
+
+# Conditions on the per-timestep goal-state differences (g - s_1, ..., g - s_T) instead of the
+# observation embeddings and the goal embedding as separate entries (s_1, ..., s_T, g).
+# This branch differences in input space: embed(g - s_t). With the identity embedder used here
+# that is the same thing as differencing after the embedder, so this config is numerically
+# identical to its counterpart on feature/goal-state-delta-conditioning.
+algorithm:
+  goal_delta: true
