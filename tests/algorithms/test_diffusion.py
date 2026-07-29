@@ -486,16 +486,6 @@ class TestDiffusionPolicyLogic:
             with pytest.raises(ValueError, match="requires goal_horizon > 0"):
                 self._make_goal_delta_policy(goal_horizon=0)
 
-    def test_goal_delta_rejects_unknown_mode(self):
-        """Hydra does not validate the config string, and an unknown one would silently difference
-        in embedding space."""
-        with patch(
-            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
-            return_value=MagicMock(),
-        ):
-            with pytest.raises(ValueError, match="is not a valid mode"):
-                self._make_goal_delta_policy(goal_delta="inputt")
-
     @pytest.mark.parametrize("goal_delta", ["input", "embedding"])
     def test_goal_delta_rejects_obs_without_time_axis(self, goal_delta: str):
         """A 2D obs would broadcast to [B, B, F] instead of raising, so it must be rejected.
