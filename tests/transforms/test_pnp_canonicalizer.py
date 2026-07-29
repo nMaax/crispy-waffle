@@ -79,10 +79,13 @@ class TestCanonicalizer:
         "env_id",
         [
             "StackCubeSwapped-v1",
+            "StackCubeSwappedLockedRotation-v1",
             "StackCubeRestrictedSpawn-v1",
             "StackCubeLockedRotation-v1",
             "PlaceCubeLeft-v1",
+            "PlaceCubeLeftLockedRotation-v1",
             "PlaceCubeRight-v1",
+            "PlaceCubeRightLockedRotation-v1",
         ],
     )
     def test_stack_cube_delegates(self, env_id):

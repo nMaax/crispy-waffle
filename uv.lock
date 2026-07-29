@@ -1532,7 +1532,7 @@ wheels = [
 [[package]]
 name = "mani-skill"
 version = "3.0.1"
-source = { git = "https://github.com/nMaax/ManiSkill?branch=dev#7766ddc336e5b1d985e9cdf8b2cc9f49d050d230" }
+source = { git = "https://github.com/nMaax/ManiSkill?branch=dev#92db678b18f867769f072e3ce51b5cef8db0e61e" }
 dependencies = [
     { name = "dacite" },
     { name = "defusedxml" },

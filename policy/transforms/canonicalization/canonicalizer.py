@@ -30,10 +30,13 @@ class Canonicalizer:
             "StackCubeLockedRotation-v1": self._parse_stack_cube_locked_rotation_dict,
             "StackCubeRestrictedSpawn-v1": self._parse_stack_cube_restricted_spawn_dict,
             "StackCubeSwapped-v1": self._parse_stack_cube_swapped_dict,
+            "StackCubeSwappedLockedRotation-v1": self._parse_stack_cube_swapped_locked_rotation_dict,
             "PlaceSphere-v1": self._parse_place_sphere_dict,
             "PlaceSphereRestrictedSpawn-v1": self._parse_place_sphere_restricted_spawn_dict,
             "PlaceCubeLeft-v1": self._parse_place_cube_left_dict,
+            "PlaceCubeLeftLockedRotation-v1": self._parse_place_cube_left_locked_rotation_dict,
             "PlaceCubeRight-v1": self._parse_place_cube_right_dict,
+            "PlaceCubeRightLockedRotation-v1": self._parse_place_cube_right_locked_rotation_dict,
         }
 
     def __call__(self, obs: TensorTree) -> dict[str, torch.Tensor]:
@@ -50,7 +53,17 @@ class Canonicalizer:
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
 
+    def _parse_place_cube_left_locked_rotation_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
     def _parse_place_cube_right_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
+    def _parse_place_cube_right_locked_rotation_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)
@@ -61,6 +74,11 @@ class Canonicalizer:
         return self._parse_stack_cube_dict(obs)
 
     def _parse_stack_cube_swapped_dict(
+        self, obs: Mapping[str, TensorTree]
+    ) -> dict[str, torch.Tensor]:
+        return self._parse_stack_cube_dict(obs)
+
+    def _parse_stack_cube_swapped_locked_rotation_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
         return self._parse_stack_cube_dict(obs)

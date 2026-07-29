@@ -69,13 +69,23 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 ## Custom ManiSkill code and replays
 
-crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `PlaceCubeRight-v1`, `StackCubeSwapped-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, currently it is pinned to a specific commit, if you introduce new modifications you can re-resolve to the newer fork commit via `uv lock -P mani-skill`.
+crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `PlaceCubeRight-v1`, `PlaceCubeLeftLockedRotation-v1`, `PlaceCubeRightLockedRotation-v1`, `StackCubeSwapped-v1`, `StackCubeSwappedLockedRotation-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill — see `CUSTOM_ENVS.md` in the fork for the spawn regions and success criteria of each. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, tracking the `dev` branch, while `uv.lock` pins the exact resolved commit so `uv sync` stays reproducible.
 
-If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced.
+To move the pin to the current tip of the fork's `dev` branch:
+
+```bash
+uv lock -P mani-skill   # re-resolve mani-skill against the fork's dev branch
+uv sync                 # install that commit into .venv (uv lock alone does not)
+
+# confirm which commit is now pinned
+grep -n 'nMaax/ManiSkill?branch=dev#' uv.lock
+```
+
+If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced. Every fork env also needs a thin mirror in `policy/environments/` declaring its `STATE_SCHEMA` and `generate_heuristic_goal`, plus an entry in `Canonicalizer._parsers`.
 
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
-For tasks like `PlaceSphere-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning from ManiSkil. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
+For tasks like `StackCubeLockedRotation-v1` where pre-collected demos might not be readily available, you can generate your own trajectories using the built-in motion planning from ManiSkil. It is recommended to maintain a **cloned version of ManiSkill** as an isolated "Data Generator" to avoid dependency conflicts with your main crispy-waffle clone.
 
 Clone the fork from [here](https://github.com/nMaax/ManiSkill) (not the original ManiSkill) and set up using `uv sync`. This allows you to run example scripts and motion planning solvers that are not always packaged in the standard pip release, against the exact same task definitions used by the main project.
 
@@ -90,7 +100,7 @@ uv add --dev -e .
 
 #### Troubleshooting Motion Planning Segmentation Faults
 
-When running ManiSkill motion planning scripts (e.g., `PlaceSphere-v1`, `PickCube-v1`), the process silently crashes immediately. The progress bar stays at `0%`, and the OS throws a multiprocessing warning: `resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown`. This is caused by a fatal C++ segmentation fault occurring during the initialization of the `mplib` planner, driven by two specific dependency updates:
+When running ManiSkill motion planning scripts (e.g., `StackCubeLockedRotation-v1`, `PickCube-v1`), the process silently crashes immediately. The progress bar stays at `0%`, and the OS throws a multiprocessing warning: `resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown`. This is caused by a fatal C++ segmentation fault occurring during the initialization of the `mplib` planner, driven by two specific dependency updates:
 
 1. `mplib` relies heavily on C++ bindings. If it is forced to interact with NumPy 2.0+, it triggers an instant segfault when passing arrays between Python and C++.
 2. Newer versions of `mplib` (>= 0.2.0) introduce breaking API changes, explicitly requiring a custom `mplib.pymp.Pose` object instead of standard NumPy arrays for base poses. ManiSkill natively passes NumPy arrays, causing an `incompatible function arguments` crash.
@@ -110,11 +120,11 @@ uv add "numpy<2.0.0" "mplib==0.1.1" --dev
 Once dependencies are pinned, you can generate trajectories. The solver will decompose the task into pick-and-place waypoints and save the result as `.h5` files.
 
 ```bash
-# Generate 100 successful trajectories for PlaceSphere-v1
-uv run python -m mani_skill.examples.motionplanning.panda.run -e "PlaceSphere-v1" -n 100 --only-count-success
+# Generate 1500 successful trajectories for StackCubeLockedRotation-v1
+uv run python -m mani_skill.examples.motionplanning.panda.run -e "StackCubeLockedRotation-v1" -n 1500 --only-count-success
 
-# (Optional) Visualize the motion planning solve live/mp4 file
-uv run python -m mani_skill.examples.motionplanning.panda.run -e "PlaceSphere-v1" --vis # --video instead of --vis to render as mp4 files
+# (Optional) Visualize the motion planning solve live
+uv run python -m mani_skill.examples.motionplanning.panda.run -e "StackCubeLockedRotation-v1" --vis
 ```
 
 Keep this patched ManiSkill clone strictly for data generation. Once your trajectories are generated in the `demos/` folder, simply copy the `.h5` and `.json` files to your main project. Your main project can then use the latest versions of NumPy and ManiSkill without `mplib` installed, as the motion planning logic is only required during the initial offline data collection phase.
@@ -130,7 +140,7 @@ By design, ManiSkill will reproduce the trajectories with **no observations** an
 ```bash
 # Run with a specific control mode and observation mode (must be done on CPU)
 uv run python -m mani_skill.trajectory.replay_trajectory \
-  --traj-path ~/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.h5 \
+  --traj-path ~/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.h5 \
   -b "physx_cpu" \
   -c pd_ee_delta_pos \
   -o state \
@@ -140,7 +150,7 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
 ```bash
 # Convert the above result in CUDA
 uv run python -m mani_skill.trajectory.replay_trajectory \
-  --traj-path ~/.maniskill/demos/PlaceSphere-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
+  --traj-path ~/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
   --use-first-env-state \
   -b "physx_cuda" \
   --save-traj
