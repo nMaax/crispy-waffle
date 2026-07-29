@@ -73,6 +73,7 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test__GoalDeltaInput trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train__GoalDeltaInput trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLP__PlaceCubeLeft-v1__default__test__GoalDeltaInput trainer.max_epochs=1",
     # DiffusionPolicy variants (tuning)
     "experiment=DiffusionPolicy__PlaceCubeLeft-v1__default__tuning trainer.max_epochs=1",
 ]

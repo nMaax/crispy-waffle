@@ -16,6 +16,7 @@ from policy.utils.utils import (
     recursive_index,
     slice_by_schema,
     split_leaf_key,
+    split_proprio_task,
     to_tensor,
     validate_proprio_dim,
 )
@@ -188,6 +189,25 @@ def test_split_leaf_key_flat_tensor():
     popped, remainder = split_leaf_key(x, "proprio", size=2)
     assert torch.equal(popped, x[..., :2])
     assert torch.equal(remainder, x[..., 2:])
+
+
+def test_split_proprio_task_mapping_concatenates_remainder():
+    tree = {"proprio": torch.ones((2, 3)), "tcp": torch.zeros((2, 4)), "extras": torch.zeros((2, 5))}
+    proprio, task = split_proprio_task(tree, proprio_dim=3)
+    assert torch.equal(proprio, torch.ones((2, 3)))
+    assert task.shape == (2, 9)
+
+
+def test_split_proprio_task_flat_tensor():
+    x = torch.arange(10, dtype=torch.float32).view(2, 5)
+    proprio, task = split_proprio_task(x, proprio_dim=2)
+    assert torch.equal(proprio, x[..., :2])
+    assert torch.equal(task, x[..., 2:])
+
+
+def test_split_proprio_task_missing_proprio_raises():
+    with pytest.raises(ValueError, match="must contain a 'proprio' key"):
+        split_proprio_task({"tcp": torch.zeros((2, 4))}, proprio_dim=3)
 
 
 def test_validate_proprio_dim_mapping():

@@ -295,6 +295,19 @@ def split_leaf_key(
     return tree[..., :size], tree[..., size:]
 
 
+def split_proprio_task(tree: TensorTree, proprio_dim: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Splits proprioception from the (concatenated) task-relevant components.
+
+    The tensor-tree counterpart of :func:`resolve_proprio_dim`/:func:`derive_task_dim`, which
+    split the corresponding width spec.
+    """
+    proprio, remainder = split_leaf_key(tree, "proprio", proprio_dim)
+    if proprio is None:
+        raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
+    task = concat_leaf_tensors(remainder, dim=-1) if isinstance(remainder, Mapping) else remainder
+    return proprio, task
+
+
 def resolve_proprio_dim(obs_dim: DimSpec, proprio_dim: int | None = None) -> int:
     """Resolves ``proprio_dim`` against ``obs_dim``.
 

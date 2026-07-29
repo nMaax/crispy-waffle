@@ -460,6 +460,27 @@ class TestDiffusionPolicyLogic:
             with pytest.raises(ValueError, match="goal_delta=True requires goal_horizon > 0"):
                 self._make_goal_delta_policy(goal_horizon=0)
 
+    def test_goal_delta_rejects_obs_without_time_axis(self):
+        """A 2D obs would broadcast to [B, B, F] instead of raising, so it must be rejected."""
+        policy = self._make_goal_delta_policy()
+        policy.configure_model()
+
+        with pytest.raises(ValueError, match=r"expects observations of shape \[B, T, F\]"):
+            policy._build_external_cond(torch.randn(2, 2 * 48), torch.randn(2, 48))
+
+    def test_goal_delta_accepts_goal_with_time_axis(self):
+        """A [B, 1, F] goal is equivalent to [B, F]; both broadcast over the obs window."""
+        policy = self._make_goal_delta_policy()
+        policy.configure_model()
+
+        obs = torch.randn(2, 2, 48)
+        goal = torch.randn(2, 48)
+
+        flat = policy._build_external_cond(obs, goal)["obs"]
+        windowed = policy._build_external_cond(obs, goal.unsqueeze(1))["obs"]
+        assert isinstance(flat, Mapping) and isinstance(windowed, Mapping)
+        assert torch.equal(flat["task"], windowed["task"])
+
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):
         """Intercepts hydra_zen.instantiate in the base module to prevent Hydra from crashing on

@@ -7,11 +7,10 @@ import torch.nn as nn
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.utils import (
-    concat_leaf_tensors,
     derive_task_dim,
     merge_dicts,
     resolve_proprio_dim,
-    split_leaf_key,
+    split_proprio_task,
 )
 from policy.utils.typing_utils import (
     DimSpec,
@@ -30,9 +29,11 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
       the goal embedding as separate conditioning entries, i.e. ``s_1, ..., s_T`` plus ``g``.
     - ``goal_delta=True`` (relative): the goal is folded into the observation window, so the
       network sees one difference per observed timestep, i.e. ``g - s_1, ..., g - s_T``, and no
-      standalone goal entry. On this branch the difference is taken in input space and then
-      embedded (``embed(g - s_t)``); the embedding-space variant (``embed(g) - embed(s_t)``) is
-      on ``feature/goal-state-delta-conditioning``.
+      standalone goal entry. See :meth:`_build_delta_external_cond`.
+
+    Proprioception never goes through the embedder, which keeps embedders robot-agnostic; it is
+    concatenated raw alongside the embedder outputs. ``exclude_proprio_from_goal=False`` adds the
+    goal's proprioception to those outputs, next to the historical proprioception.
     """
 
     def __init__(
@@ -49,8 +50,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         super().__init__(*args, **kwargs)
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
+        self.goal_delta = goal_delta
 
-        if goal_delta and goal_horizon == 0:
+        if goal_delta and not self.goal_conditioned:
             raise ValueError(
                 "goal_delta=True requires goal_horizon > 0: there is no goal to difference the "
                 "observations against when goal-conditioning is disabled."
@@ -62,7 +64,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.task_dim = task_dim
         self.goal_dim = task_dim
         self.exclude_proprio_from_goal = exclude_proprio_from_goal
-        self.goal_delta = goal_delta
 
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
@@ -84,20 +85,38 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's
-        ``cond_dims``."""
-        embed_dim = self._embedder_output_dim()
-        obs_spec = {"proprio": self.proprio_dim, "task": embed_dim}
-        if self.goal_horizon == 0 or self.goal_delta:
-            # In delta mode the goal lives inside the obs entry (as ``g - s_t``), so it adds no
-            # conditioning width of its own and the widths match the unconditioned case.
-            return {"obs": obs_spec}
-        else:
-            if self.exclude_proprio_from_goal:
-                goal_spec = embed_dim
-            else:
-                goal_spec = {"proprio": self.proprio_dim, "task": embed_dim}
+        ``cond_dims``.
 
-            return {"obs": obs_spec, "goal": goal_spec}
+        Mirrors :meth:`_build_external_cond`: each branch below has a builder counterpart named
+        alike, and the two trees must stay in sync.
+        """
+        if not self.goal_conditioned:
+            return self._obs_cond_dims()
+        else:
+            return self._goal_conditioned_cond_dims()
+
+    def _goal_conditioned_cond_dims(self) -> dict[str, DimSpec]:
+        if not self.goal_delta:
+            return self._absolute_cond_dims()
+        else:
+            return self._delta_cond_dims()
+
+    def _absolute_cond_dims(self) -> dict[str, DimSpec]:
+        return {**self._obs_cond_dims(), **self._goal_cond_dims()}
+
+    def _delta_cond_dims(self) -> dict[str, DimSpec]:
+        # The differences have the same width as the obs entries, so the goal adds none of its own.
+        return self._obs_cond_dims()
+
+    def _obs_cond_dims(self) -> dict[str, DimSpec]:
+        return {"obs": {"proprio": self.proprio_dim, "task": self._embedder_output_dim()}}
+
+    def _goal_cond_dims(self) -> dict[str, DimSpec]:
+        embed_dim = self._embedder_output_dim()
+        if self.exclude_proprio_from_goal:
+            return {"goal": embed_dim}
+        else:
+            return {"goal": {"proprio": self.proprio_dim, "task": embed_dim}}
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
@@ -109,8 +128,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return self.task_dim
 
         return self.embedder_config.get("output_dim")
-
-
 
     @torch.no_grad()
     def extract_embeddings(
@@ -210,26 +227,29 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def _build_external_cond(
         self, obs: TensorTree, goal: TensorTree | None
     ) -> dict[str, TensorTree]:
-
-        # NOTE: Proprioception is always kept raw and never routed through the embedder, so embedders stay
-        # robot-agnostic. The "no embedding" variant is simply ``embedder=None`` (an identity
-        # embedder); other embedders (e.g. an MLP) are selected via config.
-        # Propriception of the historical states is the re-routed to be concatenated alongside the embedder outputs to
-        # condition the network denoising process. Among such proprioception we can optionally include the one associated
-        # to the goal by turning exclude_proprio_from_goal to False if our inference setting provides reasonable proprioception data.
-
-        if self.goal_horizon == 0:
+        if not self.goal_conditioned:
             return self._build_obs_external_cond(obs)
+        else:
+            return self._build_goal_conditioned_external_cond(obs, goal)
 
+    def _build_goal_conditioned_external_cond(
+        self, obs: TensorTree, goal: TensorTree | None
+    ) -> dict[str, TensorTree]:
         if goal is None:
             raise ValueError(
                 f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
                 "but received goal=None."
             )
 
-        if self.goal_delta:
+        if not self.goal_delta:
+            return self._build_absolute_external_cond(obs, goal)
+        else:
             return self._build_delta_external_cond(obs, goal)
 
+    def _build_absolute_external_cond(
+        self, obs: TensorTree, goal: TensorTree
+    ) -> dict[str, TensorTree]:
+        """Conditions on the observation embeddings and the goal embedding as separate entries."""
         return merge_dicts(
             [self._build_obs_external_cond(obs), self._build_goal_external_cond(goal)]
         )
@@ -248,64 +268,34 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def _build_delta_external_cond(
         self, obs: TensorTree, goal: TensorTree
     ) -> dict[str, TensorTree]:
-        """Conditions on goal-state differences (``g - s_t``) instead of ``g`` and ``s_t`` apart.
+        """Conditions on the difference between the goal and each observation timestep."""
+        obs_proprio, obs_task = split_proprio_task(obs, self.proprio_dim)
+        goal_proprio, goal_task = split_proprio_task(goal, self.proprio_dim)
 
-        The obs "task" slot carries one difference per observed timestep, ``g - s_t``, with the
-        goal broadcast across the observation window, and no separate "goal" entry is emitted.
-        The subtraction happens in *input* space and the difference is what gets embedded
-        (``embed(g - s_t)``, not ``embed(g) - embed(s_t)``), so the embedder sees goal-relative
-        features and never an absolute state. The embedding-space variant lives on its own branch
-        (``feature/goal-state-delta-conditioning``); the two coincide only for a linear embedder
-        without bias, and exactly for the identity embedder.
+        # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
+        # [B, B, F], silently mistaking the batch axis for the time axis.
+        if obs_task.ndim != 3:
+            raise ValueError(
+                "goal_delta=True expects observations of shape [B, T, F], but got "
+                f"{tuple(obs_task.shape)} (shape shown after splitting off proprioception)."
+            )
 
-        Proprioception follows ``exclude_proprio_from_goal`` exactly as in absolute mode: when
-        True (default) the raw per-timestep proprio is passed through untouched, and only the task
-        components are differenced; when False the goal's proprio is differenced against the
-        observed proprio too (so no absolute proprio reaches the network). Proprio never goes
-        through the embedder, so its difference is unaffected by this choice of space.
-        """
-        obs_proprio, obs_task = self._split_proprio_task(obs)
-        goal_proprio, goal_task = self._split_proprio_task(goal)
+        goal_had_no_time_axis = goal_task.ndim == 2
+        if goal_had_no_time_axis:
+            goal_task = goal_task.unsqueeze(1)
+            goal_proprio = goal_proprio.unsqueeze(1)
 
-        goal_task = self._broadcast_goal_over_obs(goal_task, obs_task)
         task_delta = self._embed_task(goal_task - obs_task)
         if self.exclude_proprio_from_goal:
             proprio = obs_proprio
         else:
-            proprio = self._broadcast_goal_over_obs(goal_proprio, obs_proprio) - obs_proprio
+            proprio = goal_proprio - obs_proprio
 
         return {"obs": {"proprio": proprio, "task": task_delta}}
 
-    @staticmethod
-    def _broadcast_goal_over_obs(goal: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
-        """Aligns a goal tensor's time axis with the observation window's so they can be
-        subtracted.
-
-        A goal is a single timestep, so it usually arrives without a time axis (``[B, D]`` against
-        an obs window of ``[B, T, D]``) and gets one inserted to broadcast over the window.
-        """
-        if goal.ndim == obs.ndim - 1:
-            return goal.unsqueeze(1)
-
-        if goal.ndim != obs.ndim:
-            raise ValueError(
-                f"Cannot align goal of shape {tuple(goal.shape)} with observations of shape "
-                f"{tuple(obs.shape)}: expected the goal to have the same number of dimensions, "
-                "or one fewer (no time axis)."
-            )
-
-        if obs.ndim == 3 and goal.shape[1] not in (1, obs.shape[1]):
-            raise ValueError(
-                f"Cannot align a goal window of length {goal.shape[1]} with an observation window "
-                f"of length {obs.shape[1]}: goal_delta=True expects either a single goal timestep "
-                "(broadcast over the window) or one goal per observed timestep."
-            )
-
-        return goal
-
     def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits proprio/task and embeds the task components."""
-        proprio, task = self._split_proprio_task(states)
+        proprio, task = split_proprio_task(states, self.proprio_dim)
         return proprio, self._embed_task(task)
 
     def _embed_task(self, task: torch.Tensor) -> torch.Tensor:
@@ -314,11 +304,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             raise ValueError(
                 "Embedder not initialized. Call configure_model() before using the embedder."
             )
-
-        # Handles both a horizon window (``task`` is ``[B, T, task_dim]``, e.g. obs) and a single
-        # timestep with no time axis at all (``task`` is ``[B, task_dim]``, e.g. goal) uniformly:
-        # a missing time axis is unsqueezed to ``T=1`` before embedding, then squeezed back out of
-        # the result so the returned shape matches whatever was passed in.
 
         had_no_time_axis = task.ndim == 2
         if had_no_time_axis:
@@ -332,15 +317,3 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             task_embedded = task_embedded.squeeze(1)
 
         return task_embedded
-
-    def _split_proprio_task(
-        self, x: torch.Tensor | Mapping[str, Any]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprioception from the (concatenated) task-relevant components."""
-        proprio, remainder = split_leaf_key(x, "proprio", self.proprio_dim)
-        if proprio is None:
-            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
-        task = (
-            concat_leaf_tensors(remainder, dim=-1) if isinstance(remainder, Mapping) else remainder
-        )
-        return proprio, task
