@@ -6,7 +6,9 @@ _target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDif
 
 goal_horizon: 1
 
-# false: condition on the observation embeddings and the goal embedding separately (s_1..s_T, g).
-# true: condition on the per-timestep goal-state differences instead (g - s_1, ..., g - s_T),
+# null: condition on the observation embeddings and the goal embedding separately (s_1..s_T, g).
+# input: condition on the per-timestep goal-state differences instead (g - s_1, ..., g - s_T),
 # differenced before the embedder, i.e. embed(g - s_t).
-goal_delta: false
+# embedding: the same, differenced after the embedder, i.e. embed(g) - embed(s_t). Equivalent to
+# input unless the embedder is nonlinear.
+goal_delta: null

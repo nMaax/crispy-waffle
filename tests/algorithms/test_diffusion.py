@@ -322,13 +322,13 @@ class TestDiffusionPolicyLogic:
             "proprio_dim": 18,
             "pred_horizon": 16,
             "obs_horizon": 2,
-            "goal_delta": True,
+            "goal_delta": "input",
         }
         kwargs.update(overrides)
         return GoalConditionedDiffusionPolicy(**kwargs)
 
     def test_goal_delta_folds_goal_into_obs(self):
-        """goal_delta=True replaces the obs task embeddings with (g - s_t) and drops the standalone
+        """A delta mode replaces the obs task embeddings with (g - s_t) and drops the standalone
         goal entry, for both tensor and dict inputs."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
@@ -376,7 +376,7 @@ class TestDiffusionPolicyLogic:
             assert torch.equal(dict_cond["task"][:, :, :10], expected_a)
 
     def test_goal_delta_differences_proprio_when_included(self):
-        """goal_delta=True with exclude_proprio_from_goal=False differences proprio as well."""
+        """A delta mode with exclude_proprio_from_goal=False differences proprio as well."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -393,12 +393,12 @@ class TestDiffusionPolicyLogic:
                 obs_cond["proprio"], goal[:, :18].unsqueeze(1) - obs[:, :, :18]
             )
 
-    def test_goal_delta_is_taken_in_input_space(self):
-        """The difference is embed(g - s_t), i.e. taken *before* the embedder.
+    @pytest.mark.parametrize("goal_delta", ["input", "embedding"])
+    def test_goal_delta_is_taken_in_the_configured_space(self, goal_delta: str):
+        """"input" differences before the embedder, "embedding" after it.
 
-        The default identity embedder makes the two orderings indistinguishable, so this uses a
-        real (nonlinear) MLP embedder, where embed(g - s_t) != embed(g) - embed(s_t). The
-        embedding-space variant lives on ``feature/goal-state-delta-conditioning``.
+        A linear embedder makes the two orderings indistinguishable, so this uses a real
+        (nonlinear) MLP one, where embed(g - s_t) != embed(g) - embed(s_t).
         """
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
@@ -406,13 +406,15 @@ class TestDiffusionPolicyLogic:
         ):
             torch.manual_seed(0)
             policy = self._make_goal_delta_policy(
+                goal_delta=goal_delta,
                 embedder={
                     "_target_": "policy.algorithms.networks.mlp.MLP",
                     "output_dim": 8,
                     "hidden_dims": [16],
-                }
+                },
             )
             policy.configure_model()
+            # Both modes report the same widths: the goal is folded into the obs entry either way.
             assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 8}}
 
             # configure_model() gets a mocked embedder (the patch above lands on the shared
@@ -427,17 +429,41 @@ class TestDiffusionPolicyLogic:
 
             obs_task, goal_task = obs[:, :, 18:], goal[:, 18:]
             with torch.no_grad():
-                embedded_space = embedder(goal_task).unsqueeze(1) - embedder(obs_task)
-                input_space = embedder(goal_task.unsqueeze(1) - obs_task)
+                spaces = {
+                    "input": embedder(goal_task.unsqueeze(1) - obs_task),
+                    "embedding": embedder(goal_task).unsqueeze(1) - embedder(obs_task),
+                }
 
             assert obs_cond["task"].shape == (2, 2, 8)
-            assert torch.allclose(obs_cond["task"], input_space)
+            assert torch.allclose(obs_cond["task"], spaces[goal_delta])
             # Guards the test itself: the two orderings must actually disagree here, otherwise the
             # assertion above would pass for either implementation.
-            assert not torch.allclose(input_space, embedded_space)
+            assert not torch.allclose(spaces["input"], spaces["embedding"])
+
+    def test_goal_delta_modes_agree_under_a_linear_embedder(self):
+        """The two modes coincide when the embedder is linear (the default identity included).
+
+        This is why only the MLP experiment configs carry both modes.
+        """
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+
+            task_deltas = []
+            for goal_delta in ("input", "embedding"):
+                policy = self._make_goal_delta_policy(goal_delta=goal_delta)
+                policy.configure_model()
+                obs_cond = policy._build_external_cond(obs, goal)["obs"]
+                assert isinstance(obs_cond, Mapping)
+                task_deltas.append(obs_cond["task"])
+
+            assert torch.equal(*task_deltas)
 
     def test_goal_delta_reports_absolute_embeddings(self):
-        """extract_embeddings stays absolute (not differenced) under goal_delta=True."""
+        """extract_embeddings stays absolute (not differenced) under a delta mode."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -452,17 +478,32 @@ class TestDiffusionPolicyLogic:
             assert torch.equal(embeddings["goal_embedding"], goal[:, 18:])
 
     def test_goal_delta_requires_goal_conditioning(self):
-        """goal_delta=True is meaningless without a goal, so goal_horizon=0 must be rejected."""
+        """A delta mode is meaningless without a goal, so goal_horizon=0 must be rejected."""
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
         ):
-            with pytest.raises(ValueError, match="goal_delta=True requires goal_horizon > 0"):
+            with pytest.raises(ValueError, match="requires goal_horizon > 0"):
                 self._make_goal_delta_policy(goal_horizon=0)
 
-    def test_goal_delta_rejects_obs_without_time_axis(self):
-        """A 2D obs would broadcast to [B, B, F] instead of raising, so it must be rejected."""
-        policy = self._make_goal_delta_policy()
+    def test_goal_delta_rejects_unknown_mode(self):
+        """Hydra does not validate the config string, and an unknown one would silently difference
+        in embedding space."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            with pytest.raises(ValueError, match="is not a valid mode"):
+                self._make_goal_delta_policy(goal_delta="inputt")
+
+    @pytest.mark.parametrize("goal_delta", ["input", "embedding"])
+    def test_goal_delta_rejects_obs_without_time_axis(self, goal_delta: str):
+        """A 2D obs would broadcast to [B, B, F] instead of raising, so it must be rejected.
+
+        The trap is the same in either space: _embed_task preserves the time-axis-ness of its
+        input, so the embedding path also ends up subtracting [B, E] from [B, 1, E].
+        """
+        policy = self._make_goal_delta_policy(goal_delta=goal_delta)
         policy.configure_model()
 
         with pytest.raises(ValueError, match=r"expects observations of shape \[B, T, F\]"):

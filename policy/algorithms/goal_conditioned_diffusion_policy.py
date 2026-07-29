@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import hydra_zen
 import torch
@@ -23,13 +23,17 @@ from policy.utils.typing_utils import (
 class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProtocol):
     """Goal-conditioned diffusion policy using diffusers noise schedulers.
 
-    Two conditioning modes, selected by ``goal_delta``:
+    Three conditioning modes, selected by ``goal_delta``:
 
-    - ``goal_delta=False`` (default, absolute): the network sees the observation embeddings and
+    - ``goal_delta=None`` (default, absolute): the network sees the observation embeddings and
       the goal embedding as separate conditioning entries, i.e. ``s_1, ..., s_T`` plus ``g``.
-    - ``goal_delta=True`` (relative): the goal is folded into the observation window, so the
-      network sees one difference per observed timestep, i.e. ``g - s_1, ..., g - s_T``, and no
-      standalone goal entry. See :meth:`_build_delta_external_cond`.
+    - ``goal_delta="input"`` (relative): the goal is folded into the observation window, so the
+      network sees one difference per observed timestep, differenced before the embedder,
+      ``embed(g - s_t)``, and no standalone goal entry.
+    - ``goal_delta="embedding"``: the same, differenced after the embedder,
+      ``embed(g) - embed(s_t)``. Identical to ``"input"`` for a bias-free linear embedder (the
+      default identity included); the two diverge only for a nonlinear one.
+      See :meth:`_build_delta_external_cond`.
 
     Proprioception never goes through the embedder, which keeps embedders robot-agnostic; it is
     concatenated raw alongside the embedder outputs. ``exclude_proprio_from_goal=False`` adds the
@@ -44,7 +48,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
         exclude_proprio_from_goal: bool = True,
-        goal_delta: bool = False,
+        goal_delta: Literal["input", "embedding"] | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -52,10 +56,19 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.goal_conditioned = goal_horizon > 0
         self.goal_delta = goal_delta
 
-        if goal_delta and not self.goal_conditioned:
+        # Unreachable to a type checker, but not at runtime: hydra hands the config string over
+        # unvalidated, and an unrecognized one would fall through to the embedding-space branch in
+        # :meth:`_embed_task_delta` instead of raising.
+        if goal_delta not in (None, "input", "embedding"):
             raise ValueError(
-                "goal_delta=True requires goal_horizon > 0: there is no goal to difference the "
-                "observations against when goal-conditioning is disabled."
+                f"goal_delta={goal_delta!r} is not a valid mode: expected None (absolute), "
+                "'input' (embed(g - s_t)) or 'embedding' (embed(g) - embed(s_t))."
+            )
+
+        if goal_delta is not None and not self.goal_conditioned:
+            raise ValueError(
+                f"goal_delta={goal_delta!r} requires goal_horizon > 0: there is no goal to "
+                "difference the observations against when goal-conditioning is disabled."
             )
 
         proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
@@ -96,7 +109,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return self._goal_conditioned_cond_dims()
 
     def _goal_conditioned_cond_dims(self) -> dict[str, DimSpec]:
-        if not self.goal_delta:
+        if self.goal_delta is None:
             return self._absolute_cond_dims()
         else:
             return self._delta_cond_dims()
@@ -106,6 +119,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _delta_cond_dims(self) -> dict[str, DimSpec]:
         # The differences have the same width as the obs entries, so the goal adds none of its own.
+        # Both delta modes difference post-embedder-width tensors, so this covers each of them.
         return self._obs_cond_dims()
 
     def _obs_cond_dims(self) -> dict[str, DimSpec]:
@@ -241,7 +255,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 "but received goal=None."
             )
 
-        if not self.goal_delta:
+        if self.goal_delta is None:
             return self._build_absolute_external_cond(obs, goal)
         else:
             return self._build_delta_external_cond(obs, goal)
@@ -276,7 +290,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         # [B, B, F], silently mistaking the batch axis for the time axis.
         if obs_task.ndim != 3:
             raise ValueError(
-                "goal_delta=True expects observations of shape [B, T, F], but got "
+                "goal_delta expects observations of shape [B, T, F], but got "
                 f"{tuple(obs_task.shape)} (shape shown after splitting off proprioception)."
             )
 
@@ -285,7 +299,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             goal_task = goal_task.unsqueeze(1)
             goal_proprio = goal_proprio.unsqueeze(1)
 
-        task_delta = self._embed_task(goal_task - obs_task)
+        task_delta = self._embed_task_delta(goal_task, obs_task)
         if self.exclude_proprio_from_goal:
             proprio = obs_proprio
         else:
@@ -297,6 +311,13 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         """Splits proprio/task and embeds the task components."""
         proprio, task = split_proprio_task(states, self.proprio_dim)
         return proprio, self._embed_task(task)
+
+    def _embed_task_delta(self, goal_task: torch.Tensor, obs_task: torch.Tensor) -> torch.Tensor:
+        """Embeds the goal-state difference, differencing before or after the embedder."""
+        if self.goal_delta == "input":
+            return self._embed_task(goal_task - obs_task)
+        else:
+            return self._embed_task(goal_task) - self._embed_task(obs_task)
 
     def _embed_task(self, task: torch.Tensor) -> torch.Tensor:
         """Runs already-split task components through the embedder."""
