@@ -56,15 +56,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.goal_conditioned = goal_horizon > 0
         self.goal_delta = goal_delta
 
-        # Unreachable to a type checker, but not at runtime: hydra hands the config string over
-        # unvalidated, and an unrecognized one would fall through to the embedding-space branch in
-        # :meth:`_embed_task_delta` instead of raising.
-        if goal_delta not in (None, "input", "embedding"):
-            raise ValueError(
-                f"goal_delta={goal_delta!r} is not a valid mode: expected None (absolute), "
-                "'input' (embed(g - s_t)) or 'embedding' (embed(g) - embed(s_t))."
-            )
-
         if goal_delta is not None and not self.goal_conditioned:
             raise ValueError(
                 f"goal_delta={goal_delta!r} requires goal_horizon > 0: there is no goal to "
@@ -119,7 +110,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _delta_cond_dims(self) -> dict[str, DimSpec]:
         # The differences have the same width as the obs entries, so the goal adds none of its own.
-        # Both delta modes difference post-embedder-width tensors, so this covers each of them.
         return self._obs_cond_dims()
 
     def _obs_cond_dims(self) -> dict[str, DimSpec]:
