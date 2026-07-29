@@ -108,10 +108,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def _absolute_cond_dims(self) -> dict[str, DimSpec]:
         return {**self._obs_cond_dims(), **self._goal_cond_dims()}
 
-    def _delta_cond_dims(self) -> dict[str, DimSpec]:
-        # The differences have the same width as the obs entries, so the goal adds none of its own.
-        return self._obs_cond_dims()
-
     def _obs_cond_dims(self) -> dict[str, DimSpec]:
         return {"obs": {"proprio": self.proprio_dim, "task": self._embedder_output_dim()}}
 
@@ -121,6 +117,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return {"goal": embed_dim}
         else:
             return {"goal": {"proprio": self.proprio_dim, "task": embed_dim}}
+
+    def _delta_cond_dims(self) -> dict[str, DimSpec]:
+        # The differences have the same width as the obs entries, so the goal adds none of its own.
+        return self._obs_cond_dims()
 
     def _embedder_output_dim(self) -> int:
         """Lookup of the embedder's output dim.
