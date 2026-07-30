@@ -489,6 +489,32 @@ def test_all_four_metrics_logged(monkeypatch, capture_log):
     assert "val/avg_episode_length" in logged
 
 
+def test_name_namespaces_logged_metrics(monkeypatch, capture_log):
+    """With `name` set, logged metric keys are namespaced as `<phase>/<name>/<metric>` instead of
+    `<phase>/<metric>`, so multiple callback instances sharing a phase don't collide."""
+    _patch_gym(monkeypatch, episode_len=1, success=True)
+    datamodule = FakeRolloutDataModule(physx_backend="physx_cpu")
+    model = FakeRolloutPolicyModule()
+
+    rollout_cb = RolloutEvaluationCallback(num_episodes=3, seed=42, name="SomeEnv-v1")
+    trainer = L.Trainer(
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+        callbacks=[rollout_cb],
+        max_epochs=1,
+    )
+    trainer.validate(model=model, datamodule=datamodule, verbose=False)
+
+    logged = {name: float(value) for (name, value, _kw) in capture_log}
+    assert "val/SomeEnv-v1/success_once_rate" in logged
+    assert "val/SomeEnv-v1/success_at_end_rate" in logged
+    assert "val/success_once_rate" not in logged
+
+
 def test_clamp_action_clamps_out_of_bounds(monkeypatch, capture_log):
     """With clamp_action=True, out-of-bounds policy actions are clamped to the action space."""
     created = _patch_gym(monkeypatch, episode_len=1)

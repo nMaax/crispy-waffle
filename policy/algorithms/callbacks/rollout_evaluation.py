@@ -58,11 +58,14 @@ class RolloutEvaluationCallback(L.Callback):
         canonicalize: bool | None = None,
         as_dict: bool | None = None,
         no_proprio_vel: bool | None = None,
+        name: str | None = None,
     ):
         super().__init__()
 
         if seed is None:
             raise ValueError("seed must be provided.")
+
+        self.name = name
 
         self.num_inference_steps = num_inference_steps
 
@@ -501,16 +504,20 @@ class RolloutEvaluationCallback(L.Callback):
         avg_truncation_rate = total_truncations / num_episodes
         avg_episode_length = total_episode_lengths / num_episodes
 
+        # For multiple RolloutEvaluationCallback targeting the same phase
+        scope = f"{phase}/{self.name}" if self.name else phase
+
         # We do not support multi GPUs in maniskill, so we set sync_dist=False
         pl_module.log(
-            f"{phase}/success_once_rate", float(success_once_rate), sync_dist=False, prog_bar=True
+            f"{scope}/success_once_rate", float(success_once_rate), sync_dist=False, prog_bar=True
         )
-        pl_module.log(f"{phase}/success_at_end_rate", float(success_at_end_rate), sync_dist=False)
-        pl_module.log(f"{phase}/truncation_rate", float(avg_truncation_rate), sync_dist=False)
-        pl_module.log(f"{phase}/avg_episode_length", float(avg_episode_length), sync_dist=False)
+        pl_module.log(f"{scope}/success_at_end_rate", float(success_at_end_rate), sync_dist=False)
+        pl_module.log(f"{scope}/truncation_rate", float(avg_truncation_rate), sync_dist=False)
+        pl_module.log(f"{scope}/avg_episode_length", float(avg_episode_length), sync_dist=False)
 
+        name_suffix = f" | {self.name}" if self.name else ""
         pl_module.print(
-            f"  [{phase.capitalize()} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
+            f"  [{phase.capitalize()}{name_suffix} | Step {trainer.global_step:06d} (E{trainer.current_epoch:04d})] "
             f"Success (once): {success_once_rate:.4%} | Success (at end): {success_at_end_rate:.4%}"
         )
 

@@ -14,6 +14,26 @@ from policy.utils.hydra_utils import resolve_dictconfig
 torch.set_float32_matmul_precision("high")
 
 
+def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
+    """Logs one wandb bar chart per metric, across any env-namespaced `test/<env>/<metric>` entries
+    produced by running multiple RolloutEvaluationCallback instances in one test run.
+
+    A no-op for ordinary single-env test runs, whose metrics aren't env-namespaced.
+    """
+    per_metric: dict[str, dict[str, float]] = {}
+    for key, value in trainer.callback_metrics.items():
+        parts = key.split("/")
+        if len(parts) == 3 and parts[0] == "test" and parts[2] in (
+            "success_once_rate",
+            "success_at_end_rate",
+        ):
+            per_metric.setdefault(parts[2], {})[parts[1]] = float(value)
+
+    for metric_name, env_values in per_metric.items():
+        table = wandb.Table(columns=["env", metric_name], data=list(env_values.items()))
+        wandb.log({f"test/{metric_name}_by_env": wandb.plot.bar(table, "env", metric_name)})
+
+
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
 def main(dict_config: DictConfig):
     config = resolve_dictconfig(dict_config)
@@ -36,6 +56,7 @@ def main(dict_config: DictConfig):
     trainer.test(model=model, dataloaders=dummy_loader)
 
     if wandb.run:
+        _log_zero_shot_bar_charts(trainer)
         wandb.finish()
 
 

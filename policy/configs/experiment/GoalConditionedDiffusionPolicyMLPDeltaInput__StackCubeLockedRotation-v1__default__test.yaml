@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - GoalConditionedDiffusionPolicy__StackCube-v1__default__train
+  - GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__train
 
 name: ${hydra:runtime.choices.experiment}
 ckpt_path: ???
@@ -8,9 +8,9 @@ ckpt_path: ???
 trainer:
   callbacks:
     rollout_evaluation:
-      env_id: "PlaceCubeRight-v1"
+      num_episodes: 100
+      env_id: "StackCubeLockedRotation-v1"
       obs_mode: "state"
       control_mode: "pd_ee_delta_pos"
       physx_backend: "physx_cuda"
       canonicalize: true
-      num_episodes: 100
