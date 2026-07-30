@@ -155,3 +155,86 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
   -b "physx_cuda" \
   --save-traj
 ```
+
+---
+
+## Remote experiments on Vast.ai (or other rented GPUs)
+
+Rented instances can be pre-empted or disconnected without warning and typically don't offer sudo. Data and checkpoints will then live on HuggingFace Hub, so a killed instance never loses more than the last few thousand training steps.
+
+### One-time credential setup
+
+**On Vast.ai**, set `HF_TOKEN`, `HF_DATASET_REPO`, and `HF_CHECKPOINT_REPO_ID` once in your [Vast.ai Account Settings](https://cloud.vast.ai/account/) ("Environment Variables"). Per [Vast.ai's docs](https://docs.vast.ai/instances/docker-execution-environment), variables set there are automatically injected into every container you launch afterward.
+
+**Locally** (e.g. to test the sync paths against a real HF Hub account before ever touching Vast.ai), export the same three yourself:
+
+```bash
+# bash/zsh
+export HF_TOKEN=hf_xxxxxxxxxxxx
+export HF_CHECKPOINT_REPO_ID=<you>/crispy-waffle-checkpoints
+export HF_DATASET_REPO=<you>/crispy-waffle-demos
+```
+
+```fish
+# fish
+set -x HF_TOKEN hf_xxxxxxxxxxxx
+set -x HF_CHECKPOINT_REPO_ID <you>/crispy-waffle-checkpoints
+set -x HF_DATASET_REPO <you>/crispy-waffle-demos
+```
+
+Then create both repos ahead of your first run. `--exist-ok` makes this safe to rerun on every new machine without erroring on a repo you already created. Remind that repo creation never touches existing content, so it can't overwrite checkpoints or data already uploaded:
+
+```bash
+uv run hf repo create "$HF_CHECKPOINT_REPO_ID" --repo-type model --private --exist-ok
+uv run hf repo create "$HF_DATASET_REPO" --repo-type dataset --private --exist-ok
+```
+
+You can upload datasets as you like, preserving its path relative to `~/.maniskill/demos`. The datamodule will reconstruct that same relative path when it downloads if it find the data is missing, so the repo layout has to mirror it exactly:
+
+```bash
+uv run hf upload "$HF_DATASET_REPO" ~/.maniskill/demos/<env-id> <env-id> --repo-type dataset
+```
+
+e.g. for `StackCube-v1`:
+
+```bash
+uv run hf upload "$HF_DATASET_REPO" ~/.maniskill/demos/StackCube-v1 StackCube-v1 --repo-type dataset
+```
+
+This recursively uploads that env's whole subtree (both the `.h5` and its `.json`) to the matching subpath at the repo root.
+
+### One-time machine setup (no sudo)
+
+If you instead already uploaded all the data you needed and you are just instantiating a new Vast.ai instance, run
+
+```bash
+# bash/zsh
+command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh # Install uv
+export PATH="$HOME/.local/bin:$PATH" # Make uv visible in this same shell, without waiting for a new login
+uv sync # Install project dependencies into .venv
+```
+
+If you want to force download of datasets (they would be automatically downloaded if missing at the first run anyway), you can do
+
+```bash
+uv run hf download "$HF_DATASET_REPO" --repo-type dataset --local-dir "$HOME/.maniskill/demos"
+```
+### Checkpoint sync & manual resume
+
+This will only work if you exported (or let Vast.ai do it automatically) `HF_CHECKPOINT_REPO_ID` (and `HF_TOKEN` if private). Leave it unset have a fully-local behavior where no data is uploaded to Hugging Face Hub.
+
+Just like datasets, checkpoint uploads land at the exact same relative path this run already uses locally under `logs/` — e.g. `logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt`.
+
+Note that Vast.ai never restarts a killed instance for you, so recovering is always manual by expliciting a `ckpt_path=`, if you need to download such checkpoint just do and download just that file:
+
+```bash
+uv run hf download "$HF_CHECKPOINT_REPO_ID" "logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt" --repo-type model --local-dir .
+```
+
+then relaunch with that path:
+
+```bash
+uv run python policy/main.py experiment=<name> seed=<value> ckpt_path=logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt
+```
+
+Keep in mind HF Hub repos are git/LFS-backed: repeatedly "overwriting" `last.ckpt` still keeps every prior revision in history, so the repo's storage keeps growing even though only the latest file matters for resume. Periodically squash history (`HfApi.super_squash_history`) or prune old commits if this becomes a problem.
