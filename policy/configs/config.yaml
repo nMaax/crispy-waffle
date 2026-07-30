@@ -14,3 +14,7 @@ defaults:
 
 # This is a good default name to use when you aren't doing a sweep. Otherwise it causes an error.
 # name: "${hydra:runtime.choices.algorithm}-${hydra:runtime.choices.network}-${hydra:runtime.choices.datamodule}"
+
+# HF Hub model repo id to sync/resume checkpoints from. Set the HF_CHECKPOINT_REPO_ID env var to
+# opt in; unset means fully local, no HF Hub calls.
+hf_checkpoint_repo_id: ${oc.env:HF_CHECKPOINT_REPO_ID,null}

@@ -64,6 +64,13 @@ class Config:
     will be set to None to avoid resuming the training state.
     """
 
+    hf_checkpoint_repo_id: str | None = None
+    """HF Hub model repo id to mirror checkpoints to, at the same path they use locally.
+
+    None will ignore HFH and save locally only. Resuming from a synced checkpoint is manual:
+    download the one you mean, then pass its local path as `ckpt_path`.
+    """
+
     render: Any | None = None
     """Optional render mode."""
 

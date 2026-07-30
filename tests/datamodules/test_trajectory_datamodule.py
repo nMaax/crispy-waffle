@@ -213,3 +213,85 @@ class TestManiSkillDataLoaders:
 
         batch = next(iter(test_loader))
         assert batch == {}
+
+
+class TestManiSkillDataModuleHFFetch:
+    """Tests for the optional HF Hub dataset auto-fetch path (`hf_dataset_repo`)."""
+
+    def _make_dataset_file(self, tmp_path: Path, monkeypatch) -> Path:
+        fake_home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        return fake_home / ".maniskill" / "demos" / "StackCube-v1" / "motionplanning" / "trajectory.h5"
+
+    def test_prepare_data_noop_when_hf_dataset_repo_none(self, tmp_path, monkeypatch):
+        """Default behavior (hf_dataset_repo=None) never touches huggingface_hub."""
+        dataset_file = self._make_dataset_file(tmp_path, monkeypatch)
+        dataset_file.parent.mkdir(parents=True)
+        dataset_file.write_bytes(b"")
+        dataset_file.with_suffix(".json").write_text(
+            json.dumps({"env_info": {}, "episodes": []})
+        )
+
+        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1)
+        with patch("huggingface_hub.hf_hub_download") as mock_download:
+            dm.prepare_data()
+        mock_download.assert_not_called()
+
+    def test_construction_defers_validation_when_hf_dataset_repo_set(self, tmp_path, monkeypatch):
+        """With hf_dataset_repo set, missing local files must not raise at construction time."""
+        dataset_file = self._make_dataset_file(tmp_path, monkeypatch)  # files don't exist yet
+        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        assert not hasattr(dm, "env_id")
+
+    def test_prepare_data_downloads_and_validates(self, tmp_path, monkeypatch):
+        dataset_file = self._make_dataset_file(tmp_path, monkeypatch)
+
+        def fake_download(filename, local_dir, **_kwargs):
+            target = Path(local_dir) / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.suffix == ".json":
+                target.write_text(
+                    json.dumps(
+                        {
+                            "env_info": {
+                                "env_id": "StackCube-v1",
+                                "env_kwargs": {
+                                    "obs_mode": "state",
+                                    "control_mode": "pd_ee_delta_pos",
+                                    "sim_backend": "physx_cpu",
+                                },
+                            },
+                            "episodes": [],
+                        }
+                    )
+                )
+            else:
+                target.write_bytes(b"")
+
+        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        with patch(
+            "huggingface_hub.hf_hub_download", side_effect=fake_download
+        ) as mock_download:
+            dm.prepare_data()
+
+        assert mock_download.call_count == 2
+        assert dm.env_id == "StackCube-v1"
+        assert dataset_file.exists()
+        assert dataset_file.with_suffix(".json").exists()
+
+    def test_prepare_data_raises_when_download_leaves_files_missing(self, tmp_path, monkeypatch):
+        dataset_file = self._make_dataset_file(tmp_path, monkeypatch)
+        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        with patch("huggingface_hub.hf_hub_download"):  # no-op: doesn't materialize files
+            with pytest.raises(FileNotFoundError):
+                dm.prepare_data()
+
+    def test_prepare_data_raises_valueerror_outside_maniskill_convention(
+        self, tmp_path, monkeypatch
+    ):
+        self._make_dataset_file(tmp_path, monkeypatch)  # only to patch Path.home
+        outside_file = tmp_path / "elsewhere" / "trajectory.h5"
+        outside_file.parent.mkdir(parents=True)
+        dm = TrajectoryDataModule(dataset_file=outside_file, seed=1, hf_dataset_repo="org/demos")
+        with pytest.raises(ValueError):
+            dm.prepare_data()

@@ -24,6 +24,7 @@ class TrajectoryDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_file: str | Path,
+        hf_dataset_repo: str | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         obs_dim: DimSpec = Canonicalizer.DIM_SPEC,
@@ -47,22 +48,8 @@ class TrajectoryDataModule(L.LightningDataModule):
             raise ValueError("seed must be provided.")
 
         self.dataset_file = Path(dataset_file)
-
-        if not self.dataset_file.exists():
-            raise FileNotFoundError(f"The dataset file was not found at: {self.dataset_file}")
-
-        if self.dataset_file.suffix not in [".h5", ".hdf5"]:
-            raise ValueError(
-                f"Invalid file extension '{self.dataset_file.suffix}'. "
-                "ManiSkill datasets must be HDF5 files (.h5 or .hdf5)."
-            )
-
         self.json_path = self.dataset_file.with_suffix(".json")
-        if not self.json_path.exists():
-            raise FileNotFoundError(
-                f"Metadata file not found: {self.json_path}. "
-                "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
-            )
+        self.hf_dataset_repo = hf_dataset_repo
 
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
@@ -86,6 +73,37 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.no_proprio_vel = no_proprio_vel
         self.as_dict = as_dict
 
+        if self.hf_dataset_repo is None:
+            self._prepare_local_dataset()
+
+        self.train_set: Dataset | None = None
+        self.val_set: Dataset | None = None
+        self.test_set: Dataset | None = None
+
+    def prepare_data(self) -> None:
+        if self.hf_dataset_repo is None:
+            return
+        self._download_dataset_from_hf()
+        self._prepare_local_dataset()
+
+    def _download_dataset_from_hf(self) -> None:
+        from huggingface_hub import hf_hub_download
+
+        assert self.hf_dataset_repo is not None
+        local_dir = Path.home() / ".maniskill" / "demos"
+        for path in (self.dataset_file, self.json_path):
+            if path.exists():
+                continue
+            hf_hub_download(
+                repo_id=self.hf_dataset_repo,
+                repo_type="dataset",
+                filename=str(path.relative_to(local_dir)),
+                local_dir=local_dir,
+            )
+
+    def _prepare_local_dataset(self) -> None:
+        self._validate_dataset_file()
+
         (
             self.env_id,
             self.obs_mode,
@@ -94,13 +112,23 @@ class TrajectoryDataModule(L.LightningDataModule):
             self.robot_uids,
         ) = self._load_metadata_from_json()
 
-        rank_zero_info(f"Seed for episodes datasplit fetched from main seed: {seed}")
+        rank_zero_info(f"Seed for episodes datasplit fetched from main seed: {self.seed}")
 
-        self.train_set: Dataset | None = None
-        self.val_set: Dataset | None = None
-        self.test_set: Dataset | None = None
+    def _validate_dataset_file(self) -> None:
+        if not self.dataset_file.exists():
+            raise FileNotFoundError(f"The dataset file was not found at: {self.dataset_file}")
 
-    # TODO: Lightning interface also provides the `prepare_data()` method which I could use to download and replay necessary trajectories
+        if self.dataset_file.suffix not in [".h5", ".hdf5"]:
+            raise ValueError(
+                f"Invalid file extension '{self.dataset_file.suffix}'. "
+                "ManiSkill datasets must be HDF5 files (.h5 or .hdf5)."
+            )
+
+        if not self.json_path.exists():
+            raise FileNotFoundError(
+                f"Metadata file not found: {self.json_path}. "
+                "ManiSkill requires a .json file alongside the .h5 file to index trajectories."
+            )
 
     def setup(self, stage: str | None = None):
 

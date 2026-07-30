@@ -1,5 +1,6 @@
 _target_: policy.datamodules.trajectory_datamodule.TrajectoryDataModule
 dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
+hf_dataset_repo: ${oc.env:HF_DATASET_REPO,null}
 
 obs_horizon: 2
 pred_horizon: 16
@@ -23,4 +24,4 @@ num_workers: 4
 
 val_split: 0.1
 lazy: false
-seed: ${seed} # Seed is passed by config.py
+seed: ${seed}
