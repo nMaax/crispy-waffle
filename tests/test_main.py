@@ -56,35 +56,27 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__PlaceCubeLeft-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__PlaceCubeRight-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__StackCubeSwapped-v1__default__test trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy, conditioned on goal-state differences (input space)
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__PlaceCubeLeft-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__PlaceCubeRight-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__StackCubeSwapped-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences (input space)
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences (embedding space)
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
