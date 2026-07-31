@@ -30,14 +30,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     - ``goal_delta="input"`` (relative): the goal is folded into the observation window, so the
       network sees one difference per observed timestep, differenced before the embedder,
       ``embed(g - s_t)``, and no standalone goal entry.
-    - ``goal_delta="embedding"``: the same, differenced after the embedder,
+    - ``goal_delta="embedding"``: the same, but differenced after the embedder,
       ``embed(g) - embed(s_t)``. Identical to ``"input"`` for a bias-free linear embedder (the
       default identity included); the two diverge only for a nonlinear one.
       See :meth:`_build_delta_external_cond`.
 
     Proprioception never goes through the embedder, which keeps embedders robot-agnostic; it is
     concatenated raw alongside the embedder outputs. ``exclude_proprio_from_goal=False`` adds the
-    goal's proprioception to those outputs, next to the historical proprioception.
+    goal's proprioception to those outputs, next to the historical proprioception when concatenated
+    with the embeddings.
     """
 
     def __init__(
