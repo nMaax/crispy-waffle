@@ -7,8 +7,9 @@ import torch
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.mlp import MLP
+from policy.algorithms.networks.pooling import AttentionPooling
 from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbedder
-from policy.utils import get_total_dim
+from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
 
@@ -135,7 +136,13 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
 
 
 @pytest.mark.parametrize(
-    "algorithm_config", ["goal_conditioned_diffusion_policy_attention"], indirect=True
+    "algorithm_config",
+    [
+        "goal_conditioned_diffusion_policy_attention",
+        "goal_conditioned_diffusion_policy_attention_mlp_pool",
+        "goal_conditioned_diffusion_policy_attention_attn_pool",
+    ],
+    indirect=True,
 )
 @pytest.mark.parametrize(
     "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
@@ -143,7 +150,8 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
 class TestGoalConditionedDiffusionPolicyAttention(
     LightningModuleTests[GoalConditionedDiffusionPolicy]
 ):
-    """Test suite for GoalConditionedDiffusionPolicy with the self-attention embedder."""
+    """Test suite for GoalConditionedDiffusionPolicy with the self-attention embedder, with and
+    without a pooling head."""
 
     def test_forward_pass_is_reproducible(
         self,
@@ -528,6 +536,71 @@ class TestDiffusionPolicyLogic:
             obs_cond_perturbed = policy._build_external_cond(obs_perturbed, goal)["obs"]
             assert isinstance(obs_cond_perturbed, Mapping)
             assert not torch.allclose(obs_cond["task"][:, 1], obs_cond_perturbed["task"][:, 1])
+
+    def test_goal_delta_with_pooling_embedder_promotes_task_to_top_level(self):
+        """A pooling embedder collapses the time axis, so its "task" entry must move out from under
+        "obs" (which keeps a real per-timestep width) to a top-level key, mirroring "goal" (which
+        never carries one either).
+
+        This also regression-tests that the cond_dims
+        ``ConditionalUnet1D`` uses to size FiLM (its ``obs_horizon`` multiplier applies only to
+        "obs") stay consistent with the actual flattened conditioning width produced at runtime.
+        """
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = self._make_goal_delta_policy(
+                embedder={
+                    "_target_": (
+                        "policy.algorithms.networks.self_attention_embedder."
+                        "SelfAttentionEmbedder"
+                    ),
+                    "output_dim": 8,
+                    "obs_horizon": 2,
+                    "num_heads": 2,
+                    "pooling": {
+                        "_target_": "policy.algorithms.networks.pooling.AttentionPooling",
+                        "dim": 8,
+                        "num_heads": 2,
+                    },
+                },
+            )
+            policy.configure_model()
+
+            cond_dims = policy._get_cond_dims()
+            assert cond_dims == {"obs": {"proprio": 18}, "task": 8}
+
+            # configure_model() gets a mocked embedder (the patch above lands on the shared
+            # hydra_zen module), so swap in the real thing this test is about.
+            embedder = SelfAttentionEmbedder(
+                input_dim=policy.task_dim,
+                output_dim=8,
+                obs_horizon=2,
+                num_heads=2,
+                pooling=AttentionPooling(dim=8, num_heads=2),
+            )
+            embedder.eval()
+            policy.embedder = embedder
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            ext_cond = policy._build_external_cond(obs, goal)
+
+            assert set(ext_cond) == {"obs", "task"}
+            obs_cond = ext_cond["obs"]
+            assert isinstance(obs_cond, Mapping)
+            assert set(obs_cond) == {"proprio"}
+            assert ext_cond["task"].shape == (2, 8)
+
+            # The width ConditionalUnet1D would derive from cond_dims for the FiLM Linear must
+            # match the actual flattened conditioning vector's width at runtime.
+            expected_width = sum(
+                get_total_dim(spec) * (policy.obs_horizon if key == "obs" else 1)
+                for key, spec in cond_dims.items()
+            )
+            actual_width = flatten_and_concat_leaf_tensors(ext_cond).shape[-1]
+            assert actual_width == expected_width
 
     def test_goal_delta_modes_agree_under_a_linear_embedder(self):
         """The two modes coincide when the embedder is linear (the default identity included).

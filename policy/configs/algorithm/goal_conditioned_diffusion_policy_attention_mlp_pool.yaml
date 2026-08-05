@@ -1,0 +1,3 @@
+defaults:
+  - goal_conditioned_diffusion_policy_attention
+  - override embedder/pooling: mlp

@@ -16,6 +16,17 @@ def _load_embedder_cfg(config_name: str):
     return embedder_cfg
 
 
+def _load_self_attention_cfg_with_pooling(pooling_config_name: str):
+    with initialize_config_module(config_module="policy.configs", version_base="1.2"):
+        cfg = compose(
+            config_name="algorithm/embedder/self_attention",
+            overrides=[f"algorithm/embedder/pooling={pooling_config_name}"],
+        )
+    embedder_cfg = cfg.algorithm.embedder
+    OmegaConf.set_struct(embedder_cfg, False)
+    return embedder_cfg
+
+
 def test_self_attention_embedder_instantiates_and_runs():
     embedder_cfg = _load_embedder_cfg("self_attention")
 
@@ -77,6 +88,34 @@ def test_self_attention_embedder_mixes_across_timesteps():
 
     # Perturbing token 0 changes token 1's output too: attention mixed information across t.
     assert not torch.allclose(out[:, 1, :], out_perturbed[:, 1, :])
+
+
+@pytest.mark.parametrize("pooling_config_name", ["mlp", "attention"])
+def test_self_attention_embedder_with_pooling_collapses_the_time_axis(pooling_config_name):
+    embedder_cfg = _load_self_attention_cfg_with_pooling(pooling_config_name)
+
+    batch_size = 8
+    obs_horizon = 3
+    input_dim = 16
+    output_dim = 12
+
+    embedder_cfg.input_dim = input_dim
+    embedder_cfg.output_dim = output_dim
+    embedder_cfg.obs_horizon = obs_horizon
+    embedder = hydra_zen.instantiate(embedder_cfg)
+
+    sample = torch.randn(batch_size, obs_horizon, input_dim)
+    output = embedder(sample)
+
+    assert isinstance(output, torch.Tensor)
+    assert output.shape == (batch_size, output_dim)
+
+    loss = output.sum()
+    loss.backward()
+    for p in embedder.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()
 
 
 def test_per_token_embedders_do_not_mix_across_timesteps():

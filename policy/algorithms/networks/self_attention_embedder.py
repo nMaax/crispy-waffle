@@ -12,6 +12,7 @@ class SelfAttentionEmbedder(nn.Module):
         obs_horizon: int,
         num_heads: int = 4,
         dropout: float = 0.0,
+        pooling: nn.Module | None = None,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -22,6 +23,7 @@ class SelfAttentionEmbedder(nn.Module):
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon, output_dim))
         self.attn = nn.MultiheadAttention(output_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(output_dim)
+        self.pooling = pooling
 
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
 
@@ -29,7 +31,7 @@ class SelfAttentionEmbedder(nn.Module):
         """
         Shapes:
             x: [B, T, input_dim] (T <= obs_horizon)
-            returns: [B, T, output_dim]
+            returns: [B, T, output_dim], or [B, output_dim] if ``pooling`` is set
         """
         T = x.shape[1]
         if T > self.obs_horizon:
@@ -40,4 +42,8 @@ class SelfAttentionEmbedder(nn.Module):
 
         tokens = self.input_proj(x) + self.pos_emb[:, :T, :]
         attn_out, _ = self.attn(tokens, tokens, tokens, need_weights=False)
-        return self.norm(tokens + attn_out)
+        out = self.norm(tokens + attn_out)
+
+        if self.pooling is not None:
+            return self.pooling(out)
+        return out

@@ -110,7 +110,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return {**self._obs_cond_dims(), **self._goal_cond_dims()}
 
     def _obs_cond_dims(self) -> dict[str, DimSpec]:
-        return {"obs": {"proprio": self.proprio_dim, "task": self._embedder_output_dim()}}
+        embed_dim = self._embedder_output_dim()
+        if self._embedder_pools_time():
+            # A pooling embedder collapses the time axis, so "task" no longer shares "obs"'s
+            # per-timestep width and must live outside it (mirrors "goal", which never has one).
+            return {"obs": {"proprio": self.proprio_dim}, "task": embed_dim}
+        return {"obs": {"proprio": self.proprio_dim, "task": embed_dim}}
 
     def _goal_cond_dims(self) -> dict[str, DimSpec]:
         embed_dim = self._embedder_output_dim()
@@ -133,6 +138,14 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return self.task_dim
 
         return self.embedder_config.get("output_dim")
+
+    def _embedder_pools_time(self) -> bool:
+        """Whether the embedder collapses the time axis instead of returning one embedding per
+        timestep."""
+        if self.embedder_config is None:
+            return False
+
+        return self.embedder_config.get("pooling") is not None
 
     @torch.no_grad()
     def extract_embeddings(
@@ -261,6 +274,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
         proprio, task_embedded = self._embed_states(obs)
+        if self._embedder_pools_time():
+            return {"obs": {"proprio": proprio}, "task": task_embedded}
         return {"obs": {"proprio": proprio, "task": task_embedded}}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
@@ -296,6 +311,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         else:
             proprio = goal_proprio - obs_proprio
 
+        if self._embedder_pools_time():
+            return {"obs": {"proprio": proprio}, "task": task_delta}
         return {"obs": {"proprio": proprio, "task": task_delta}}
 
     def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
@@ -323,7 +340,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
         task_embedded = self.embedder(task)
 
-        if had_no_time_axis:
+        # A pooling embedder already drops the time axis it was given, so there's nothing left to
+        # squeeze; squeeze(1) would then operate on output_dim, which generally is not size 1
+        # (thus squeeze would be a no-op); however we avoid it to keep it clean
+        if had_no_time_axis and not self._embedder_pools_time():
             task_embedded = task_embedded.squeeze(1)
 
         return task_embedded

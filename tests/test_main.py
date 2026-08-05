@@ -75,6 +75,16 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
+    # Same, with an MLP pooling head collapsing the attention embedder's time axis before FiLM
+    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
+    # Same, with an attention pooling head (a learned query cross-attending over the tokens) instead
+    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences (embedding space)
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__train trainer.max_epochs=1",
