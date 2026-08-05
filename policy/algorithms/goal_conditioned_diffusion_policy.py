@@ -311,7 +311,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return self._embed_task(goal_task) - self._embed_task(obs_task)
 
     def _embed_task(self, task: torch.Tensor) -> torch.Tensor:
-        """Runs already-split task components through the embedder."""
+        """Runs task components through the embedder."""
         if self.embedder is None:
             raise ValueError(
                 "Embedder not initialized. Call configure_model() before using the embedder."
@@ -321,9 +321,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if had_no_time_axis:
             task = task.unsqueeze(1)
 
-        B, T = task.shape[0], task.shape[1]
-        task_flat = task.reshape(B * T, self.task_dim)
-        task_embedded = self.embedder(task_flat).reshape(B, T, -1)
+        task_embedded = self.embedder(task)
 
         if had_no_time_axis:
             task_embedded = task_embedded.squeeze(1)

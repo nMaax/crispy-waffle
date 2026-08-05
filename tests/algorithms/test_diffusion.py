@@ -7,6 +7,7 @@ import torch
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.mlp import MLP
+from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbedder
 from policy.utils import get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
@@ -131,6 +132,50 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
             algorithm.act_horizon,
             algorithm.act_dim,
         )
+
+
+@pytest.mark.parametrize(
+    "algorithm_config", ["goal_conditioned_diffusion_policy_attention"], indirect=True
+)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicyAttention(
+    LightningModuleTests[GoalConditionedDiffusionPolicy]
+):
+    """Test suite for GoalConditionedDiffusionPolicy with the self-attention embedder."""
+
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        pytest.skip("Diffusion policies do not use standard forward pass during training.")
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch.get("goal", None)
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            training_step_content.batch["act_seq"].shape[0],
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
 
 class TestDiffusionPolicyLogic:
     """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
@@ -439,6 +484,50 @@ class TestDiffusionPolicyLogic:
             # Guards the test itself: the two orderings must actually disagree here, otherwise the
             # assertion above would pass for either implementation.
             assert not torch.allclose(spaces["input"], spaces["embedding"])
+
+    def test_goal_delta_with_attention_embedder_mixes_across_timesteps(self):
+        """This is the whole point of the self-attention embedder: unlike the per-token MLP path
+        exercised above, the task embedding at one timestep can depend on the delta at another."""
+        with patch(
+            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
+            return_value=MagicMock(),
+        ):
+            policy = self._make_goal_delta_policy(
+                embedder={
+                    "_target_": (
+                        "policy.algorithms.networks.self_attention_embedder."
+                        "SelfAttentionEmbedder"
+                    ),
+                    "output_dim": 8,
+                    "obs_horizon": 2,
+                    "num_heads": 2,
+                },
+            )
+            policy.configure_model()
+            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 8}}
+
+            # configure_model() gets a mocked embedder (the patch above lands on the shared
+            # hydra_zen module), so swap in the real thing this test is about.
+            embedder = SelfAttentionEmbedder(
+                input_dim=policy.task_dim, output_dim=8, obs_horizon=2, num_heads=2
+            )
+            embedder.eval()
+            policy.embedder = embedder
+
+            obs = torch.randn(2, 2, 48)
+            goal = torch.randn(2, 48)
+            obs_cond = policy._build_external_cond(obs, goal)["obs"]
+            assert isinstance(obs_cond, Mapping)
+            assert obs_cond["task"].shape == (2, 2, 8)
+
+            # Perturb only the first observed timestep's delta and check the *second*
+            # timestep's task embedding changes too -- proof the two r_t tokens attended to
+            # each other, unlike the per-token MLP path where this always holds unchanged.
+            obs_perturbed = obs.clone()
+            obs_perturbed[:, 0, 18:] += torch.randn(policy.task_dim)
+            obs_cond_perturbed = policy._build_external_cond(obs_perturbed, goal)["obs"]
+            assert isinstance(obs_cond_perturbed, Mapping)
+            assert not torch.allclose(obs_cond["task"][:, 1], obs_cond_perturbed["task"][:, 1])
 
     def test_goal_delta_modes_agree_under_a_linear_embedder(self):
         """The two modes coincide when the embedder is linear (the default identity included).

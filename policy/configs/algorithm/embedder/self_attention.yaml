@@ -1,0 +1,5 @@
+_target_: policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder
+output_dim: 64
+num_heads: 4
+dropout: 0.0
+obs_horizon: ???
