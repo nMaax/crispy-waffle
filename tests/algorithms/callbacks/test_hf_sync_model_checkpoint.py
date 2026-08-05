@@ -156,3 +156,42 @@ def test_on_train_end_skips_non_rank_zero(tmp_path):
         cb.on_train_end(trainer, MagicMock())
 
     mock_api_cls.assert_not_called()
+
+
+def test_on_exception_uploads_best_k_models(tmp_path, monkeypatch):
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    cb.best_k_models = {str(dirpath / "step_000010.ckpt"): torch.tensor(0.1)}
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        mock_api = mock_api_cls.return_value
+        cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
+
+    mock_api.upload_file.assert_called_once_with(
+        path_or_fileobj=str(dirpath / "step_000010.ckpt"),
+        path_in_repo=f"{PREFIX}/checkpoints/step_000010.ckpt",
+        repo_id="org/repo",
+        repo_type="model",
+    )
+
+
+def test_on_exception_noop_when_repo_id_none(tmp_path):
+    cb = HFSyncModelCheckpoint(dirpath=str(tmp_path), hf_repo_id=None)
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
+
+    mock_api_cls.assert_not_called()
+
+
+def test_on_exception_skips_non_rank_zero(tmp_path):
+    cb = HFSyncModelCheckpoint(dirpath=str(tmp_path), hf_repo_id="org/repo")
+    cb.best_k_models = {str(tmp_path / "step_000010.ckpt"): torch.tensor(0.1)}
+    trainer = _mock_trainer(is_global_zero=False)
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
+
+    mock_api_cls.assert_not_called()

@@ -18,7 +18,8 @@ class HFSyncModelCheckpoint(ModelCheckpoint):
     Identical to `ModelCheckpoint` when `hf_repo_id` is None
 
     Only `last.ckpt` (the resume-critical file) is synced on every save; the
-    top-k best checkpoints are pushed once at the end of training.
+    top-k best checkpoints are pushed once, whenever training stops -- normal
+    completion, a Ctrl+C, or a crash.
     """
 
     def __init__(self, *args, hf_repo_id: str | None = None, **kwargs):
@@ -100,7 +101,21 @@ class HFSyncModelCheckpoint(ModelCheckpoint):
         self, trainer: lightning.Trainer, pl_module: lightning.LightningModule
     ) -> None:
         super().on_train_end(trainer, pl_module)
+        self._sync_best_checkpoints(trainer)
 
+    @override
+    def on_exception(
+        self,
+        trainer: lightning.Trainer,
+        pl_module: lightning.LightningModule,
+        exception: BaseException,
+    ) -> None:
+        # Covers both a manual Ctrl+C and a genuine crash: either way, training is ending
+        # without ever reaching on_train_end, so the top-k checkpoints would otherwise never sync.
+        super().on_exception(trainer, pl_module, exception)
+        self._sync_best_checkpoints(trainer)
+
+    def _sync_best_checkpoints(self, trainer: lightning.Trainer) -> None:
         if self.hf_repo_id is None:
             return
         if not trainer.is_global_zero:
