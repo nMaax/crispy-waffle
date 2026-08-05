@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train
+  - GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train
   - override /algorithm: goal_conditioned_diffusion_policy_attention
 
 name: ${hydra:runtime.choices.experiment}
