@@ -19,14 +19,14 @@ import lightning
 import rich
 import rich.logging
 import torch
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from rich.panel import Panel
 
 import policy
-import wandb
 from policy.configs.config import Config
 from policy.experiment import train_and_validate
-from policy.utils.hydra_utils import resolve_dictconfig
+from policy.utils.hydra_utils import find_checkpoint_hydra_config, resolve_dictconfig
 from policy.utils.typing_utils import HydraConfigFor
 from policy.utils.utils import print_config
 
@@ -40,17 +40,10 @@ torch.set_float32_matmul_precision("high")
 def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
     """Finds and returns the seed used in the checkpoint's run from its .hydra/config.yaml."""
 
-    ckpt_path = Path(ckpt_path_str).resolve()
-    for parent in ckpt_path.parents:
-        hydra_config_path = parent / ".hydra" / "config.yaml"
-        if hydra_config_path.exists():
-            try:
-                loaded_config = OmegaConf.load(hydra_config_path)
-                if isinstance(loaded_config, DictConfig):
-                    return loaded_config.get("seed", None)
-            except Exception:
-                pass
-    return None
+    loaded_config = find_checkpoint_hydra_config(ckpt_path_str)
+    if loaded_config is None:
+        return None
+    return loaded_config.get("seed", None)
 
 
 @hydra.main(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from logging import getLogger as get_logger
+from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -23,6 +24,22 @@ def resolve_dictconfig(dict_config: DictConfig) -> Config:
         )
 
     return config
+
+
+def find_checkpoint_hydra_config(ckpt_path_str: str) -> DictConfig | None:
+    """Finds and loads the `.hydra/config.yaml` snapshot for the run that produced `ckpt_path_str`."""
+
+    ckpt_path = Path(ckpt_path_str).resolve()
+    for parent in ckpt_path.parents:
+        hydra_config_path = parent / ".hydra" / "config.yaml"
+        if hydra_config_path.exists():
+            try:
+                loaded_config = OmegaConf.load(hydra_config_path)
+                if isinstance(loaded_config, DictConfig):
+                    return loaded_config
+            except Exception:
+                pass
+    return None
 
 
 def parse_slice(slice_def: str | int) -> slice | int:

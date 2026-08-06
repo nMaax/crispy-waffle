@@ -1,17 +1,21 @@
+import dataclasses
+import logging
 from pathlib import Path
 
 import hydra
 import lightning
 import torch
-from omegaconf import DictConfig
+import wandb
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-import wandb
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
-from policy.utils.hydra_utils import resolve_dictconfig
+from policy.utils.hydra_utils import find_checkpoint_hydra_config, resolve_dictconfig
 
 torch.set_float32_matmul_precision("high")
+
+logger = logging.getLogger(__name__)
 
 
 def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
@@ -23,9 +27,14 @@ def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
     per_metric: dict[str, dict[str, float]] = {}
     for key, value in trainer.callback_metrics.items():
         parts = key.split("/")
-        if len(parts) == 3 and parts[0] == "test" and parts[2] in (
-            "success_once_rate",
-            "success_at_end_rate",
+        if (
+            len(parts) == 3
+            and parts[0] == "test"
+            and parts[2]
+            in (
+                "success_once_rate",
+                "success_at_end_rate",
+            )
         ):
             per_metric.setdefault(parts[2], {})[parts[1]] = float(value)
 
@@ -49,7 +58,26 @@ def main(dict_config: DictConfig):
     model_class = hydra.utils.get_class(dict_config.algorithm._target_)
     model = model_class.load_from_checkpoint(ckpt_path)
 
+    hparams = dataclasses.asdict(config)
+    checkpoint_hydra_config = find_checkpoint_hydra_config(config.ckpt_path)
+    if checkpoint_hydra_config is not None and "datamodule" in checkpoint_hydra_config:
+        hparams["datamodule"] = OmegaConf.to_container(
+            checkpoint_hydra_config.datamodule, resolve=True
+        )
+    else:
+        hparams["datamodule"] = None
+        logger.warning(
+            f"Could not find a '.hydra/config.yaml' snapshot for checkpoint '{ckpt_path}'; "
+            "datamodule hyperparameters (e.g. her_ratio, load_count) will not be logged to wandb."
+        )
+
+    if "logger" in config.trainer and "wandb" in config.trainer["logger"]:
+        config.trainer["logger"]["wandb"]["job_type"] = "test"
+
     trainer = instantiate_trainer(config.trainer)
+
+    for lightning_logger in trainer.loggers:
+        lightning_logger.log_hyperparams(hparams)
 
     dummy_loader = DataLoader(DummyDataset(), batch_size=1)
 
