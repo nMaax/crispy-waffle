@@ -1,0 +1,72 @@
+# @package _global_
+defaults:
+  - GoalConditionedBESO__StackCubeLockedRotation-v1__default__train
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
+
+# Runs zero-shot rollout evaluation on all 3 generalization envs (locked-rotation variants) in a
+# single test invocation, logging one wandb bar chart per metric (success_once_rate,
+# success_at_end_rate) comparing the 3 envs. See `RolloutEvaluationCallback`'s `name` param and
+# `policy/eval.py::_log_zero_shot_bar_charts`.
+trainer:
+  callbacks:
+    rollout_evaluation:
+      num_episodes: 100
+      env_id: "StackCubeLockedRotation-v1"
+      name: "StackCubeLockedRotation-v1"
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
+      canonicalize: true
+    rollout_evaluation_place_left:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      _recursive_: false
+      num_episodes: 100
+      num_envs: null
+      max_episode_steps: 200
+      ignore_terminations: true
+      clamp_action: true
+      video_dir: null
+      seed: ${seed}
+      env_id: "PlaceCubeLeftLockedRotation-v1"
+      name: "PlaceCubeLeftLockedRotation-v1"
+      robot_uids: null
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
+      canonicalize: true
+    rollout_evaluation_place_right:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      _recursive_: false
+      num_episodes: 100
+      num_envs: null
+      max_episode_steps: 200
+      ignore_terminations: true
+      clamp_action: true
+      video_dir: null
+      seed: ${seed}
+      env_id: "PlaceCubeRightLockedRotation-v1"
+      name: "PlaceCubeRightLockedRotation-v1"
+      robot_uids: null
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
+      canonicalize: true
+    rollout_evaluation_stack_swapped:
+      _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+      _recursive_: false
+      num_episodes: 100
+      num_envs: null
+      max_episode_steps: 200
+      ignore_terminations: true
+      clamp_action: true
+      video_dir: null
+      seed: ${seed}
+      env_id: "StackCubeSwappedLockedRotation-v1"
+      name: "StackCubeSwappedLockedRotation-v1"
+      robot_uids: null
+      obs_mode: "state"
+      control_mode: "pd_ee_delta_pos"
+      physx_backend: "physx_cuda"
+      canonicalize: true
