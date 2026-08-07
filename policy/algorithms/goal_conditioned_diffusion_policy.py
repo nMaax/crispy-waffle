@@ -1,21 +1,26 @@
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any
 
 import hydra_zen
 import torch
 import torch.nn as nn
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.algorithms.tokenizers import FlattenStateTokenizer
 from policy.utils import (
     derive_task_dim,
+    get_ndim,
+    map_leaves,
     merge_dicts,
     resolve_proprio_dim,
-    split_proprio_task,
+    split_leaf_key,
 )
 from policy.utils.typing_utils import (
     DimSpec,
     GoalConditionedPolicyProtocol,
+    GoalDelta,
     HydraConfigFor,
+    StateTokenizer,
     TensorTree,
 )
 
@@ -35,21 +40,25 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
       default identity included); the two diverge only for a nonlinear one.
       See :meth:`_build_delta_external_cond`.
 
-    Proprioception never goes through the embedder, which keeps embedders robot-agnostic; it is
+    Proprioception never goes through the ``embedder``, which keeps embedders robot-agnostic; it is
     concatenated raw alongside the embedder outputs. ``exclude_proprio_from_goal=False`` adds the
     goal's proprioception to those outputs, next to the historical proprioception when concatenated
     with the embeddings.
+
+    ``tokenizer`` selects how a state (or a goal) becomes the raw, pre-embedder tokens that
+    ``embedder`` attends/pools over.
     """
 
     def __init__(
         self,
         *args,
         goal_horizon: int = 1,
+        goal_delta: GoalDelta = None,
         proprio_dim: int | None = None,
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
+        tokenizer: HydraConfigFor[StateTokenizer] | None = None,
         exclude_proprio_from_goal: bool = True,
-        goal_delta: Literal["input", "embedding"] | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -73,6 +82,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
 
+        self.tokenizer_config = tokenizer
+        self.tokenizer: StateTokenizer | None = None
+
     def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
         proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
         task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
@@ -81,12 +93,50 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def configure_model(self) -> None:
         if self.network is not None:
             return
+        tokenizer = self._resolve_tokenizer()
+
+        if self.goal_delta not in tokenizer.compatible_goal_deltas:
+            raise ValueError(
+                f"goal_delta={self.goal_delta!r} is not supported by "
+                f"{type(tokenizer).__name__}; supported values: "
+                f"{sorted(str(d) for d in tokenizer.compatible_goal_deltas)}."
+            )
+        if not self.goal_conditioned and not tokenizer.supports_single_side:
+            raise ValueError(
+                f"{type(tokenizer).__name__} has no standalone tokenization of a single "
+                "state (supports_single_side=False), so it cannot be used with goal_horizon=0."
+            )
+
         self.embedder = (
-            hydra_zen.instantiate(self.embedder_config, input_dim=self.task_dim)
+            hydra_zen.instantiate(self.embedder_config, input_dim=tokenizer.output_dim)
             if self.embedder_config is not None
             else nn.Identity()
         )
         super().configure_model()
+
+    def _resolve_tokenizer(self) -> StateTokenizer:
+        """Lazily constructs the tokenizer, caching it into ``self.tokenizer`` on first call --
+        regardless of which caller is first -- so :meth:`_get_cond_dims` (which may run before
+        :meth:`configure_model`, e.g. via :meth:`BaseDiffusionAgent.configure_model`'s own
+        ``cond_dims=self._get_cond_dims()`` call) and :meth:`configure_model` itself share exactly
+        one instance instead of each constructing (and discarding) their own.
+
+        Mirrors how the embedder is instantiated: ``hydra_zen.instantiate(self.tokenizer_config,
+        task_dim=self.task_dim)``, or a direct ``FlattenStateTokenizer`` when unconfigured (no
+        instantiate call at all, exactly like ``embedder_config=None`` falls back to
+        ``nn.Identity()``). Tests that patch ``hydra_zen.instantiate`` globally get a
+        ``MagicMock`` here too in that case -- same as they already do for the embedder -- and
+        must swap in a real tokenizer the same way they swap in a real embedder.
+        """
+        if self.tokenizer is not None:
+            return self.tokenizer
+        if self.tokenizer_config is None:
+            self.tokenizer = FlattenStateTokenizer(task_dim=self.task_dim)
+            return self.tokenizer
+
+        tokenizer = hydra_zen.instantiate(self.tokenizer_config, task_dim=self.task_dim)
+        self.tokenizer = tokenizer
+        return tokenizer
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network's
@@ -115,9 +165,13 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             # A pooling embedder collapses the time axis, so "task" no longer shares "obs"'s
             # per-timestep width and must live outside it (mirrors "goal", which never has one).
             return {"obs": {"proprio": self.proprio_dim}, "task": embed_dim}
-        return {"obs": {"proprio": self.proprio_dim, "task": embed_dim}}
+        tokens_per_step = self._resolve_tokenizer().tokens_per_step
+        return {"obs": {"proprio": self.proprio_dim, "task": embed_dim * tokens_per_step}}
 
     def _goal_cond_dims(self) -> dict[str, DimSpec]:
+        # Only reachable when goal_delta is None (see _goal_conditioned_cond_dims), which every
+        # tokenizer with tokens_per_step > 1 disallows via compatible_goal_deltas -- so embed_dim
+        # here is never multiplied by a per-timestep token count in practice.
         embed_dim = self._embedder_output_dim()
         if self.exclude_proprio_from_goal:
             return {"goal": embed_dim}
@@ -135,7 +189,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         :meth:`_get_cond_dims` remains safe to call before :meth:`configure_model`.
         """
         if self.embedder_config is None:
-            return self.task_dim
+            return self._resolve_tokenizer().output_dim
 
         return self.embedder_config.get("output_dim")
 
@@ -178,7 +232,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         res = {"obs_embeddings": obs_task_embeddings.cpu()}
 
         if goal is not None:
-            _, goal_task_embedding = self._embed_states(goal)
+            _, goal_task_embedding = self._embed_states(goal, is_goal=True)
             res["goal_embedding"] = goal_task_embedding.cpu()
 
         return res
@@ -279,7 +333,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return {"obs": {"proprio": proprio, "task": task_embedded}}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
-        proprio, goal_embedded = self._embed_states(goal)
+        proprio, goal_embedded = self._embed_states(goal, is_goal=True)
         if self.exclude_proprio_from_goal:
             return {"goal": goal_embedded}
         else:
@@ -289,23 +343,32 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self, obs: TensorTree, goal: TensorTree
     ) -> dict[str, TensorTree]:
         """Conditions on the difference between the goal and each observation timestep."""
-        obs_proprio, obs_task = split_proprio_task(obs, self.proprio_dim)
-        goal_proprio, goal_task = split_proprio_task(goal, self.proprio_dim)
+        obs_proprio, obs_task = split_leaf_key(obs, "proprio", self.proprio_dim)
+        goal_proprio, goal_task = split_leaf_key(goal, "proprio", self.proprio_dim)
+        if obs_proprio is None or goal_proprio is None:
+            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
 
         # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
-        # [B, B, F], silently mistaking the batch axis for the time axis.
-        if obs_task.ndim != 3:
+        # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
+        # across dict-of-poses and flat-tensor task trees via the first leaf tensor found.
+        if get_ndim(obs_task) != 3:
             raise ValueError(
-                "goal_delta expects observations of shape [B, T, F], but got "
-                f"{tuple(obs_task.shape)} (shape shown after splitting off proprioception)."
+                "goal_delta expects observations of shape [B, T, F], but got a "
+                f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
             )
 
-        goal_had_no_time_axis = goal_task.ndim == 2
-        if goal_had_no_time_axis:
-            goal_task = goal_task.unsqueeze(1)
+        if goal_proprio.ndim == obs_proprio.ndim - 1:
             goal_proprio = goal_proprio.unsqueeze(1)
 
-        task_delta = self._embed_task_delta(goal_task, obs_task)
+        # goal_task's own missing time axis is inserted here, on every leaf, rather than left to
+        # each tokenizer: a goal-relative ("input") tokenize() call sees both sides and can insert
+        # it itself, but goal_delta="embedding" tokenizes each side separately -- a lone,
+        # time-axis-free goal embedding would then broadcast its *batch* axis against obs's *time*
+        # axis instead of erroring (the very trap the check above guards against for obs).
+        if get_ndim(goal_task) == 2:
+            goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
+
+        task_delta = self._tokenize_delta(obs_task, goal_task)
         if self.exclude_proprio_from_goal:
             proprio = obs_proprio
         else:
@@ -315,17 +378,42 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             return {"obs": {"proprio": proprio}, "task": task_delta}
         return {"obs": {"proprio": proprio, "task": task_delta}}
 
-    def _embed_states(self, states: TensorTree) -> tuple[torch.Tensor, torch.Tensor]:
+    def _embed_states(
+        self, states: TensorTree, *, is_goal: bool = False
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits proprio/task and embeds the task components."""
-        proprio, task = split_proprio_task(states, self.proprio_dim)
-        return proprio, self._embed_task(task)
+        proprio, task = split_leaf_key(states, "proprio", self.proprio_dim)
+        if proprio is None:
+            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
 
-    def _embed_task_delta(self, goal_task: torch.Tensor, obs_task: torch.Tensor) -> torch.Tensor:
+        if self.tokenizer is None:
+            raise ValueError(
+                "Tokenizer not initialized. Call configure_model() before using the embedder."
+            )
+        if not self.tokenizer.supports_single_side:
+            raise NotImplementedError(
+                f"{type(self.tokenizer).__name__} tokenizes only goal-relative deltas "
+                "(supports_single_side=False); there is no standalone embedding of a single "
+                "state, so absolute conditioning and extract_embeddings() aren't supported."
+            )
+
+        tokens = (
+            self.tokenizer.tokenize(None, task) if is_goal else self.tokenizer.tokenize(task, None)
+        )
+        return proprio, self._embed_task(tokens)
+
+    def _tokenize_delta(self, obs_task: TensorTree, goal_task: TensorTree) -> torch.Tensor:
         """Embeds the goal-state difference, differencing before or after the embedder."""
-        if self.goal_delta == "input":
-            return self._embed_task(goal_task - obs_task)
+        if self.tokenizer is None:
+            raise ValueError(
+                "Tokenizer not initialized. Call configure_model() before using the embedder."
+            )
+        if self.goal_delta == "embedding":
+            return self._embed_task(self.tokenizer.tokenize(None, goal_task)) - self._embed_task(
+                self.tokenizer.tokenize(obs_task, None)
+            )
         else:
-            return self._embed_task(goal_task) - self._embed_task(obs_task)
+            return self._embed_task(self.tokenizer.tokenize(obs_task, goal_task))
 
     def _embed_task(self, task: torch.Tensor) -> torch.Tensor:
         """Runs task components through the embedder."""
@@ -333,12 +421,28 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             raise ValueError(
                 "Embedder not initialized. Call configure_model() before using the embedder."
             )
+        if self.tokenizer is None:
+            raise ValueError(
+                "Tokenizer not initialized. Call configure_model() before using the embedder."
+            )
 
-        had_no_time_axis = task.ndim == 2
+        tokens_per_step = self.tokenizer.tokens_per_step
+        # With one token per timestep (the default), a time-axis-free input is 2D ([B, F]); with
+        # K > 1 tokens per timestep, it's 3D ([B, K, F]) instead -- one rank higher either way.
+        expected_ndim_with_time = 3 if tokens_per_step == 1 else 4
+        had_no_time_axis = task.ndim == expected_ndim_with_time - 1
         if had_no_time_axis:
             task = task.unsqueeze(1)
 
         task_embedded = self.embedder(task)
+
+        if tokens_per_step > 1 and not self._embedder_pools_time():
+            # Fold the K per-object embeddings for each real timestep back into one wider
+            # per-timestep vector, so downstream conditioning code (and ConditionalUnet1D, which
+            # only ever flattens per-timestep conditioning) keep seeing "one vector per timestep"
+            # without needing any changes of their own.
+            b, t, k, d = task_embedded.shape
+            task_embedded = task_embedded.reshape(b, t, k * d)
 
         # A pooling embedder already drops the time axis it was given, so there's nothing left to
         # squeeze; squeeze(1) would then operate on output_dim, which generally is not size 1

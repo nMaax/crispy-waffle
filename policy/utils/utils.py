@@ -202,6 +202,18 @@ def get_device(data: TensorTree) -> torch.device:
     raise ValueError("data must contain at least one tensor")
 
 
+def get_ndim(data: TensorTree) -> int:
+    """Recursively finds the number of dimensions from a leaf tensor or nested tree of tensors.
+
+    All leaves are assumed to share the same rank, so the first leaf found determines the result.
+    """
+    if isinstance(data, torch.Tensor):
+        return data.ndim
+    for value in data.values():
+        return get_ndim(value)
+    raise ValueError("data must contain at least one tensor")
+
+
 def cat_dicts(trees: Sequence[TensorTree]) -> TensorTree:
     """Recursively concatenates a sequence of nested dictionaries of tensors into a single nested
     dictionary of tensors."""
@@ -293,19 +305,6 @@ def split_leaf_key(
             raise TypeError(f"Expected leaf at key {key!r} to be a Tensor, got {type(popped)}.")
         return popped, {k: v for k, v in tree.items() if k != key}
     return tree[..., :size], tree[..., size:]
-
-
-def split_proprio_task(tree: TensorTree, proprio_dim: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Splits proprioception from the (concatenated) task-relevant components.
-
-    The tensor-tree counterpart of :func:`resolve_proprio_dim`/:func:`derive_task_dim`, which
-    split the corresponding width spec.
-    """
-    proprio, remainder = split_leaf_key(tree, "proprio", proprio_dim)
-    if proprio is None:
-        raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
-    task = concat_leaf_tensors(remainder, dim=-1) if isinstance(remainder, Mapping) else remainder
-    return proprio, task
 
 
 def resolve_proprio_dim(obs_dim: DimSpec, proprio_dim: int | None = None) -> int:

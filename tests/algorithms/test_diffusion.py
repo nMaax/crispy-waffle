@@ -9,6 +9,7 @@ from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedD
 from policy.algorithms.networks.mlp import MLP
 from policy.algorithms.networks.pooling import AttentionPooling
 from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbedder
+from policy.algorithms.tokenizers import FlattenStateTokenizer, PerObjectStateTokenizer
 from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
 from tests.algorithms.test_lightning_module import LightningModuleTests
@@ -673,6 +674,163 @@ class TestDiffusionPolicyLogic:
         windowed = policy._build_external_cond(obs, goal.unsqueeze(1))["obs"]
         assert isinstance(flat, Mapping) and isinstance(windowed, Mapping)
         assert torch.equal(flat["task"], windowed["task"])
+
+    def test_default_tokenizer_is_flatten_state_tokenizer(self):
+        """No `tokenizer` kwarg must reproduce today's flatten-whole-state behavior exactly."""
+        policy = self._make_goal_delta_policy()
+        policy.configure_model()
+
+        assert isinstance(policy.tokenizer, FlattenStateTokenizer)
+        assert policy.tokenizer.output_dim == policy.task_dim
+        assert policy.tokenizer.tokens_per_step == 1
+
+    @staticmethod
+    def _make_per_object_policy(**overrides) -> GoalConditionedDiffusionPolicy:
+        kwargs = {
+            "network": {"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+            "ema": {},
+            "noise_scheduler": {},
+            "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": {"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            "proprio_dim": 18,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
+            "goal_delta": "input",
+            "tokenizer": {"_target_": "policy.algorithms.tokenizers.PerObjectStateTokenizer"},
+        }
+        kwargs.update(overrides)
+        policy = GoalConditionedDiffusionPolicy(**kwargs)
+        # configure_model() would otherwise instantiate the tokenizer through the mocked
+        # hydra_zen.instantiate (the class-level autouse fixture patches it globally, exactly as
+        # it already does for the embedder), getting a MagicMock instead of a real tokenizer.
+        # Pre-set the real thing here so configure_model()'s own tokenizer-dependent validation
+        # and shape logic run against real compatible_goal_deltas/output_dim/tokens_per_step
+        # values.
+        policy.tokenizer = PerObjectStateTokenizer()
+        return policy
+
+    def test_per_object_tokenizer_rejects_an_incompatible_goal_delta(self):
+        policy = self._make_per_object_policy(goal_delta="embedding")
+        with pytest.raises(ValueError, match="is not supported by PerObjectStateTokenizer"):
+            policy.configure_model()
+
+    def test_per_object_tokenizer_cond_dims_account_for_tokens_per_step(self):
+        policy = self._make_per_object_policy(
+            embedder={
+                "_target_": (
+                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                ),
+                "output_dim": 8,
+                "obs_horizon": 2,
+                "num_heads": 2,
+            },
+        )
+        policy.configure_model()
+
+        # 3 tokens per timestep (objA, objB, TCP), unpooled: "task" is 3x an unrelated 1-token
+        # embedder's width.
+        assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 8 * 3}}
+
+    def test_per_object_tokenizer_with_pooling_promotes_task_to_top_level(self):
+        """Mirrors test_goal_delta_with_pooling_embedder_promotes_task_to_top_level, but with the
+        per-object tokenizer's 3 tokens per timestep instead of 1."""
+        policy = self._make_per_object_policy(
+            embedder={
+                "_target_": (
+                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                ),
+                "output_dim": 8,
+                "obs_horizon": 2,
+                "num_heads": 2,
+                "pooling": {
+                    "_target_": "policy.algorithms.networks.pooling.AttentionPooling",
+                    "dim": 8,
+                    "num_heads": 2,
+                },
+            },
+        )
+        policy.configure_model()
+
+        cond_dims = policy._get_cond_dims()
+        assert cond_dims == {"obs": {"proprio": 18}, "task": 8}
+
+        # configure_model() gets a mocked embedder (the class-level autouse fixture patches
+        # hydra_zen.instantiate), so swap in the real thing this test is about.
+        embedder = SelfAttentionEmbedder(
+            input_dim=policy.tokenizer.output_dim,
+            output_dim=8,
+            obs_horizon=2,
+            num_heads=2,
+            pooling=AttentionPooling(dim=8, num_heads=2),
+        )
+        embedder.eval()
+        policy.embedder = embedder
+
+        batch_size = 2
+        obs = {
+            "proprio": torch.randn(batch_size, 2, 18),
+            "a_pose": torch.randn(batch_size, 2, 7),
+            "b_pose": torch.randn(batch_size, 2, 7),
+            "tcp_pose": torch.randn(batch_size, 2, 7),
+        }
+        goal = {
+            "proprio": torch.randn(batch_size, 18),
+            "a_pose": torch.randn(batch_size, 7),
+            "b_pose": torch.randn(batch_size, 7),
+            "tcp_pose": torch.randn(batch_size, 7),
+        }
+        ext_cond = policy._build_external_cond(obs, goal)
+
+        assert set(ext_cond) == {"obs", "task"}
+        obs_cond = ext_cond["obs"]
+        assert isinstance(obs_cond, Mapping)
+        assert set(obs_cond) == {"proprio"}
+        assert torch.equal(obs_cond["proprio"], obs["proprio"])  # proprio bypasses the embedder
+        assert ext_cond["task"].shape == (batch_size, 8)
+
+        expected_width = sum(
+            get_total_dim(spec) * (policy.obs_horizon if key == "obs" else 1)
+            for key, spec in cond_dims.items()
+        )
+        actual_width = flatten_and_concat_leaf_tensors(ext_cond).shape[-1]
+        assert actual_width == expected_width
+
+    def test_per_object_tokenizer_builds_a_wider_unpooled_task_per_timestep(self):
+        policy = self._make_per_object_policy(
+            embedder={
+                "_target_": (
+                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                ),
+                "output_dim": 8,
+                "obs_horizon": 2,
+                "num_heads": 2,
+            },
+        )
+        policy.configure_model()
+        embedder = SelfAttentionEmbedder(
+            input_dim=policy.tokenizer.output_dim, output_dim=8, obs_horizon=2, num_heads=2
+        )
+        embedder.eval()
+        policy.embedder = embedder
+
+        batch_size = 2
+        obs = {
+            "proprio": torch.randn(batch_size, 2, 18),
+            "a_pose": torch.randn(batch_size, 2, 7),
+            "b_pose": torch.randn(batch_size, 2, 7),
+            "tcp_pose": torch.randn(batch_size, 2, 7),
+        }
+        goal = {
+            "proprio": torch.randn(batch_size, 18),
+            "a_pose": torch.randn(batch_size, 7),
+            "b_pose": torch.randn(batch_size, 7),
+            "tcp_pose": torch.randn(batch_size, 7),
+        }
+        obs_cond = policy._build_external_cond(obs, goal)["obs"]
+        assert isinstance(obs_cond, Mapping)
+        assert torch.equal(obs_cond["proprio"], obs["proprio"])
+        assert obs_cond["task"].shape == (batch_size, 2, 8 * 3)
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

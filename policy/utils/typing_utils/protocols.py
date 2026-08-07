@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 from collections.abc import Mapping
-from typing import Any, Literal, ParamSpec, Protocol, TypeVar, runtime_checkable
+from typing import Any, ClassVar, Literal, ParamSpec, Protocol, TypeVar, runtime_checkable
 
 import torch
 
@@ -10,7 +10,7 @@ if typing.TYPE_CHECKING:
     from torch import nn
     from torch.utils.data import DataLoader
 
-    from policy.utils.typing_utils import TensorTree
+    from policy.utils.typing_utils import GoalDelta, TensorTree
 
 P = ParamSpec("P")
 OutT = TypeVar("OutT", covariant=True)
@@ -178,13 +178,52 @@ class DiffusionSchedulerProtocol(Protocol):
     ) -> Any | tuple: ...
 
 
+@runtime_checkable
+class StateTokenizer(Protocol):
+    """Protocol for turning a canonicalized, proprio-already-split-off obs/goal task tree into raw
+    (pre-embedder) tokens."""
+
+    output_dim: int
+    """Width ``D`` of one raw token; becomes the downstream embedder's ``input_dim``."""
+
+    tokens_per_step: int
+    """Number of tokens ``K`` produced per observed timestep."""
+
+    compatible_goal_deltas: ClassVar[frozenset[GoalDelta]]
+    """Which ``goal_delta`` values this tokenizer supports."""
+
+    supports_single_side: ClassVar[bool]
+    """Whether :meth:`tokenize` can be called with exactly one of ``obs_task`` and
+    ``goal_task)``."""
+
+    def tokenize(self, obs_task: TensorTree | None, goal_task: TensorTree | None) -> torch.Tensor:
+        """Builds the raw (pre-embedder) token tensor for an observation window and/or a goal.
+
+        Args:
+            obs_task: Leaves of shape ``[B, T, *]`` (task-only, proprio already popped), or
+                ``None``.
+            goal_task: Leaves of shape ``[B, *]`` (single-frame, task-only), or ``None``.
+                Exactly one of ``obs_task``/``goal_task`` may be ``None`` iff
+                ``supports_single_side``; both being ``None`` is always invalid.
+
+        Returns:
+            ``[B, T, output_dim]`` if ``tokens_per_step == 1``,
+            else ``[B, T, K, output_dim]``.
+
+            A single-side call without a ``T`` axis drops the leading
+            ``T`` too (``[B, output_dim]`` / ``[B, K, output_dim]``).
+        """
+        ...
+
 
 @runtime_checkable
 class EnvProtocol(Protocol):
     """Protocol representing a standard environment (e.g., gym.Env)."""
 
     def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]: ...
-    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]: ...
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[Any, dict[str, Any]]: ...
     def render(self) -> Any: ...
     def close(self) -> None: ...
 

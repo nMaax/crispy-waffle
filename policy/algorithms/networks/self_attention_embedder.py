@@ -30,20 +30,34 @@ class SelfAttentionEmbedder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Shapes:
-            x: [B, T, input_dim] (T <= obs_horizon)
-            returns: [B, T, output_dim], or [B, output_dim] if ``pooling`` is set
+            x: [B, T, input_dim] (T <= obs_horizon), or [B, T, K, input_dim] (K tokens per
+                timestep).
+                Grouping order for the attended sequence is t-major, k-minor: index = t * K + k.
+            returns: same leading shape as ``x`` with ``input_dim`` -> ``output_dim``, or
+                [B, output_dim] if ``pooling`` is set.
         """
-        T = x.shape[1]
+        squeeze_k = x.ndim == 3
+        if squeeze_k:
+            x = x.unsqueeze(2)  # [B, T, 1, input_dim]
+        elif x.ndim != 4:
+            raise ValueError(f"Expected a 3D or 4D input, got shape {tuple(x.shape)}.")
+
+        B, T, K, _ = x.shape
         if T > self.obs_horizon:
             raise ValueError(
                 f"Got a window of length {T}, but this embedder was configured with "
                 f"obs_horizon={self.obs_horizon}."
             )
 
-        tokens = self.input_proj(x) + self.pos_emb[:, :T, :]
+        # All K tokens at a given timestep share that time positional embedding
+        pos = self.pos_emb[:, :T, :].unsqueeze(2)  # [1, T, 1, output_dim]
+        tokens = (self.input_proj(x) + pos).reshape(B, T * K, self.output_dim)
+
         attn_out, _ = self.attn(tokens, tokens, tokens, need_weights=False)
         out = self.norm(tokens + attn_out)
 
         if self.pooling is not None:
             return self.pooling(out)
-        return out
+
+        out = out.reshape(B, T, K, self.output_dim)
+        return out.squeeze(2) if squeeze_k else out

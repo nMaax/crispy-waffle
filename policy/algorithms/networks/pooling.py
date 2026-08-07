@@ -5,12 +5,18 @@ import torch.nn as nn
 class MLPPooling(nn.Module):
     """Pools a token sequence into a fixed-size vector via flatten + MLP."""
 
-    def __init__(self, dim: int, obs_horizon: int, hidden_dim: int | None = None):
+    def __init__(
+        self,
+        dim: int,
+        obs_horizon: int,
+        hidden_dim: int | None = None,
+        tokens_per_step: int = 1,
+    ):
         super().__init__()
         hidden_dim = hidden_dim or dim
         self.net = nn.Sequential(
             nn.Flatten(start_dim=1),
-            nn.Linear(obs_horizon * dim, hidden_dim),
+            nn.Linear(obs_horizon * tokens_per_step * dim, hidden_dim),
             nn.Mish(),
             nn.Linear(hidden_dim, dim),
         )

@@ -1,0 +1,12 @@
+defaults:
+  - goal_conditioned_diffusion_policy
+  - override tokenizer: per_object
+  - override embedder: self_attention
+
+# PerObjectStateTokenizer's only compatible value (validated in configure_model): its tokens are
+# goal-relative by construction, so there is no absolute ("null") or post-embedder-diff
+# ("embedding") equivalent for it.
+goal_delta: input
+
+embedder:
+  obs_horizon: ${..obs_horizon}
