@@ -97,6 +97,13 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     # differences (input space, the only mode PerObjectStateTokenizer supports)
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    # Same, with an MLP pooling head collapsing the per-object attention embedder's token axis
+    # (T * tokens_per_step) before FiLM
+    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    # Same, with an attention pooling head (a learned query cross-attending over the tokens) instead
+    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
