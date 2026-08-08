@@ -10,14 +10,19 @@ import torch.nn.functional as F
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.utils import (
     concat_leaf_tensors,
-    derive_task_dim,
     get_batch_size,
     get_total_dim,
     map_leaves,
     merge_dicts,
-    resolve_proprio_dim,
 )
 from policy.utils.typing_utils import DimSpec, GoalConditionedPolicyProtocol, TensorTree
+
+
+def _pack_cond(obs: TensorTree, goal: TensorTree | None) -> dict[str, TensorTree]:
+    """Packs `obs`/`goal` pair into the dict passed to a `self.network(...)` call."""
+    if goal is None:
+        return {"obs": obs}
+    return merge_dicts([{"obs": obs}, {"goal": goal}])
 
 
 class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
@@ -39,9 +44,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self,
         *args,
         goal_horizon: int = 0,
-        proprio_dim: int | None = None,
-        task_dim: int | None = None,
-        use_proprio_token: bool = False,
         alpha: float = 0.5,
         beta: float = 0.5,
         sigma_min: float = 0.005,
@@ -67,13 +69,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 f"Got noise_scheduler={self.noise_scheduler_config}. Please remove it."
             )
 
-        self.use_proprio_token = use_proprio_token
-
-        proprio_dim, task_dim = self._validate_obs_dim(proprio_dim, task_dim)
-
-        self.proprio_dim = proprio_dim
-        self.task_dim = task_dim
-
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
 
@@ -94,15 +89,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         self.num_parallel_samples = num_parallel_samples
-
-    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
-        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
-        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
-        return proprio_dim, task_dim
-
-    def _network_extra_kwargs(self) -> dict[str, Any]:
-        # DiffusionGPT only cares about proprio_dim when it's actually splitting a token for it
-        return {"proprio_dim": self.proprio_dim if self.use_proprio_token else None}
 
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
@@ -185,17 +171,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network."""
-
-        # Adds a "goal" key (absent from the base class) whenever goal-conditioning is active,
-        # so DiffusionGPT's own width validation actually has something to check. Goal width is
-        # the task-only width (obs_total - proprio_dim) when use_proprio_token is true;
-        # otherwise it's obs_total.
-
         cond_dims = cast(Mapping[str, DimSpec], super()._get_cond_dims())
         if self.goal_horizon > 0:
-            obs_total = get_total_dim(cond_dims["obs"])
-            goal_total = obs_total - self.proprio_dim if self.use_proprio_token else obs_total
-            cond_dims = {**cond_dims, "goal": goal_total}
+            cond_dims = {**cond_dims, "goal": get_total_dim(cond_dims["obs"])}
         return cond_dims
 
     def get_action(
@@ -285,8 +263,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 goal,
             )
 
-        # Repack data back in the external_cond dictionary and predict
-        external_cond = self._build_external_cond(obs_seq, goal)
+        # Repack data back into the external_cond dictionary and predict.
+        external_cond = _pack_cond(obs_seq, goal)
         model_output = self.network(
             sample=scaled_noisy_act, timestep=sigmas, external_cond=external_cond
         )
@@ -424,7 +402,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 cond_pred = self.network(
                     sample=scaled_sample,
                     timestep=sigma_t,
-                    external_cond=self._build_external_cond(sliced_obs_cond, goal_cond),
+                    external_cond=_pack_cond(sliced_obs_cond, goal_cond),
                 )
 
                 # Unconditional Prediction (goal zeroed out)
@@ -447,7 +425,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                     uncond_pred = self.network(
                         sample=scaled_sample,
                         timestep=sigma_t,
-                        external_cond=self._build_external_cond(sliced_obs_cond, uncond_goal),
+                        external_cond=_pack_cond(sliced_obs_cond, uncond_goal),
                     )
 
                     model_pred = uncond_pred + self.cfg_lambda * (cond_pred - uncond_pred)

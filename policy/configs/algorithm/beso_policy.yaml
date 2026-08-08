@@ -73,14 +73,11 @@ goal_horizon: 1
 pred_last_action_only: false
 num_parallel_samples: 1
 
-use_proprio_token: false
-
 network:
   act_dim: ${..act_dim}
   obs_horizon: ${..obs_horizon}
   pred_horizon: ${..pred_horizon}
   goal_horizon: ${..goal_horizon}
-  use_proprio_token: ${..use_proprio_token}
 
 optimizer:
   lr: 1e-4

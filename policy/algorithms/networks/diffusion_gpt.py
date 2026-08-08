@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from policy.utils import concat_leaf_tensors, get_total_dim, split_leaf_key
+from policy.utils import concat_leaf_tensors, get_total_dim, resolve_task_width, split_leaf_key
 from policy.utils.typing_utils import DimSpec, TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 
@@ -315,14 +315,12 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                     f"Expected goal sequence length {self.goal_horizon}, but got {goal_seq.shape[1]}"
                 )
 
-            if self.use_proprio_token and goal_seq.shape[-1] == self.obs_dim:
-                # A flat/3D Tensor goal can't be tolerantly checked for a "proprio" key the way a
-                # Mapping can; disambiguate by width instead -- if it's exactly obs-width (task +
-                # proprio, e.g. real or zeroed proprio from an upstream goal-crafter), strip the
-                # leading proprio slice. A goal that's already task-width is left untouched.
-                goal_seq = goal_seq[..., self.proprio_dim :]
-
-            if goal_seq.shape[-1] != self.task_dim:
+            if self.use_proprio_token:
+                assert self.proprio_dim is not None
+                goal_seq = resolve_task_width(
+                    goal_seq, self.proprio_dim, self.task_dim, label="goal width"
+                )
+            elif goal_seq.shape[-1] != self.task_dim:
                 raise ValueError(
                     f"Expected goal width {self.task_dim} (task-only), but got {goal_seq.shape[-1]}"
                 )

@@ -14,6 +14,7 @@ from policy.utils.utils import (
     print_config,
     print_mapping_tree,
     recursive_index,
+    resolve_task_width,
     slice_by_schema,
     split_leaf_key,
     to_tensor,
@@ -226,3 +227,27 @@ def test_derive_task_dim_int():
 
     with pytest.raises(ValueError, match="does not match task_dim"):
         derive_task_dim(48, 18, task_dim=31)
+
+
+def test_resolve_task_width_already_task_width():
+    tensor = torch.randn(2, 5)
+    resolved = resolve_task_width(tensor, proprio_dim=3, task_dim=5)
+    assert torch.equal(resolved, tensor)
+
+
+def test_resolve_task_width_strips_leading_proprio():
+    tensor = torch.arange(16, dtype=torch.float32).view(2, 8)
+    resolved = resolve_task_width(tensor, proprio_dim=3, task_dim=5)
+    assert torch.equal(resolved, tensor[..., 3:])
+
+
+def test_resolve_task_width_rejects_mismatched_width():
+    tensor = torch.randn(2, 7)
+    with pytest.raises(ValueError, match="Expected width 5"):
+        resolve_task_width(tensor, proprio_dim=3, task_dim=5)
+
+
+def test_resolve_task_width_custom_label():
+    tensor = torch.randn(2, 7)
+    with pytest.raises(ValueError, match="Expected goal width 5"):
+        resolve_task_width(tensor, proprio_dim=3, task_dim=5, label="goal width")

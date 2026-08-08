@@ -370,3 +370,18 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
         )
 
     return calc_task_dim
+
+
+def resolve_task_width(
+    tensor: torch.Tensor, proprio_dim: int, task_dim: int, *, label: str = "width"
+) -> torch.Tensor:
+    """Resolves a flat tensor at ambiguous width to task-only form."""
+    width = tensor.shape[-1]
+    if width == task_dim:
+        return tensor
+    if width == proprio_dim + task_dim:
+        return tensor[..., proprio_dim:]
+    raise ValueError(
+        f"Expected {label} {task_dim} (task-only) or {proprio_dim + task_dim} (proprio+task), "
+        f"but got {width}."
+    )

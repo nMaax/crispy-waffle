@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - GoalConditionedBESO++__StackCubeLockedRotation-v1__default__test__ZeroShot
+  - GoalConditionedBESO++DeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot
 
 name: ${hydra:runtime.choices.experiment}
 

@@ -1,0 +1,10 @@
+defaults:
+  - beso_policy
+
+_target_: policy.algorithms.beso_pp_policy.BesoPlusPlusPolicy
+
+# BesoPlusPlusPolicy always folds the goal into a delta (g - s_t) instead of conditioning on a
+# standalone goal token; CFG's "unconditional" goal-zeroing has no meaning once there's no
+# standalone goal tensor to zero.
+goal_drop_prob: 0.0
+cfg_lambda: null
