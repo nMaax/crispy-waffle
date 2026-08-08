@@ -14,6 +14,7 @@ datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5
   obs_horizon: 5
   pred_horizon: 5
+  her_ratio: 1.0
 
 trainer:
   callbacks:
