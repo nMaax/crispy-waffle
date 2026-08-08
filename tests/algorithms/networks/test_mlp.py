@@ -1,7 +1,12 @@
 import hydra_zen
+import pytest
 import torch
 from hydra import compose, initialize_config_module
 from omegaconf import OmegaConf
+
+from policy.algorithms.networks.mlp import MLP
+from policy.algorithms.networks.pooling import AttentionPooling
+from policy.algorithms.networks.residual_mlp import ResidualMLP
 
 
 def _load_net_cfg(config_name: str):
@@ -10,6 +15,17 @@ def _load_net_cfg(config_name: str):
     net_cfg = cfg.algorithm.network
     OmegaConf.set_struct(net_cfg, False)
     return net_cfg
+
+
+def _load_embedder_cfg_with_pooling(embedder_name: str, pooling_config_name: str):
+    with initialize_config_module(config_module="policy.configs", version_base="1.2"):
+        cfg = compose(
+            config_name=f"algorithm/embedder/{embedder_name}",
+            overrides=[f"algorithm/embedder/pooling={pooling_config_name}"],
+        )
+    embedder_cfg = cfg.algorithm.embedder
+    OmegaConf.set_struct(embedder_cfg, False)
+    return embedder_cfg
 
 
 def test_mlp_instantiates_and_runs():
@@ -99,3 +115,55 @@ def test_residual_mlp_instantiates_and_runs():
     net_cfg.output_dim = 64
     network_from_cfg = hydra_zen.instantiate(net_cfg)
     assert network_from_cfg(sample).shape == (32, 64)
+
+
+@pytest.mark.parametrize("embedder_name", ["mlp", "residual_mlp"])
+def test_mlp_family_embedder_with_attention_pooling_collapses_the_time_axis(embedder_name):
+    """The per-token ("siamese") MLP/ResidualMLP embedders can plug in the same pooling heads
+    SelfAttentionEmbedder uses, via `algorithm/embedder/pooling: attention`."""
+    embedder_cfg = _load_embedder_cfg_with_pooling(embedder_name, "attention")
+
+    batch_size, obs_horizon, input_dim, output_dim = 8, 3, 16, 12
+    embedder_cfg.input_dim = input_dim
+    embedder_cfg.output_dim = output_dim
+    embedder = hydra_zen.instantiate(embedder_cfg)
+
+    sample = torch.randn(batch_size, obs_horizon, input_dim)
+    output = embedder(sample)
+
+    assert isinstance(output, torch.Tensor)
+    assert output.shape == (batch_size, output_dim)
+
+    loss = output.sum()
+    loss.backward()
+    for p in embedder.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()
+
+
+@pytest.mark.parametrize("embedder_cls", [MLP, ResidualMLP])
+def test_mlp_family_pooling_flattens_a_multi_token_per_step_axis_before_pooling(embedder_cls):
+    """K tokens per timestep (e.g. per-object tokenization) must fold into the sequence axis a
+    pooling head expects, exactly like SelfAttentionEmbedder does before pooling (see `pool_tokens`
+    in policy/algorithms/networks/pooling.py)."""
+    batch_size, obs_horizon, tokens_per_step, input_dim, output_dim = 4, 3, 2, 8, 12
+    embedder = embedder_cls(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        hidden_dims=[16],
+        pooling=AttentionPooling(dim=output_dim),
+    )
+
+    sample = torch.randn(batch_size, obs_horizon, tokens_per_step, input_dim)
+    output = embedder(sample)
+
+    assert isinstance(output, torch.Tensor)
+    assert output.shape == (batch_size, output_dim)
+
+    loss = output.sum()
+    loss.backward()
+    for p in embedder.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()

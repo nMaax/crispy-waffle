@@ -76,6 +76,9 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
+    # Same, with an attention pooling head (a learned query cross-attending over the tokens)
+    # collapsing the per-token MLP embedder's time axis before FiLM
+    "experiment=GoalConditionedDiffusionPolicyMLPAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy Attention, conditioned on goal-state differences (input space)
     "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",

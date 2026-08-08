@@ -3,6 +3,8 @@ from collections.abc import Sequence
 import torch
 import torch.nn as nn
 
+from policy.algorithms.networks.pooling import pool_tokens
+
 
 class MLP(nn.Module):
     def __init__(
@@ -11,6 +13,7 @@ class MLP(nn.Module):
         output_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
         bias: bool = True,
+        pooling: nn.Module | None = None,
     ):
         super().__init__()
 
@@ -18,6 +21,7 @@ class MLP(nn.Module):
         self.output_dim = output_dim
         self.hidden_dims = hidden_dims
         self.bias = bias
+        self.pooling = pooling
 
         layers = []
         current_dim = input_dim
@@ -35,4 +39,11 @@ class MLP(nn.Module):
             nn.init.zeros_(self.net[0].weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        """
+        Shapes:
+            x: [B, T, input_dim] or [B, T, K, input_dim] (K tokens per timestep).
+            returns: same leading shape as ``x`` with ``input_dim`` -> ``output_dim``, or
+                [B, output_dim] if ``pooling`` is set.
+        """
+        out = self.net(x)
+        return pool_tokens(out, self.pooling) if self.pooling is not None else out

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from policy.algorithms.networks.mlp import MLP
+from policy.algorithms.networks.pooling import pool_tokens
 
 
 class ZeroPadShortcut(nn.Module):
@@ -28,6 +29,7 @@ class ResidualMLP(nn.Module):
         hidden_dims: Sequence[int] = (256, 256),
         bias: bool = True,
         use_linear_shortcut: bool = True,
+        pooling: nn.Module | None = None,
     ):
         super().__init__()
         if output_dim is None:
@@ -36,6 +38,7 @@ class ResidualMLP(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.use_linear_shortcut = use_linear_shortcut
+        self.pooling = pooling
         self.mlp = MLP(
             input_dim=input_dim, output_dim=output_dim, hidden_dims=hidden_dims, bias=bias
         )
@@ -48,4 +51,11 @@ class ResidualMLP(nn.Module):
             self.shortcut = ZeroPadShortcut(input_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.mlp(x) + self.shortcut(x)
+        """
+        Shapes:
+            x: [B, T, input_dim] or [B, T, K, input_dim] (K tokens per timestep).
+            returns: same leading shape as ``x`` with ``input_dim`` -> ``output_dim``, or
+                [B, output_dim] if ``pooling`` is set.
+        """
+        out = self.mlp(x) + self.shortcut(x)
+        return pool_tokens(out, self.pooling) if self.pooling is not None else out
