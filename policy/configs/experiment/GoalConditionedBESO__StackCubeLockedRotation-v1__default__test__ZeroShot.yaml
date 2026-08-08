@@ -22,6 +22,7 @@ trainer:
     rollout_evaluation_place_left:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       _recursive_: false
+      num_inference_steps: 3
       num_episodes: 100
       num_envs: null
       max_episode_steps: 200
@@ -39,6 +40,7 @@ trainer:
     rollout_evaluation_place_right:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       _recursive_: false
+      num_inference_steps: 3
       num_episodes: 100
       num_envs: null
       max_episode_steps: 200
@@ -56,6 +58,7 @@ trainer:
     rollout_evaluation_stack_swapped:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       _recursive_: false
+      num_inference_steps: 3
       num_episodes: 100
       num_envs: null
       max_episode_steps: 200
