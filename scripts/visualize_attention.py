@@ -47,6 +47,7 @@ from policy.utils import (
 from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_is_dataset
 from policy.utils.live_rollout_utils import (
+    DEFAULT_LOCKED_ROTATION_ENV_IDS,
     build_rollout_env,
     load_env_config,
     resolve_env_kwargs,
@@ -132,17 +133,20 @@ def parse_args() -> argparse.Namespace:
         "--live",
         action="store_true",
         default=False,
-        help="Drive the checkpoint's own live policy for one episode instead of replaying an "
-        "HDF5 dataset -- for envs with no recorded dataset (e.g. zero-shot targets like "
-        "'PlaceCubeLeftLockedRotation-v1'). Requires --env_id.",
+        help="Drive the checkpoint's own live policy for one episode per env instead of replaying "
+        "an HDF5 dataset -- for envs with no recorded dataset (e.g. zero-shot targets like "
+        "'PlaceCubeLeftLockedRotation-v1').",
     )
     parser.add_argument(
         "--env_id",
         type=str,
+        nargs="+",
         default=None,
-        help="Rollout env_id. Required when --live is set (no dataset to infer it from). Every "
-        "other rollout setting (obs_mode, control_mode, robot_uids, no_proprio_vel) is always "
-        "sourced from the checkpoint's own training config.",
+        help="One or more rollout env_ids to visualize (only used under --live), each run and "
+        "plotted independently. Default: the whole LockedRotation family "
+        f"({', '.join(DEFAULT_LOCKED_ROTATION_ENV_IDS)}). Every other rollout setting (obs_mode, "
+        "control_mode, robot_uids, no_proprio_vel) is always sourced from the checkpoint's own "
+        "training config.",
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Live rollout env reset seed. Only used under --live."
@@ -173,8 +177,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
-    if args.live and not args.env_id:
-        parser.error("--env_id is required when --live is set (no dataset to infer it from).")
     if args.live:
         for dataset_only_arg in ("dataset_path", "episode_idx", "goal_frame_idx"):
             if getattr(args, dataset_only_arg) != parser.get_default(dataset_only_arg):
@@ -772,108 +774,18 @@ def _save_and_maybe_show(fig: plt.Figure, save_path: Path, show: bool) -> None:
     plt.close(fig)
 
 
-def main() -> None:
-    args = parse_args()
-    ckpt_path = Path(args.ckpt_path)
-
-    print(f"Loading checkpoint from: {ckpt_path}")
-    model = load_goal_conditioned_diffusion_policy(ckpt_path)
-    target_modules = detect_attention_modules(model)
-    print(f"Detected attention module(s): {sorted(target_modules)}")
-
-    if args.live:
-        cfg = load_env_config(ckpt_path)  # hard error if missing -- no other source for env kwargs
-        env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
-        env_id = env_kwargs["env_id"]
-        max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
-        print(
-            f"Env: {env_id}  obs_mode={env_kwargs['obs_mode']}  "
-            f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}  "
-            f"max_episode_steps={max_episode_steps}"
-        )
-
-        env, inner_env = build_rollout_env(
-            env_kwargs, model.obs_horizon, max_episode_steps, None, None
-        )
-        try:
-            obs_transform = observation_pipeline(
-                env_id=env_id,
-                is_flat=not isinstance(env.observation_space, gym.spaces.Dict),
-                canonicalize=True,
-                as_dict=True,
-                no_proprio_vel=env_kwargs["no_proprio_vel"],
-            )
-            print(f"Running live rollout (seed={args.seed})...")
-            obs_tree, goal_raw, seq_len = run_live_episode(
-                model,
-                env,
-                inner_env,
-                obs_transform,
-                args.seed,
-                args.num_inference_steps,
-                args.clamp_action,
-            )
-        finally:
-            env.close()
-
-        target_key = f"live(seed={args.seed})"
-        print(f"Episode: {target_key} (length {seq_len}, env_id={env_id})")
-        goal_descriptor = "heuristic"
-    else:
-        dataset_path = Path(args.dataset_path)
-        cfg = load_ckpt_config(ckpt_path)
-        env_id = resolve_env_id(cfg, dataset_path)
-        is_flat = peek_trajectory_is_dataset(dataset_path, dimension_key="obs")
-        obs_transform = resolve_obs_transform(cfg, env_id, is_flat)
-
-        target_key, obs_tree, seq_len = load_episode_obs(dataset_path, args.episode_idx)
-        print(f"Episode: {target_key} (length {seq_len}, env_id={env_id})")
-
-        goal_frame_idx = (
-            args.goal_frame_idx if args.goal_frame_idx >= 0 else seq_len + args.goal_frame_idx
-        )
-        goal_frame_idx = max(0, min(goal_frame_idx, seq_len - 1))
-        goal_descriptor = f"{goal_frame_idx}/{seq_len - 1}"
-
-    frames = parse_frames(args.frames, seq_len)
-    frame_indices = [idx for idx, _ in frames]
-    frame_labels = [label for _, label in frames]
-
-    obs_horizon = model.obs_horizon
-    assert model.tokenizer is not None, (
-        "configure_model() must run before tokens_per_step is known."
-    )
-    tokens_per_step = model.tokenizer.tokens_per_step
-
-    obs_batch = build_obs_batch(obs_tree, frame_indices, obs_horizon, model.device)
-    if args.live:
-        goal_t = to_tensor(goal_raw, device=model.device, dtype=torch.float32)
-        goal_batch = broadcast_goal(goal_t, len(frame_indices))
-    else:
-        goal_batch = build_goal_batch(obs_tree, goal_frame_idx, len(frame_indices), model.device)
-    obs_batch = obs_transform(obs_batch)
-    goal_batch = obs_transform(goal_batch)
-
-    captures = run_and_capture(
-        model, obs_batch, goal_batch, target_modules, obs_horizon, tokens_per_step
-    )
-    token_labels = build_token_labels(model, obs_horizon)
-    metadata_str = build_metadata_str(model, cfg, env_id, target_key, goal_descriptor)
-    metadata_slug = build_metadata_slug(model, cfg)
-
-    _apply_dark_theme()
-    if args.live:
-        base_prefix = (
-            args.save_path_prefix
-            or f"{ckpt_path.parent.parent.parent.name}_env-{env_id}_seed{args.seed}"
-        )
-    else:
-        base_prefix = (
-            args.save_path_prefix or f"{ckpt_path.parent.parent.parent.name}_ep{args.episode_idx}"
-        )
-    prefix = f"{base_prefix}_{metadata_slug}"
-    save_dir = Path("scripts/figures/visualize_attention") / env_id
-
+def _emit_attention_plots(
+    captures: dict[str, torch.Tensor],
+    token_labels: list[str],
+    frame_labels: list[str],
+    metadata_str: str,
+    save_dir: Path,
+    prefix: str,
+    args: argparse.Namespace,
+) -> None:
+    """The tail end shared by both modes: given whatever attention capture(s) `run_and_capture`
+    found, emit the matching figure(s) -- self-attention and/or pooling, plus per-head breakdowns
+    if requested."""
     if "self_attention" in captures:
         weights = captures["self_attention"].numpy()
         plot_self_attention(
@@ -915,6 +827,159 @@ def main() -> None:
                 save_dir / f"{prefix}_pooling_attention_heads.png",
                 args.show,
             )
+
+
+def _visualize_live_env(
+    model: GoalConditionedDiffusionPolicy,
+    target_modules: dict[str, nn.MultiheadAttention],
+    obs_horizon: int,
+    tokens_per_step: int,
+    token_labels: list[str],
+    cfg: DictConfig,
+    args: argparse.Namespace,
+    ckpt_path: Path,
+    env_id: str,
+    max_episode_steps: int | None,
+) -> None:
+    """One env's worth of `--live` mode: build its rollout env, drive one live episode, capture
+    attention over the sampled frames, and plot -- the per-env body of the (by default, whole
+    LockedRotation family) sweep in `main()`."""
+    env_kwargs = resolve_env_kwargs(cfg, env_id_override=env_id)
+    print(
+        f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
+        f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}  "
+        f"max_episode_steps={max_episode_steps}"
+    )
+
+    env, inner_env = build_rollout_env(env_kwargs, obs_horizon, max_episode_steps, None, None)
+    try:
+        obs_transform = observation_pipeline(
+            env_id=env_id,
+            is_flat=not isinstance(env.observation_space, gym.spaces.Dict),
+            canonicalize=True,
+            as_dict=True,
+            no_proprio_vel=env_kwargs["no_proprio_vel"],
+        )
+        print(f"Running live rollout (seed={args.seed})...")
+        obs_tree, goal_raw, seq_len = run_live_episode(
+            model,
+            env,
+            inner_env,
+            obs_transform,
+            args.seed,
+            args.num_inference_steps,
+            args.clamp_action,
+        )
+    finally:
+        env.close()
+
+    target_key = f"live(seed={args.seed})"
+    print(f"Episode: {target_key} (length {seq_len}, env_id={env_id})")
+
+    frames = parse_frames(args.frames, seq_len)
+    frame_indices = [idx for idx, _ in frames]
+    frame_labels = [label for _, label in frames]
+
+    obs_batch = build_obs_batch(obs_tree, frame_indices, obs_horizon, model.device)
+    goal_t = to_tensor(goal_raw, device=model.device, dtype=torch.float32)
+    goal_batch = broadcast_goal(goal_t, len(frame_indices))
+    obs_batch = obs_transform(obs_batch)
+    goal_batch = obs_transform(goal_batch)
+
+    captures = run_and_capture(
+        model, obs_batch, goal_batch, target_modules, obs_horizon, tokens_per_step
+    )
+    metadata_str = build_metadata_str(model, cfg, env_id, target_key, "heuristic")
+    metadata_slug = build_metadata_slug(model, cfg)
+
+    base_prefix = (
+        args.save_path_prefix or f"{ckpt_path.parent.parent.parent.name}_env-{env_id}_seed{args.seed}"
+    )
+    prefix = f"{base_prefix}_{metadata_slug}"
+    save_dir = Path("scripts/figures/visualize_attention") / env_id
+
+    _emit_attention_plots(captures, token_labels, frame_labels, metadata_str, save_dir, prefix, args)
+
+
+def main() -> None:
+    args = parse_args()
+    ckpt_path = Path(args.ckpt_path)
+
+    print(f"Loading checkpoint from: {ckpt_path}")
+    model = load_goal_conditioned_diffusion_policy(ckpt_path)
+    target_modules = detect_attention_modules(model)
+    print(f"Detected attention module(s): {sorted(target_modules)}")
+
+    obs_horizon = model.obs_horizon
+    assert model.tokenizer is not None, (
+        "configure_model() must run before tokens_per_step is known."
+    )
+    tokens_per_step = model.tokenizer.tokens_per_step
+    token_labels = build_token_labels(model, obs_horizon)
+    _apply_dark_theme()
+
+    if args.live:
+        cfg = load_env_config(ckpt_path)  # hard error if missing -- no other source for env kwargs
+        max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
+        # Defaults to the whole LockedRotation family (one env at a time) rather than a single env,
+        # so one invocation covers both the checkpoint's own training env and its zero-shot
+        # targets without having to repeat the command four times.
+        env_ids = args.env_id or DEFAULT_LOCKED_ROTATION_ENV_IDS
+        for i, env_id in enumerate(env_ids):
+            if len(env_ids) > 1:
+                print(f"\n{'#' * 88}\n# Env {i + 1}/{len(env_ids)}: {env_id}\n{'#' * 88}")
+            _visualize_live_env(
+                model,
+                target_modules,
+                obs_horizon,
+                tokens_per_step,
+                token_labels,
+                cfg,
+                args,
+                ckpt_path,
+                env_id,
+                max_episode_steps,
+            )
+        return
+
+    # Dataset-replay mode: a single recorded HDF5 episode, so no env sweep applies here.
+    dataset_path = Path(args.dataset_path)
+    cfg = load_ckpt_config(ckpt_path)
+    env_id = resolve_env_id(cfg, dataset_path)
+    is_flat = peek_trajectory_is_dataset(dataset_path, dimension_key="obs")
+    obs_transform = resolve_obs_transform(cfg, env_id, is_flat)
+
+    target_key, obs_tree, seq_len = load_episode_obs(dataset_path, args.episode_idx)
+    print(f"Episode: {target_key} (length {seq_len}, env_id={env_id})")
+
+    goal_frame_idx = (
+        args.goal_frame_idx if args.goal_frame_idx >= 0 else seq_len + args.goal_frame_idx
+    )
+    goal_frame_idx = max(0, min(goal_frame_idx, seq_len - 1))
+    goal_descriptor = f"{goal_frame_idx}/{seq_len - 1}"
+
+    frames = parse_frames(args.frames, seq_len)
+    frame_indices = [idx for idx, _ in frames]
+    frame_labels = [label for _, label in frames]
+
+    obs_batch = build_obs_batch(obs_tree, frame_indices, obs_horizon, model.device)
+    goal_batch = build_goal_batch(obs_tree, goal_frame_idx, len(frame_indices), model.device)
+    obs_batch = obs_transform(obs_batch)
+    goal_batch = obs_transform(goal_batch)
+
+    captures = run_and_capture(
+        model, obs_batch, goal_batch, target_modules, obs_horizon, tokens_per_step
+    )
+    metadata_str = build_metadata_str(model, cfg, env_id, target_key, goal_descriptor)
+    metadata_slug = build_metadata_slug(model, cfg)
+
+    base_prefix = (
+        args.save_path_prefix or f"{ckpt_path.parent.parent.parent.name}_ep{args.episode_idx}"
+    )
+    prefix = f"{base_prefix}_{metadata_slug}"
+    save_dir = Path("scripts/figures/visualize_attention") / env_id
+
+    _emit_attention_plots(captures, token_labels, frame_labels, metadata_str, save_dir, prefix, args)
 
 
 if __name__ == "__main__":

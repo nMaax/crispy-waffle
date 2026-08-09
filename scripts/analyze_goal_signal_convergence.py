@@ -33,6 +33,7 @@ from policy.transforms import observation_pipeline
 from policy.utils import to_tensor
 from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
 from policy.utils.live_rollout_utils import (
+    DEFAULT_LOCKED_ROTATION_ENV_IDS,
     build_rollout_env,
     extract_episode_metrics,
     load_env_config,
@@ -48,18 +49,6 @@ from policy.utils.typing_utils import (
 
 SUCCESS_COLOR = "#10b981"
 FAILURE_COLOR = "#f87171"
-
-# The whole LockedRotation task family -- analyzed by default (one env at a time, each run and
-# plotted independently under its own scripts/figures/analyze_goal_signal_convergence/<env_id>/
-# subdirectory) when --env_id is omitted, so a single invocation covers both the checkpoint's own
-# training env and its zero-shot generalization targets without having to type out --env_id four
-# times.
-DEFAULT_LOCKED_ROTATION_ENV_IDS = (
-    "StackCubeLockedRotation-v1",
-    "PlaceCubeLeftLockedRotation-v1",
-    "PlaceCubeRightLockedRotation-v1",
-    "StackCubeSwappedLockedRotation-v1",
-)
 
 
 @dataclass

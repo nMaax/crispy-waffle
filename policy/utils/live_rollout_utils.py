@@ -29,6 +29,17 @@ from mani_skill.utils.wrappers import FrameStack, RecordEpisode
 from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from omegaconf import DictConfig, OmegaConf
 
+# The whole LockedRotation task family -- both live-rollout analysis scripts default to sweeping
+# this list (one env at a time) when their --env_id is omitted, so a single invocation covers both
+# the checkpoint's own training env and its zero-shot generalization targets without having to
+# type out --env_id four times.
+DEFAULT_LOCKED_ROTATION_ENV_IDS = (
+    "StackCubeLockedRotation-v1",
+    "PlaceCubeLeftLockedRotation-v1",
+    "PlaceCubeRightLockedRotation-v1",
+    "StackCubeSwappedLockedRotation-v1",
+)
+
 
 def load_env_config(ckpt_path: Path) -> DictConfig:
     """Loads the checkpoint's saved Hydra run config, the same way `analyze_embedder_linearity.py`
