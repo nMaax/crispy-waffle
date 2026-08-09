@@ -182,23 +182,42 @@ def resolve_env_kwargs(cfg: DictConfig) -> dict:
     }
 
 
+def _describe_model_config(
+    model: GoalConditionedDiffusionPolicy, cfg: DictConfig
+) -> list[tuple[str, str]]:
+    """`(key, value)` pairs describing this checkpoint's tokenizer/embedder/pooling architecture,
+    goal-conditioning mode, and HER ratio -- the single source of truth for both the human-readable
+    title line (`build_metadata_str`) and the filesystem-safe filename slug
+    (`build_metadata_slug`)."""
+    pooling = getattr(model.embedder, "pooling", None)
+    fields = [
+        ("tokenizer", type(model.tokenizer).__name__ if model.tokenizer is not None else "none"),
+        ("embedder", type(model.embedder).__name__ if model.embedder is not None else "none"),
+        ("pooling", type(pooling).__name__ if pooling is not None else "none"),
+        ("goal_delta", str(model.goal_delta)),
+    ]
+    her_ratio = cfg.get("datamodule", {}).get("her_ratio", None)
+    if her_ratio is not None:
+        fields.append(("her_ratio", str(her_ratio)))
+    return fields
+
+
 def build_metadata_str(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
     """A compact `key=value` summary of the config this checkpoint was trained with -- env,
     tokenizer/embedder/pooling architecture, goal-conditioning mode, HER ratio -- appended under
     every figure's title so a saved PNG identifies its own provenance without cross-referencing the
     checkpoint path."""
-    pooling = getattr(model.embedder, "pooling", None)
-    parts = [
-        f"env={cfg.datamodule.env_id}",
-        f"tokenizer={type(model.tokenizer).__name__ if model.tokenizer is not None else 'none'}",
-        f"embedder={type(model.embedder).__name__ if model.embedder is not None else 'none'}",
-        f"pooling={type(pooling).__name__ if pooling is not None else 'none'}",
-        f"goal_delta={model.goal_delta!r}",
-    ]
-    her_ratio = cfg.get("datamodule", {}).get("her_ratio", None)
-    if her_ratio is not None:
-        parts.append(f"her_ratio={her_ratio}")
-    return " | ".join(parts)
+    fields = [("env", cfg.datamodule.env_id), *_describe_model_config(model, cfg)]
+    return " | ".join(f"{k}={v}" for k, v in fields)
+
+
+def build_metadata_slug(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
+    """Filesystem-safe counterpart to `build_metadata_str` (env_id omitted -- it's already folded
+    into the filename's checkpoint-derived prefix), appended to every saved figure's filename so
+    checkpoints that differ only in HER ratio, pooling, tokenizer, embedder, or goal-delta mode
+    (but happen to share a Hydra experiment/run directory name) don't overwrite each other's
+    PNGs."""
+    return "_".join(f"{k}-{v}" for k, v in _describe_model_config(model, cfg))
 
 
 def build_rollout_env(
@@ -730,8 +749,10 @@ def main() -> None:
     print_summary(results)
 
     metadata_str = build_metadata_str(model, cfg)
+    metadata_slug = build_metadata_slug(model, cfg)
     _apply_dark_theme()
-    prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
+    base_prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
+    prefix = f"{base_prefix}_{metadata_slug}"
     save_dir = Path("scripts/figures")
     plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
     plot_z_norm_vs_gt_distance(
