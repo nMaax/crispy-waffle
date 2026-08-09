@@ -17,7 +17,6 @@ take `num_envs`, and giving `resolve_env_kwargs` an alternate path that resolves
 already-live datamodule object rather than always instantiating a fresh one from disk.
 """
 
-import warnings
 from pathlib import Path
 from typing import cast
 
@@ -64,21 +63,25 @@ def resolve_env_kwargs(cfg: DictConfig, env_id_override: str | None = None) -> d
     `analyze_embedder_linearity.py::build_datamodule`), which populates them as genuine
     JSON-metadata-derived instance attributes.
 
-    `physx_backend` is only used to warn about a CUDA/CPU mismatch, exactly like
-    `RolloutEvaluationCallback.setup()` -- it is never threaded into `gym.make()` itself (nor is it
-    there, upstream): ManiSkill infers CPU vs. GPU simulation from `num_envs`, which the calling
-    scripts hardcode to 1.
+    `physx_backend` is threaded through to `build_rollout_env`'s `gym.make(sim_backend=...)` call --
+    ManiSkill's own default (`sim_backend="auto"`) picks CPU whenever `num_envs=1` (which
+    `build_rollout_env` hardcodes), *regardless* of what backend the checkpoint was actually
+    trained/evaluated with. Demos generated on `physx_cuda` (GPU sim) are common in this repo, and
+    `RolloutEvaluationCallback` itself picks `physx_cuda` during training's own validation rollouts
+    whenever the datamodule isn't CPU-backed -- silently forcing CPU here would evaluate the policy
+    under different simulation dynamics than it was ever trained/validated against, which can tank
+    an otherwise-working policy's live success rate for reasons that have nothing to do with the
+    policy itself.
     """
     dm = hydra.utils.instantiate(cfg.datamodule, num_workers=0)
     dm.prepare_data()  # no-op if hf_dataset_repo is None (__init__ already ran this then)
 
     physx_backend = dm.physx_backend
     if "cuda" in str(physx_backend).lower() and not torch.cuda.is_available():
-        warnings.warn(
+        raise RuntimeError(
             f"Checkpoint was trained with physx_backend={physx_backend!r}, but CUDA is not "
-            "available on this machine. Proceeding with a single CPU env for this analysis "
-            "rollout regardless (num_envs=1 already implies a CPU-backed simulation).",
-            stacklevel=2,
+            "available on this machine. Cannot run a CUDA-backed rollout here -- rerun on a "
+            "CUDA-capable machine (matches RolloutEvaluationCallback.setup()'s own check)."
         )
 
     return {
@@ -87,6 +90,7 @@ def resolve_env_kwargs(cfg: DictConfig, env_id_override: str | None = None) -> d
         "control_mode": dm.control_mode,
         "robot_uids": dm.robot_uids,
         "no_proprio_vel": bool(dm.no_proprio_vel),
+        "physx_backend": physx_backend,
     }
 
 
@@ -99,7 +103,10 @@ def build_rollout_env(
 ):
     """Constructs gym_env -> FrameStack -> [RecordEpisode] -> ManiSkillVectorEnv, mirroring
     `RolloutEvaluationCallback.setup()` (policy/algorithms/callbacks/rollout_evaluation.py) as a
-    free function, hardcoded to a single CPU env (no Lightning Trainer/pl_module involved).
+    free function, hardcoded to a single env (no Lightning Trainer/pl_module involved) -- but
+    explicitly on `env_kwargs["physx_backend"]` (not ManiSkill's `num_envs`-driven "auto" default,
+    which would silently pick CPU here since `num_envs=1`), so the live rollout runs under the same
+    simulation backend the checkpoint was actually trained/evaluated with.
 
     Returns (vector_env, inner_env) -- `inner_env` is kept around to call
     `generate_heuristic_goal()` on, exactly as the callback does.
@@ -115,6 +122,7 @@ def build_rollout_env(
         render_mode=render_mode,
         num_envs=1,
         max_episode_steps=max_episode_steps,
+        sim_backend=env_kwargs["physx_backend"],
         **make_kwargs,
     )
     inner_env = gym_env.unwrapped

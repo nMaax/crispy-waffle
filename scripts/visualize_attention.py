@@ -779,7 +779,7 @@ def main() -> None:
         env_id = env_kwargs["env_id"]
         print(
             f"Env: {env_id}  obs_mode={env_kwargs['obs_mode']}  "
-            f"control_mode={env_kwargs['control_mode']}"
+            f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}"
         )
 
         env, inner_env = build_rollout_env(

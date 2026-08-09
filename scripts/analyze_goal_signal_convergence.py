@@ -634,7 +634,7 @@ def main() -> None:
     env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
     print(
         f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
-        f"control_mode={env_kwargs['control_mode']}"
+        f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}"
     )
 
     print(f"\nRunning {args.num_episodes} live rollout episode(s)...")
