@@ -8,9 +8,7 @@ Both modules discard their attention weights by default (`need_weights=False` ha
 them, without altering either module's forward pass at all.
 
 Replays a single HDF5 demonstration episode (mirrors `scripts/visualize_embeddings.py`), sampling a
-handful of frames (`--frames`) and building real `obs_horizon`-length windows at each -- unlike
-`visualize_embeddings.py`'s independent single frames, self-attention needs a genuine multi-
-timestep window to be meaningful.
+handful of frames (`--frames`).
 """
 
 import argparse
@@ -65,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=str(
             Path.home()
-            / ".maniskill/demos/StackCube-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5"
+            / ".maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cuda.h5"
         ),
         help="Path to the HDF5 dataset file.",
     )
