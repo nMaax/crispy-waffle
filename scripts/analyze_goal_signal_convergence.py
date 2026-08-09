@@ -15,29 +15,29 @@ transformer), not ConditionalUnet1D/FiLM, so there is no analogous standalone "z
 
 import argparse
 import time
-import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from gymnasium.spaces import Box
-from mani_skill.envs.sapien_env import BaseEnv
-from mani_skill.utils import gym_utils
-from mani_skill.utils.wrappers import FrameStack, RecordEpisode
-from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 from matplotlib.lines import Line2D
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 import policy.environments  # noqa: F401
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.transforms import observation_pipeline
 from policy.utils import to_tensor
 from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
+from policy.utils.live_rollout_utils import (
+    build_rollout_env,
+    extract_episode_metrics,
+    load_env_config,
+    resolve_env_kwargs,
+)
 from policy.utils.typing_utils import (
     GoalConditionedEnvProtocol,
     TensorTree,
@@ -80,6 +80,16 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Path to a GoalConditionedDiffusionPolicy checkpoint (e.g. logs/.../last.ckpt).",
+    )
+    parser.add_argument(
+        "--env_id",
+        type=str,
+        default=None,
+        help="Override the rollout env_id (e.g. a zero-shot target like "
+        "'PlaceCubeLeftLockedRotation-v1' or 'StackCubeSwappedLockedRotation-v1'). Default: the "
+        "checkpoint's own training env_id. Every other rollout setting (obs_mode, control_mode, "
+        "robot_uids, no_proprio_vel) is always sourced from the checkpoint, mirroring the "
+        "`__ZeroShot` experiment configs' extra RolloutEvaluationCallback entries.",
     )
     parser.add_argument(
         "--num_episodes", type=int, default=8, help="Number of live rollout episodes to collect."
@@ -138,50 +148,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_env_config(ckpt_path: Path) -> DictConfig:
-    """Loads the checkpoint's saved Hydra run config, the same way `analyze_embedder_linearity.py`
-    reconstructs the training datamodule -- there is no live `trainer.datamodule` here."""
-    config_file = ckpt_path.parent.parent / ".hydra" / "config.yaml"
-    if not config_file.exists():
-        raise FileNotFoundError(
-            f"No saved Hydra run config found at {config_file}; cannot recover the environment "
-            "settings (env_id, obs_mode, control_mode, physx_backend, ...) this checkpoint was "
-            "trained with."
-        )
-    cfg = OmegaConf.load(config_file)
-    if not isinstance(cfg, DictConfig):
-        raise TypeError(f"Expected a DictConfig at {config_file}, got {type(cfg).__name__}.")
-    return cfg
-
-
-def resolve_env_kwargs(cfg: DictConfig) -> dict:
-    """Reads the rollout-relevant env settings off the saved datamodule config (mirrors the
-    attribute names `RolloutEvaluationCallback._resolve_param` pulls off `trainer.datamodule`).
-
-    `physx_backend` is only used to warn about a CUDA/CPU mismatch, exactly like
-    `RolloutEvaluationCallback.setup()` -- it is never threaded into `gym.make()` itself (nor is it
-    there, upstream): ManiSkill infers CPU vs. GPU simulation from `num_envs`, which this script
-    hardcodes to 1.
-    """
-    dm = cfg.datamodule
-    physx_backend = dm.physx_backend
-    if "cuda" in str(physx_backend).lower() and not torch.cuda.is_available():
-        warnings.warn(
-            f"Checkpoint was trained with physx_backend={physx_backend!r}, but CUDA is not "
-            "available on this machine. Proceeding with a single CPU env for this analysis "
-            "rollout regardless (num_envs=1 already implies a CPU-backed simulation).",
-            stacklevel=2,
-        )
-
-    return {
-        "env_id": dm.env_id,
-        "obs_mode": dm.obs_mode,
-        "control_mode": dm.control_mode,
-        "robot_uids": dm.get("robot_uids", None),
-        "no_proprio_vel": bool(dm.get("no_proprio_vel", False)),
-    }
-
-
 def _describe_model_config(
     model: GoalConditionedDiffusionPolicy, cfg: DictConfig
 ) -> list[tuple[str, str]]:
@@ -202,76 +168,27 @@ def _describe_model_config(
     return fields
 
 
-def build_metadata_str(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
+def build_metadata_str(model: GoalConditionedDiffusionPolicy, cfg: DictConfig, env_id: str) -> str:
     """A compact `key=value` summary of the config this checkpoint was trained with -- env,
     tokenizer/embedder/pooling architecture, goal-conditioning mode, HER ratio -- appended under
     every figure's title so a saved PNG identifies its own provenance without cross-referencing the
-    checkpoint path."""
-    fields = [("env", cfg.datamodule.env_id), *_describe_model_config(model, cfg)]
+    checkpoint path.
+
+    `env_id` is taken explicitly (the *actual* rollout env, `env_kwargs["env_id"]`) rather than read
+    off `cfg.datamodule.env_id` (the checkpoint's *training* env) -- these differ whenever `--env_id`
+    overrides the rollout to a zero-shot target.
+    """
+    fields = [("env", env_id), *_describe_model_config(model, cfg)]
     return " | ".join(f"{k}={v}" for k, v in fields)
 
 
 def build_metadata_slug(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
-    """Filesystem-safe counterpart to `build_metadata_str` (env_id omitted -- it's already folded
-    into the filename's checkpoint-derived prefix), appended to every saved figure's filename so
-    checkpoints that differ only in HER ratio, pooling, tokenizer, embedder, or goal-delta mode
-    (but happen to share a Hydra experiment/run directory name) don't overwrite each other's
-    PNGs."""
+    """Filesystem-safe counterpart to `build_metadata_str` (env_id omitted -- the caller splices
+    the *actual* rollout env_id, which may be `--env_id`-overridden, into the filename prefix
+    directly instead), appended to every saved figure's filename so checkpoints that differ only in
+    HER ratio, pooling, tokenizer, embedder, or goal-delta mode (but happen to share a Hydra
+    experiment/run directory name) don't overwrite each other's PNGs."""
     return "_".join(f"{k}-{v}" for k, v in _describe_model_config(model, cfg))
-
-
-def build_rollout_env(
-    env_kwargs: dict,
-    obs_horizon: int,
-    max_episode_steps: int | None,
-    render_mode: str | None,
-    video_dir: str | None,
-):
-    """Constructs gym_env -> FrameStack -> [RecordEpisode] -> ManiSkillVectorEnv, mirroring
-    `RolloutEvaluationCallback.setup()` (policy/algorithms/callbacks/rollout_evaluation.py) as a
-    free function, hardcoded to a single CPU env (no Lightning Trainer/pl_module involved).
-
-    Returns (vector_env, inner_env) -- `inner_env` is kept around to call
-    `generate_heuristic_goal()` on, exactly as the callback does.
-    """
-    make_kwargs = {}
-    if env_kwargs["robot_uids"] is not None:
-        make_kwargs["robot_uids"] = env_kwargs["robot_uids"]
-
-    gym_env = gym.make(
-        id=env_kwargs["env_id"],
-        obs_mode=env_kwargs["obs_mode"],
-        control_mode=env_kwargs["control_mode"],
-        render_mode=render_mode,
-        num_envs=1,
-        max_episode_steps=max_episode_steps,
-        **make_kwargs,
-    )
-    inner_env = gym_env.unwrapped
-    frame_stack_env = FrameStack(gym_env, num_stack=obs_horizon)
-
-    if video_dir:
-        # RecordEpisode's stub expects a BaseEnv; FrameStack wraps one but isn't typed as one --
-        # same cast RolloutEvaluationCallback.setup() uses for its own equivalent wrapping.
-        frame_stack_as_base_env = cast(BaseEnv, frame_stack_env)
-        max_steps = gym_utils.find_max_episode_steps_value(frame_stack_as_base_env)
-        recorded_env = RecordEpisode(
-            frame_stack_as_base_env,
-            output_dir=video_dir,
-            save_trajectory=False,
-            save_video=True,
-            max_steps_per_video=max_steps,
-            source_type="diffusion_policy",
-            source_desc="analyze_goal_signal_convergence rollout",
-        )
-        vector_env = ManiSkillVectorEnv(
-            recorded_env, ignore_terminations=True, record_metrics=True
-        )
-    else:
-        vector_env = ManiSkillVectorEnv(
-            frame_stack_env, ignore_terminations=True, record_metrics=True
-        )
-    return vector_env, inner_env
 
 
 def build_external_cond_only(
@@ -362,29 +279,6 @@ def ground_truth_distance(
     obs_pos = obs_a_pose[:, -1, :3] if obs_a_pose.ndim == 3 else obs_a_pose[..., :3]
     goal_pos = get_tensor(goal_canon, "a_pose")[..., :3]
     return torch.linalg.norm(goal_pos - obs_pos, dim=-1)
-
-
-def extract_episode_metrics(info: dict) -> tuple[bool, bool, int]:
-    """Pulls success_once/success_at_end/episode_len out of `info["final_info"]["episode"]`, with
-    the same fallbacks `RolloutEvaluationCallback._run_rollouts` uses.
-
-    With num_envs=1 there is no batched-index bookkeeping to do.
-    """
-    ep_dict = info.get("final_info", {}).get("episode", {})
-
-    if "success_once" in ep_dict:
-        success_once = bool(ep_dict["success_once"][0].item())
-    else:
-        success_once = bool(
-            info.get("final_info", {}).get("success", torch.tensor([False]))[0].item()
-        )
-
-    success_at_end = (
-        bool(ep_dict["success_at_end"][0].item()) if "success_at_end" in ep_dict else False
-    )
-    episode_len = int(ep_dict["episode_len"][0].item()) if "episode_len" in ep_dict else -1
-
-    return success_once, success_at_end, episode_len
 
 
 def collect_episode(
@@ -737,7 +631,7 @@ def main() -> None:
     )
 
     cfg = load_env_config(ckpt_path)
-    env_kwargs = resolve_env_kwargs(cfg)
+    env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
     print(
         f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
         f"control_mode={env_kwargs['control_mode']}"
@@ -748,11 +642,14 @@ def main() -> None:
 
     print_summary(results)
 
-    metadata_str = build_metadata_str(model, cfg)
+    metadata_str = build_metadata_str(model, cfg, env_kwargs["env_id"])
     metadata_slug = build_metadata_slug(model, cfg)
     _apply_dark_theme()
     base_prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
-    prefix = f"{base_prefix}_{metadata_slug}"
+    # env_id/seed spliced in directly (not folded into metadata_slug, which stays scoped to
+    # checkpoint-config-only fields) -- env_id may now be `--env_id`-overridden independently of
+    # the checkpoint, so it's no longer implied by base_prefix alone.
+    prefix = f"{base_prefix}_env-{env_kwargs['env_id']}_seed{args.seed}_{metadata_slug}"
     save_dir = Path("scripts/figures")
     plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
     plot_z_norm_vs_gt_distance(

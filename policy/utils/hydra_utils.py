@@ -27,7 +27,8 @@ def resolve_dictconfig(dict_config: DictConfig) -> Config:
 
 
 def find_checkpoint_hydra_config(ckpt_path_str: str) -> DictConfig | None:
-    """Finds and loads the `.hydra/config.yaml` snapshot for the run that produced `ckpt_path_str`."""
+    """Finds and loads the `.hydra/config.yaml` snapshot for the run that produced
+    `ckpt_path_str`."""
 
     ckpt_path = Path(ckpt_path_str).resolve()
     for parent in ckpt_path.parents:

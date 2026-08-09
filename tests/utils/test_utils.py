@@ -17,6 +17,7 @@ from policy.utils.utils import (
     resolve_task_width,
     slice_by_schema,
     split_leaf_key,
+    stack_dicts,
     to_tensor,
     validate_proprio_dim,
 )
@@ -144,6 +145,20 @@ def test_cat_dicts():
 
     with pytest.raises(AssertionError, match="Expected element to be a Tensor"):
         cat_dicts([torch.tensor([[1.0]]), {"a": 1}])
+
+
+def test_stack_dicts():
+    t1 = {"a": torch.tensor([1.0]), "b": {"c": torch.tensor([2.0])}}
+    t2 = {"a": torch.tensor([3.0]), "b": {"c": torch.tensor([4.0])}}
+    res = stack_dicts([t1, t2])
+    assert torch.equal(res["a"], torch.tensor([[1.0], [3.0]]))
+    assert torch.equal(res["b"]["c"], torch.tensor([[2.0], [4.0]]))
+
+    with pytest.raises(AssertionError, match="Expected element to be a Mapping"):
+        stack_dicts([t1, torch.tensor([1.0])])
+
+    with pytest.raises(AssertionError, match="Expected element to be a Tensor"):
+        stack_dicts([torch.tensor([[1.0]]), {"a": 1}])
 
 
 def test_concat_leaf_tensors():

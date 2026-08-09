@@ -233,6 +233,25 @@ def cat_dicts(trees: Sequence[TensorTree]) -> TensorTree:
         return torch.cat(tensor_list, dim=0)
 
 
+def stack_dicts(trees: Sequence[TensorTree]) -> TensorTree:
+    """Recursively stacks a sequence of nested dictionaries of tensors along a NEW leading axis 0
+    -- symmetric to `cat_dicts`, which concatenates along an EXISTING axis 0."""
+    first = trees[0]
+    if isinstance(first, Mapping):
+        sub_trees_by_key: dict[str, list[TensorTree]] = {k: [] for k in first}
+        for t in trees:
+            assert isinstance(t, Mapping), f"Expected element to be a Mapping, got {type(t)}"
+            for k in first:
+                sub_trees_by_key[k].append(t[k])
+        return {k: stack_dicts(v) for k, v in sub_trees_by_key.items()}
+    else:
+        tensor_list: list[torch.Tensor] = []
+        for t in trees:
+            assert isinstance(t, torch.Tensor), f"Expected element to be a Tensor, got {type(t)}"
+            tensor_list.append(t)
+        return torch.stack(tensor_list, dim=0)
+
+
 def concat_leaf_tensors(
     data: TensorTree,
     dim: int = -1,

@@ -17,6 +17,7 @@ from .utils import (
     resolve_task_width,
     slice_by_schema,
     split_leaf_key,
+    stack_dicts,
     to_tensor,
     validate_proprio_dim,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "slice_by_schema",
     "split_leaf_key",
     "cat_dicts",
+    "stack_dicts",
     "to_tensor",
     "get_total_dim",
     "validate_proprio_dim",
