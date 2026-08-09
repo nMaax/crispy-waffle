@@ -94,6 +94,26 @@ def resolve_env_kwargs(cfg: DictConfig, env_id_override: str | None = None) -> d
     }
 
 
+def resolve_max_episode_steps(cfg: DictConfig, override: int | None) -> int | None:
+    """Defaults to the checkpoint's OWN training-time rollout-evaluation budget
+    (`trainer.callbacks.rollout_evaluation.max_episode_steps`), not the env's bare Gymnasium-
+    registered default.
+
+    `RolloutEvaluationCallback` commonly overrides this (e.g. 200, set in
+    `policy/configs/trainer/callbacks/rollout_evaluation.yaml`, vs. the registered 50 for
+    `StackCubeLockedRotation-v1`'s whole family), and `val/success_once_rate` -- the metric
+    checkpoints are actually selected/saved on -- was computed under that longer budget. Silently
+    falling back to the shorter registered default truncates every rollout before the task can
+    possibly be completed, making an otherwise-working policy look like it never succeeds.
+    """
+    if override is not None:
+        return override
+    rollout_cfg = cfg.get("trainer", {}).get("callbacks", {}).get("rollout_evaluation", None)
+    if rollout_cfg is not None:
+        return rollout_cfg.get("max_episode_steps", None)
+    return None
+
+
 def build_rollout_env(
     env_kwargs: dict,
     obs_horizon: int,

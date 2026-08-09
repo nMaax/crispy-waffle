@@ -37,6 +37,7 @@ from policy.utils.live_rollout_utils import (
     extract_episode_metrics,
     load_env_config,
     resolve_env_kwargs,
+    resolve_max_episode_steps,
 )
 from policy.utils.typing_utils import (
     GoalConditionedEnvProtocol,
@@ -89,7 +90,11 @@ def parse_args() -> argparse.Namespace:
         "--max_episode_steps",
         type=int,
         default=None,
-        help="Override for max episode length.",
+        help="Override for max episode length. Default: the checkpoint's own training-time "
+        "trainer.callbacks.rollout_evaluation.max_episode_steps if set (RolloutEvaluationCallback "
+        "commonly overrides the env's bare registered default, e.g. 200 vs. 50 for "
+        "StackCubeLockedRotation-v1 -- val/success_once_rate, the metric checkpoints are actually "
+        "selected on, was computed under that longer budget), else the env's registered default.",
     )
     parser.add_argument(
         "--num_inference_steps",
@@ -375,14 +380,22 @@ def collect_episode(
 
 
 def collect_all_episodes(
-    model: GoalConditionedDiffusionPolicy, args: argparse.Namespace, env_kwargs: dict
+    model: GoalConditionedDiffusionPolicy,
+    args: argparse.Namespace,
+    env_kwargs: dict,
+    max_episode_steps: int | None,
 ) -> list[EpisodeResult]:
     """Builds the env once, runs `args.num_episodes` episodes with per-episode seed offsets, then
-    closes it."""
+    closes it.
+
+    `max_episode_steps` is resolved by the caller (`resolve_max_episode_steps`) --
+    not read off `args.max_episode_steps` directly, since `None` there means "resolve from the
+    checkpoint's own training config", not "use the env's bare registered default".
+    """
     env, inner_env = build_rollout_env(
         env_kwargs,
         model.obs_horizon,
-        args.max_episode_steps,
+        max_episode_steps,
         args.render_mode,
         args.video_dir,
     )
@@ -622,13 +635,15 @@ def main() -> None:
 
     cfg = load_env_config(ckpt_path)
     env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
+    max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
     print(
         f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
-        f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}"
+        f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}  "
+        f"max_episode_steps={max_episode_steps}"
     )
 
     print(f"\nRunning {args.num_episodes} live rollout episode(s)...")
-    results = collect_all_episodes(model, args, env_kwargs)
+    results = collect_all_episodes(model, args, env_kwargs, max_episode_steps)
 
     print_summary(results)
 

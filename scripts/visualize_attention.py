@@ -46,7 +46,12 @@ from policy.utils import (
 )
 from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
 from policy.utils.h5_utils import load_h5_data, peek_trajectory_is_dataset
-from policy.utils.live_rollout_utils import build_rollout_env, load_env_config, resolve_env_kwargs
+from policy.utils.live_rollout_utils import (
+    build_rollout_env,
+    load_env_config,
+    resolve_env_kwargs,
+    resolve_max_episode_steps,
+)
 from policy.utils.typing_utils import GoalConditionedEnvProtocol, RawTree, TensorTree
 
 DARK_RCPARAMS = {
@@ -145,8 +150,10 @@ def parse_args() -> argparse.Namespace:
         "--max_episode_steps",
         type=int,
         default=None,
-        help="Override for max live episode length. Default: the env's registered default. Only "
-        "used under --live.",
+        help="Override for max live episode length. Default: the checkpoint's own training-time "
+        "trainer.callbacks.rollout_evaluation.max_episode_steps if set (RolloutEvaluationCallback "
+        "commonly overrides the env's bare registered default, e.g. 200 vs. 50 for "
+        "StackCubeLockedRotation-v1), else the env's registered default. Only used under --live.",
     )
     parser.add_argument(
         "--num_inference_steps",
@@ -777,13 +784,15 @@ def main() -> None:
         cfg = load_env_config(ckpt_path)  # hard error if missing -- no other source for env kwargs
         env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
         env_id = env_kwargs["env_id"]
+        max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
         print(
             f"Env: {env_id}  obs_mode={env_kwargs['obs_mode']}  "
-            f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}"
+            f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}  "
+            f"max_episode_steps={max_episode_steps}"
         )
 
         env, inner_env = build_rollout_env(
-            env_kwargs, model.obs_horizon, args.max_episode_steps, None, None
+            env_kwargs, model.obs_horizon, max_episode_steps, None, None
         )
         try:
             obs_transform = observation_pipeline(
