@@ -81,16 +81,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to a GoalConditionedDiffusionPolicy checkpoint (e.g. logs/.../last.ckpt).",
     )
-    parser.add_argument(
-        "--env_id",
-        type=str,
-        default=None,
-        help="Override the rollout env_id (e.g. a zero-shot target like "
-        "'PlaceCubeLeftLockedRotation-v1' or 'StackCubeSwappedLockedRotation-v1'). Default: the "
-        "checkpoint's own training env_id. Every other rollout setting (obs_mode, control_mode, "
-        "robot_uids, no_proprio_vel) is always sourced from the checkpoint, mirroring the "
-        "`__ZeroShot` experiment configs' extra RolloutEvaluationCallback entries.",
-    )
+    parser.add_argument("--env_id", type=str, default=None, help="Override the rollout env_id.")
     parser.add_argument(
         "--num_episodes", type=int, default=8, help="Number of live rollout episodes to collect."
     )
@@ -98,13 +89,13 @@ def parse_args() -> argparse.Namespace:
         "--max_episode_steps",
         type=int,
         default=None,
-        help="Override for max episode length. Default: the env's registered default.",
+        help="Override for max episode length.",
     )
     parser.add_argument(
         "--num_inference_steps",
         type=int,
         default=None,
-        help="Diffusion denoising steps used for the actual action. Default: the model's own.",
+        help="Diffusion denoising steps used for the actual action.",
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Base env reset seed, offset per episode."
@@ -114,8 +105,7 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         dest="clamp_action",
         default=True,
-        help="Disable clamping actions to the action space bounds (enabled by default, "
-        "matching RolloutEvaluationCallback).",
+        help="Disable clamping actions to the action space bounds.",
     )
     parser.add_argument(
         "--render_mode",
@@ -140,7 +130,7 @@ def parse_args() -> argparse.Namespace:
         "--save_path_prefix",
         type=str,
         default=None,
-        help="Prefix for saved figures under scripts/figures/. Default: derived from ckpt_path.",
+        help="Prefix for saved figures under scripts/figures/.",
     )
     parser.add_argument(
         "--show", action="store_true", default=False, help="Also display plots interactively."
