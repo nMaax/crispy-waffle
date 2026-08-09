@@ -49,6 +49,18 @@ from policy.utils.typing_utils import (
 SUCCESS_COLOR = "#10b981"
 FAILURE_COLOR = "#f87171"
 
+# The whole LockedRotation task family -- analyzed by default (one env at a time, each run and
+# plotted independently under its own scripts/figures/analyze_goal_signal_convergence/<env_id>/
+# subdirectory) when --env_id is omitted, so a single invocation covers both the checkpoint's own
+# training env and its zero-shot generalization targets without having to type out --env_id four
+# times.
+DEFAULT_LOCKED_ROTATION_ENV_IDS = (
+    "StackCubeLockedRotation-v1",
+    "PlaceCubeLeftLockedRotation-v1",
+    "PlaceCubeRightLockedRotation-v1",
+    "StackCubeSwappedLockedRotation-v1",
+)
+
 
 @dataclass
 class StepRecord:
@@ -82,7 +94,18 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to a GoalConditionedDiffusionPolicy checkpoint (e.g. logs/.../last.ckpt).",
     )
-    parser.add_argument("--env_id", type=str, default=None, help="Override the rollout env_id.")
+    parser.add_argument(
+        "--env_id",
+        type=str,
+        nargs="+",
+        default=None,
+        help="One or more rollout env_ids to analyze (e.g. a zero-shot target like "
+        "'PlaceCubeLeftLockedRotation-v1'), each run and plotted independently. Default: the "
+        f"whole LockedRotation family ({', '.join(DEFAULT_LOCKED_ROTATION_ENV_IDS)}). Every "
+        "other rollout setting (obs_mode, control_mode, robot_uids, no_proprio_vel) is always "
+        "sourced from the checkpoint, mirroring the `__ZeroShot` experiment configs' extra "
+        "RolloutEvaluationCallback entries.",
+    )
     parser.add_argument(
         "--num_episodes", type=int, default=8, help="Number of live rollout episodes to collect."
     )
@@ -135,7 +158,8 @@ def parse_args() -> argparse.Namespace:
         "--save_path_prefix",
         type=str,
         default=None,
-        help="Prefix for saved figures under scripts/figures/analyze_goal_signal_convergence/.",
+        help="Prefix for saved figures under "
+        "scripts/figures/analyze_goal_signal_convergence/<env_id>/.",
     )
     parser.add_argument(
         "--show", action="store_true", default=False, help="Also display plots interactively."
@@ -640,39 +664,49 @@ def main() -> None:
     )
 
     cfg = load_env_config(ckpt_path)
-    env_kwargs = resolve_env_kwargs(cfg, env_id_override=args.env_id)
     max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
-    print(
-        f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
-        f"control_mode={env_kwargs['control_mode']}  physx_backend={env_kwargs['physx_backend']}  "
-        f"max_episode_steps={max_episode_steps}"
-    )
-
-    print(f"\nRunning {args.num_episodes} live rollout episode(s)...")
-    results = collect_all_episodes(model, args, env_kwargs, max_episode_steps)
-
-    print_summary(results)
-
-    metadata_str = build_metadata_str(model, cfg, env_kwargs["env_id"])
     metadata_slug = build_metadata_slug(model, cfg)
     _apply_dark_theme()
     base_prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
-    # env_id/seed spliced in directly (not folded into metadata_slug, which stays scoped to
-    # checkpoint-config-only fields) -- env_id may now be `--env_id`-overridden independently of
-    # the checkpoint, so it's no longer implied by base_prefix alone.
-    prefix = f"{base_prefix}_env-{env_kwargs['env_id']}_seed{args.seed}_{metadata_slug}"
-    save_dir = Path("scripts/figures/analyze_goal_signal_convergence")
-    plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
-    plot_z_norm_vs_gt_distance(
-        results,
-        args.num_bins,
-        metadata_str,
-        save_dir / f"{prefix}_z_vs_gt_distance.png",
-        args.show,
-    )
-    plot_summary_bars(
-        results, metadata_str, save_dir / f"{prefix}_z_convergence_ratio.png", args.show
-    )
+
+    # Defaults to the whole LockedRotation family (one env at a time) rather than a single env, so
+    # one invocation covers both the checkpoint's own training env and its zero-shot targets
+    # without having to repeat the command four times.
+    env_ids = args.env_id or DEFAULT_LOCKED_ROTATION_ENV_IDS
+
+    for i, env_id in enumerate(env_ids):
+        if len(env_ids) > 1:
+            print(f"\n{'#' * 88}\n# Env {i + 1}/{len(env_ids)}: {env_id}\n{'#' * 88}")
+
+        env_kwargs = resolve_env_kwargs(cfg, env_id_override=env_id)
+        print(
+            f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
+            f"control_mode={env_kwargs['control_mode']}  "
+            f"physx_backend={env_kwargs['physx_backend']}  max_episode_steps={max_episode_steps}"
+        )
+
+        print(f"\nRunning {args.num_episodes} live rollout episode(s)...")
+        results = collect_all_episodes(model, args, env_kwargs, max_episode_steps)
+
+        print_summary(results)
+
+        metadata_str = build_metadata_str(model, cfg, env_kwargs["env_id"])
+        # env_id/seed spliced in directly (not folded into metadata_slug, which stays scoped to
+        # checkpoint-config-only fields) -- env_id is now overridable (and, by default, swept
+        # across several envs per invocation), so it's no longer implied by base_prefix alone.
+        prefix = f"{base_prefix}_env-{env_kwargs['env_id']}_seed{args.seed}_{metadata_slug}"
+        save_dir = Path("scripts/figures/analyze_goal_signal_convergence") / env_kwargs["env_id"]
+        plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
+        plot_z_norm_vs_gt_distance(
+            results,
+            args.num_bins,
+            metadata_str,
+            save_dir / f"{prefix}_z_vs_gt_distance.png",
+            args.show,
+        )
+        plot_summary_bars(
+            results, metadata_str, save_dir / f"{prefix}_z_convergence_ratio.png", args.show
+        )
 
 
 if __name__ == "__main__":

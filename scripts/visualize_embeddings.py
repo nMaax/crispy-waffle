@@ -622,6 +622,7 @@ def main() -> None:
         )
         save_path = (
             Path("scripts/figures/visualize_embeddings")
+            / env_id
             / f"embeddings_ep{args.episode_idx}_{status_str}_{slug}.png"
         )
     else:
