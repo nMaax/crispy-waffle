@@ -182,6 +182,25 @@ def resolve_env_kwargs(cfg: DictConfig) -> dict:
     }
 
 
+def build_metadata_str(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
+    """A compact `key=value` summary of the config this checkpoint was trained with -- env,
+    tokenizer/embedder/pooling architecture, goal-conditioning mode, HER ratio -- appended under
+    every figure's title so a saved PNG identifies its own provenance without cross-referencing the
+    checkpoint path."""
+    pooling = getattr(model.embedder, "pooling", None)
+    parts = [
+        f"env={cfg.datamodule.env_id}",
+        f"tokenizer={type(model.tokenizer).__name__ if model.tokenizer is not None else 'none'}",
+        f"embedder={type(model.embedder).__name__ if model.embedder is not None else 'none'}",
+        f"pooling={type(pooling).__name__ if pooling is not None else 'none'}",
+        f"goal_delta={model.goal_delta!r}",
+    ]
+    her_ratio = cfg.get("datamodule", {}).get("her_ratio", None)
+    if her_ratio is not None:
+        parts.append(f"her_ratio={her_ratio}")
+    return " | ".join(parts)
+
+
 def build_rollout_env(
     env_kwargs: dict,
     obs_horizon: int,
@@ -554,7 +573,9 @@ def _success_legend_handles() -> list[Line2D]:
     ]
 
 
-def plot_z_norm_vs_time(results: list[EpisodeResult], save_path: Path, show: bool) -> None:
+def plot_z_norm_vs_time(
+    results: list[EpisodeResult], metadata_str: str, save_path: Path, show: bool
+) -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
     for r in results:
         if not r.steps:
@@ -569,7 +590,9 @@ def plot_z_norm_vs_time(results: list[EpisodeResult], save_path: Path, show: boo
         )
 
     ax.set_title(
-        "Goal-Conditioning Signal ||z|| over a Live Rollout", fontsize=13, fontweight="bold"
+        f"Goal-Conditioning Signal ||z|| over a Live Rollout\n{metadata_str}",
+        fontsize=13,
+        fontweight="bold",
     )
     ax.set_xlabel("Environment step")
     ax.set_ylabel("||z||")
@@ -586,7 +609,11 @@ def plot_z_norm_vs_time(results: list[EpisodeResult], save_path: Path, show: boo
 
 
 def plot_z_norm_vs_gt_distance(
-    results: list[EpisodeResult], num_bins: int, save_path: Path, show: bool
+    results: list[EpisodeResult],
+    num_bins: int,
+    metadata_str: str,
+    save_path: Path,
+    show: bool,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
 
@@ -623,7 +650,7 @@ def plot_z_norm_vs_gt_distance(
         )
 
     ax.set_title(
-        "||z|| vs. Ground-Truth Distance to Goal (pooled across episodes)",
+        f"||z|| vs. Ground-Truth Distance to Goal (pooled across episodes)\n{metadata_str}",
         fontsize=13,
         fontweight="bold",
     )
@@ -645,7 +672,9 @@ def plot_z_norm_vs_gt_distance(
     plt.close(fig)
 
 
-def plot_summary_bars(results: list[EpisodeResult], save_path: Path, show: bool) -> None:
+def plot_summary_bars(
+    results: list[EpisodeResult], metadata_str: str, save_path: Path, show: bool
+) -> None:
     valid = [r for r in results if r.steps]
     fig, ax = plt.subplots(figsize=(max(6, len(valid) * 0.8), 6))
 
@@ -657,7 +686,9 @@ def plot_summary_bars(results: list[EpisodeResult], save_path: Path, show: bool)
     ax.axhline(1.0, color="#64748b", linestyle="--", linewidth=1)
 
     ax.set_title(
-        "Per-Episode ||z|| Convergence Ratio (last / first step)", fontsize=13, fontweight="bold"
+        f"Per-Episode ||z|| Convergence Ratio (last / first step)\n{metadata_str}",
+        fontsize=13,
+        fontweight="bold",
     )
     ax.set_xlabel("Episode")
     ax.set_ylabel("||z||[-1] / ||z||[0]")
@@ -698,14 +729,21 @@ def main() -> None:
 
     print_summary(results)
 
+    metadata_str = build_metadata_str(model, cfg)
     _apply_dark_theme()
     prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
     save_dir = Path("scripts/figures")
-    plot_z_norm_vs_time(results, save_dir / f"{prefix}_z_vs_time.png", args.show)
+    plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
     plot_z_norm_vs_gt_distance(
-        results, args.num_bins, save_dir / f"{prefix}_z_vs_gt_distance.png", args.show
+        results,
+        args.num_bins,
+        metadata_str,
+        save_dir / f"{prefix}_z_vs_gt_distance.png",
+        args.show,
     )
-    plot_summary_bars(results, save_dir / f"{prefix}_z_convergence_ratio.png", args.show)
+    plot_summary_bars(
+        results, metadata_str, save_dir / f"{prefix}_z_convergence_ratio.png", args.show
+    )
 
 
 if __name__ == "__main__":

@@ -380,6 +380,27 @@ def run_and_capture(
     }
 
 
+def build_metadata_str(
+    model: GoalConditionedDiffusionPolicy, cfg: DictConfig | None, env_id: str
+) -> str:
+    """A compact `key=value` summary of the config this checkpoint was trained with -- env,
+    tokenizer/embedder/pooling architecture, goal-conditioning mode, HER ratio -- appended under
+    every figure's title so a saved PNG identifies its own provenance without cross-referencing the
+    checkpoint path."""
+    pooling = getattr(model.embedder, "pooling", None)
+    parts = [
+        f"env={env_id}",
+        f"tokenizer={type(model.tokenizer).__name__ if model.tokenizer is not None else 'none'}",
+        f"embedder={type(model.embedder).__name__ if model.embedder is not None else 'none'}",
+        f"pooling={type(pooling).__name__ if pooling is not None else 'none'}",
+        f"goal_delta={model.goal_delta!r}",
+    ]
+    her_ratio = cfg.get("datamodule", {}).get("her_ratio", None) if cfg is not None else None
+    if her_ratio is not None:
+        parts.append(f"her_ratio={her_ratio}")
+    return " | ".join(parts)
+
+
 def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) -> list[str]:
     """T-major, k-minor order (`index = t*K + k`), matching `SelfAttentionEmbedder`'s own
     documented token-flattening convention."""
@@ -402,6 +423,7 @@ def plot_self_attention(
     token_labels: list[str],
     frame_labels: list[str],
     head_agg: str,
+    metadata_str: str,
     save_path: Path,
     show: bool,
 ) -> None:
@@ -420,7 +442,12 @@ def plot_self_attention(
         else:
             ax.set_yticks([])
 
-    fig.suptitle(f"Self-Attention ({head_agg}-over-heads)", fontsize=14, fontweight="bold", y=1.02)
+    fig.suptitle(
+        f"Self-Attention ({head_agg}-over-heads)\n{metadata_str}",
+        fontsize=14,
+        fontweight="bold",
+        y=1.05,
+    )
     fig.colorbar(im, ax=axes[0].tolist(), shrink=0.8, label="attention weight")
     _save_and_maybe_show(fig, save_path, show)
 
@@ -429,6 +456,7 @@ def plot_self_attention_heads(
     weights: np.ndarray,
     token_labels: list[str],
     frame_labels: list[str],
+    metadata_str: str,
     save_path: Path,
     show: bool,
 ) -> None:
@@ -449,7 +477,9 @@ def plot_self_attention_heads(
                 ax.set_xticks(range(len(token_labels)))
                 ax.set_xticklabels(token_labels, rotation=90, fontsize=6)
 
-    fig.suptitle("Self-Attention (per head)", fontsize=14, fontweight="bold", y=1.0)
+    fig.suptitle(
+        f"Self-Attention (per head)\n{metadata_str}", fontsize=14, fontweight="bold", y=1.03
+    )
     _save_and_maybe_show(fig, save_path, show)
 
 
@@ -458,6 +488,7 @@ def plot_pooling_attention(
     token_labels: list[str],
     frame_labels: list[str],
     head_agg: str,
+    metadata_str: str,
     save_path: Path,
     show: bool,
 ) -> None:
@@ -483,7 +514,7 @@ def plot_pooling_attention(
 
     fig.colorbar(im, ax=ax, shrink=0.8, label="attention weight")
     ax.set_title(
-        f"Pooling Attention over the Episode ({head_agg}-over-heads)",
+        f"Pooling Attention over the Episode ({head_agg}-over-heads)\n{metadata_str}",
         fontsize=13,
         fontweight="bold",
     )
@@ -494,6 +525,7 @@ def plot_pooling_attention_heads(
     weights: np.ndarray,
     token_labels: list[str],
     frame_labels: list[str],
+    metadata_str: str,
     save_path: Path,
     show: bool,
 ) -> None:
@@ -511,7 +543,9 @@ def plot_pooling_attention_heads(
         else:
             ax.set_yticks([])
 
-    fig.suptitle("Pooling Attention (per head)", fontsize=14, fontweight="bold", y=1.02)
+    fig.suptitle(
+        f"Pooling Attention (per head)\n{metadata_str}", fontsize=14, fontweight="bold", y=1.05
+    )
     fig.colorbar(im, ax=axes[0].tolist(), shrink=0.8, label="attention weight")
     _save_and_maybe_show(fig, save_path, show)
 
@@ -568,6 +602,7 @@ def main() -> None:
         model, obs_batch, goal_batch, target_modules, obs_horizon, tokens_per_step
     )
     token_labels = build_token_labels(model, obs_horizon)
+    metadata_str = build_metadata_str(model, cfg, env_id)
 
     _apply_dark_theme()
     prefix = args.save_path_prefix or f"{ckpt_path.parent.parent.parent.name}_ep{args.episode_idx}"
@@ -580,6 +615,7 @@ def main() -> None:
             token_labels,
             frame_labels,
             args.head_agg,
+            metadata_str,
             save_dir / f"{prefix}_self_attention.png",
             args.show,
         )
@@ -588,6 +624,7 @@ def main() -> None:
                 weights,
                 token_labels,
                 frame_labels,
+                metadata_str,
                 save_dir / f"{prefix}_self_attention_heads.png",
                 args.show,
             )
@@ -599,6 +636,7 @@ def main() -> None:
             token_labels,
             frame_labels,
             args.head_agg,
+            metadata_str,
             save_dir / f"{prefix}_pooling_attention.png",
             args.show,
         )
@@ -607,6 +645,7 @@ def main() -> None:
                 weights,
                 token_labels,
                 frame_labels,
+                metadata_str,
                 save_dir / f"{prefix}_pooling_attention_heads.png",
                 args.show,
             )
