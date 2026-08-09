@@ -122,7 +122,8 @@ def parse_args() -> argparse.Namespace:
         "--save_path_prefix",
         type=str,
         default=None,
-        help="Prefix for saved figures under scripts/figures/. Default: derived from ckpt_path.",
+        help="Prefix for saved figures under scripts/figures/visualize_attention/. Default: "
+        "derived from ckpt_path.",
     )
     parser.add_argument(
         "--show", action="store_true", default=False, help="Display plots interactively too."
@@ -871,7 +872,7 @@ def main() -> None:
             args.save_path_prefix or f"{ckpt_path.parent.parent.parent.name}_ep{args.episode_idx}"
         )
     prefix = f"{base_prefix}_{metadata_slug}"
-    save_dir = Path("scripts/figures")
+    save_dir = Path("scripts/figures/visualize_attention")
 
     if "self_attention" in captures:
         weights = captures["self_attention"].numpy()

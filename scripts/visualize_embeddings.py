@@ -621,7 +621,8 @@ def main() -> None:
             else args.frames.replace("%", "pct").replace(",", "_").replace(" ", "")
         )
         save_path = (
-            Path("scripts/figures") / f"embeddings_ep{args.episode_idx}_{status_str}_{slug}.png"
+            Path("scripts/figures/visualize_embeddings")
+            / f"embeddings_ep{args.episode_idx}_{status_str}_{slug}.png"
         )
     else:
         save_path = Path(args.save_path)

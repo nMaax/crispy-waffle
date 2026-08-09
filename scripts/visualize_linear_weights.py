@@ -102,7 +102,10 @@ def visualize_linear_weights(
 
     if save_path is None:
         clean_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", prefix.strip("."))
-        save_path = Path(f"scripts/figures/linear_weights_{ckpt_path.stem}_{clean_prefix}.png")
+        save_path = Path(
+            f"scripts/figures/visualize_linear_weights/"
+            f"linear_weights_{ckpt_path.stem}_{clean_prefix}.png"
+        )
 
     fig, axes = plt.subplots(
         num_layers,
@@ -207,7 +210,8 @@ def main() -> None:
         "--save_path", "-s",
         type=Path,
         default=None,
-        help="Output path for plot. Default: scripts/figures/linear_weights_<ckpt>_<prefix>.png",
+        help="Output path for plot. Default: "
+        "scripts/figures/visualize_linear_weights/linear_weights_<ckpt>_<prefix>.png",
     )
     parser.add_argument(
         "--list-modules", "-l",

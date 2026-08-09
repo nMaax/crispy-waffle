@@ -135,7 +135,7 @@ def parse_args() -> argparse.Namespace:
         "--save_path_prefix",
         type=str,
         default=None,
-        help="Prefix for saved figures under scripts/figures/.",
+        help="Prefix for saved figures under scripts/figures/analyze_goal_signal_convergence/.",
     )
     parser.add_argument(
         "--show", action="store_true", default=False, help="Also display plots interactively."
@@ -517,7 +517,9 @@ def plot_z_norm_vs_time(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none")
+    fig.savefig(
+        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
+    )
     print(f"Saved: {save_path.resolve()}")
     if show:
         plt.show()
@@ -581,7 +583,9 @@ def plot_z_norm_vs_gt_distance(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none")
+    fig.savefig(
+        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
+    )
     print(f"Saved: {save_path.resolve()}")
     if show:
         plt.show()
@@ -613,7 +617,9 @@ def plot_summary_bars(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none")
+    fig.savefig(
+        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
+    )
     print(f"Saved: {save_path.resolve()}")
     if show:
         plt.show()
@@ -655,7 +661,7 @@ def main() -> None:
     # checkpoint-config-only fields) -- env_id may now be `--env_id`-overridden independently of
     # the checkpoint, so it's no longer implied by base_prefix alone.
     prefix = f"{base_prefix}_env-{env_kwargs['env_id']}_seed{args.seed}_{metadata_slug}"
-    save_dir = Path("scripts/figures")
+    save_dir = Path("scripts/figures/analyze_goal_signal_convergence")
     plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
     plot_z_norm_vs_gt_distance(
         results,
