@@ -324,6 +324,7 @@ class RolloutEvaluationCallback(L.Callback):
             is_flat=is_flat,
             canonicalize=bool(self.canonicalize),
             as_dict=bool(self.as_dict),
+            no_proprio_vel=bool(self.no_proprio_vel),
         )
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
