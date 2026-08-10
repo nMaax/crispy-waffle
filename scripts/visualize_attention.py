@@ -32,7 +32,6 @@ from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbe
 from policy.algorithms.tokenizers import PerObjectStateTokenizer
 from policy.transforms import observation_pipeline
 from policy.utils import (
-    cat_dicts,
     get_batch_size,
     map_leaves,
     recursive_index,
@@ -50,7 +49,10 @@ from scripts.utils.checkpoints import (
     run_slug,
 )
 from scripts.utils.episodes import (
+    broadcast_goal,
+    build_obs_batch,
     default_demo_path,
+    ensure_local_dataset,
     parse_frame_spec,
     resolve_env_id,
     resolve_trajectory_key,
@@ -177,29 +179,6 @@ def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) 
     if isinstance(model.tokenizer, PerObjectStateTokenizer):
         return [f"t{t}/{key}" for t in range(obs_horizon) for key in model.tokenizer.object_keys]
     return [f"t{t}" for t in range(obs_horizon)]
-
-
-def window_indices(end_index: int, obs_horizon: int) -> list[int]:
-    """The `obs_horizon` indices ending at `end_index`, edge-padded at the start of the episode."""
-    return [max(0, i) for i in range(end_index - obs_horizon + 1, end_index + 1)]
-
-
-def build_obs_batch(
-    obs_tree: RawTree, frame_indices: list[int], obs_horizon: int, device: torch.device
-) -> TensorTree:
-    """Stacks one observation window per sampled frame into a batch."""
-    windows = []
-    for end_index in frame_indices:
-        window = recursive_index(obs_tree, window_indices(end_index, obs_horizon))
-        tensor_window = to_tensor(window, device=device, dtype=torch.float32)
-        windows.append(map_leaves(lambda t: t.unsqueeze(0), tensor_window))
-    return cat_dicts(windows)
-
-
-def broadcast_goal(goal: TensorTree, batch_size: int) -> TensorTree:
-    """Expands one goal instance across the batch, so every frame is scored against the same
-    goal."""
-    return map_leaves(lambda t: t.unsqueeze(0).expand(batch_size, *t.shape), goal)
 
 
 def build_goal_batch(
@@ -707,7 +686,9 @@ def main() -> None:
     cfg = require_run_config(args.ckpt_path)
     slug = args.run_label or run_slug(args.ckpt_path, model, cfg, args.seed)
     env_id = (args.env_id or [None])[0] or str(cfg.get("datamodule", {}).get("env_id", "") or "")
-    dataset_path = args.dataset_path or default_demo_path(env_id or "StackCubeLockedRotation-v1")
+    dataset_path = ensure_local_dataset(
+        args.dataset_path or default_demo_path(env_id or "StackCubeLockedRotation-v1")
+    )
     env_id = resolve_env_id(dataset_path, env_id or None)
 
     transform = observation_pipeline(

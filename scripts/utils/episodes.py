@@ -18,6 +18,23 @@ def default_demo_path(env_id: str, trajectory_name: str = DEFAULT_TRAJECTORY_NAM
     return DEMO_ROOT / env_id / "motionplanning" / trajectory_name
 
 
+def ensure_local_dataset(dataset_path: Path) -> Path:
+    """Downloads `dataset_path` and its `.json` from the HF Hub dataset repo if missing locally."""
+    from policy.utils.hf_hub_utils import DATASET_REPO_TYPE, default_dataset_repo_id, fetch_missing
+
+    repo_id = default_dataset_repo_id()
+    if dataset_path.exists() or not repo_id:
+        return dataset_path
+
+    fetch_missing(
+        (dataset_path, dataset_path.with_suffix(".json")),
+        repo_id=repo_id,
+        repo_type=DATASET_REPO_TYPE,
+        anchor=DEMO_ROOT,
+    )
+    return dataset_path
+
+
 def env_id_from_sidecar(dataset_path: Path) -> str | None:
     """Reads the env id from the `.json` metadata file recorded next to a demo `.h5`."""
     sidecar = dataset_path.with_suffix(".json")

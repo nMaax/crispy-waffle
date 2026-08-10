@@ -41,6 +41,7 @@ from scripts.utils.episodes import (
     broadcast_goal,
     build_obs_batch,
     default_demo_path,
+    ensure_local_dataset,
     parse_frame_spec,
     resolve_env_id,
     resolve_trajectory_key,
@@ -695,7 +696,7 @@ def main() -> None:
 
     configured_env = str(cfg.get("datamodule", {}).get("env_id", "") or "")
     env_id = (args.env_id or [None])[0] or configured_env or "StackCubeLockedRotation-v1"
-    dataset_path = args.dataset_path or default_demo_path(env_id)
+    dataset_path = ensure_local_dataset(args.dataset_path or default_demo_path(env_id))
     env_id = resolve_env_id(dataset_path, env_id)
 
     episode_label, target, background = load_from_dataset(

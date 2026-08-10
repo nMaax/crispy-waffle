@@ -71,6 +71,11 @@ def default_checkpoint_repo_id() -> str | None:
     return os.environ.get("HF_CHECKPOINT_REPO_ID") or None
 
 
+def default_dataset_repo_id() -> str | None:
+    """`HF_DATASET_REPO`, or None when unset or empty."""
+    return os.environ.get("HF_DATASET_REPO") or None
+
+
 def _repo_root() -> Path:
     """The anchor checkpoint paths are relative to."""
     from policy.utils import env_vars

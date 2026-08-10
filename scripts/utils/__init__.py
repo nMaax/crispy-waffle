@@ -24,6 +24,7 @@ from scripts.utils.checkpoints import (
     resolve_run_config,
     run_slug,
 )
+from scripts.utils.episodes import ensure_local_dataset
 from scripts.utils.figures import REPO_ROOT, figure_path, save_figure
 from scripts.utils.report import Report
 from scripts.utils.rollouts import (
@@ -60,6 +61,7 @@ __all__ = [
     "cli",
     "describe_model_config",
     "embedder_output_norm",
+    "ensure_local_dataset",
     "episodes",
     "figure_path",
     "figures",

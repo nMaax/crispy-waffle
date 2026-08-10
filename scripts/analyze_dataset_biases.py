@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from scripts.utils import cli, theme
-from scripts.utils.episodes import default_demo_path, trajectory_keys
+from scripts.utils.episodes import default_demo_path, ensure_local_dataset, trajectory_keys
 from scripts.utils.figures import figure_path, save_figure
 from scripts.utils.report import Report
 
@@ -297,7 +297,7 @@ def plot_distributions(
 
 def analyse_env(env_id: str, args: argparse.Namespace) -> None:
     """Runs the whole analysis for one environment's dataset."""
-    dataset_path = args.dataset_path or default_demo_path(env_id)
+    dataset_path = ensure_local_dataset(args.dataset_path or default_demo_path(env_id))
     data, schema = load_dataset(dataset_path, env_id)
 
     report = Report(
