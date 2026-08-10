@@ -63,7 +63,7 @@ trainer:
     rollout_evaluation:
       _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
       _recursive_: false
-      num_episodes: 25
+      num_episodes: 50
       num_envs: null
       max_episode_steps: 200
       ignore_terminations: true
@@ -92,7 +92,7 @@ trainer:
   max_steps: 200000
   log_every_n_steps: 50
   num_sanity_val_steps: 2
-  val_check_interval: 5000
+  val_check_interval: 10000
   check_val_every_n_epoch: null
   default_root_dir: ${hydra:runtime.output_dir}
   detect_anomaly: false
