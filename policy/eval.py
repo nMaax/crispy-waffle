@@ -1,3 +1,12 @@
+"""Evaluation script using [Hydra](https://hydra.cc).
+
+This does the following:
+1. Parses the config using Hydra;
+2. Instantiated the components (trainer / algorithm);
+3. Evaluates the model;
+
+"""
+
 import dataclasses
 import logging
 from pathlib import Path
@@ -9,9 +18,12 @@ import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
+from policy.algorithms.callbacks.rollout_evaluation import SUCCESS_METRICS
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
+from policy.utils.hf_hub_utils import ensure_checkpoint
 from policy.utils.hydra_utils import find_checkpoint_hydra_config, resolve_dictconfig
+from policy.utils.logging_utils import setup_logging
 
 torch.set_float32_matmul_precision("high")
 
@@ -27,15 +39,7 @@ def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
     per_metric: dict[str, dict[str, float]] = {}
     for key, value in trainer.callback_metrics.items():
         parts = key.split("/")
-        if (
-            len(parts) == 3
-            and parts[0] == "test"
-            and parts[2]
-            in (
-                "success_once_rate",
-                "success_at_end_rate",
-            )
-        ):
+        if len(parts) == 3 and parts[0] == "test" and parts[2] in SUCCESS_METRICS:
             per_metric.setdefault(parts[2], {})[parts[1]] = float(value)
 
     for metric_name, env_values in per_metric.items():
@@ -46,9 +50,15 @@ def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
 def main(dict_config: DictConfig):
     config = resolve_dictconfig(dict_config)
+    setup_logging(
+        log_level=config.log_level,
+        global_log_level="DEBUG" if config.debug else "INFO" if config.verbose else "WARNING",
+    )
+
     if not hasattr(config, "ckpt_path") or config.ckpt_path is None:
         raise ValueError("Checkpoint path must be specified in the config under 'ckpt_path'.")
     ckpt_path = Path(config.ckpt_path)
+    ensure_checkpoint(ckpt_path, config.hf_checkpoint_repo_id)
 
     # Seed everything for reproducibility during evaluation (env seeding + model stochastic actions)
     lightning.seed_everything(seed=config.seed, workers=True)

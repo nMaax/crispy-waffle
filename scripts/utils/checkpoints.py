@@ -23,6 +23,17 @@ _SLUG_NOISE = (
 )
 
 
+# --- Fetching ---------------------------------------------------------------------------------
+
+
+def ensure_local_checkpoint(ckpt_path: Path) -> Path:
+    """Downloads `ckpt_path` and its run config from the HF Hub checkpoint repo if missing
+    locally."""
+    from policy.utils.hf_hub_utils import default_checkpoint_repo_id, ensure_checkpoint
+
+    return ensure_checkpoint(ckpt_path, default_checkpoint_repo_id())
+
+
 # --- Run config -------------------------------------------------------------------------------
 
 

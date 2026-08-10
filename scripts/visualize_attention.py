@@ -44,6 +44,7 @@ from policy.utils.typing_utils import RawTree, TensorTree
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
     describe_model_config,
+    ensure_local_checkpoint,
     load_goal_conditioned_diffusion_policy,
     require_run_config,
     run_slug,
@@ -661,6 +662,7 @@ def main() -> None:
     args = parse_args()
     theme.apply_theme()
 
+    ensure_local_checkpoint(args.ckpt_path)
     model = load_goal_conditioned_diffusion_policy(args.ckpt_path)
     target_modules = detect_attention_modules(model)
     print(f"Detected attention module(s): {sorted(target_modules)}")

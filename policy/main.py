@@ -10,14 +10,11 @@ This does the following:
 
 from __future__ import annotations
 
-import functools
 import logging
-from pathlib import Path
 
 import hydra
 import lightning
 import rich
-import rich.logging
 import torch
 import wandb
 from omegaconf import DictConfig, OmegaConf
@@ -25,25 +22,16 @@ from rich.panel import Panel
 
 import policy
 from policy.configs.config import Config
-from policy.experiment import train_and_validate
-from policy.utils.hydra_utils import find_checkpoint_hydra_config, resolve_dictconfig
-from policy.utils.typing_utils import HydraConfigFor
+from policy.experiment import instantiate_algorithm, train_and_validate
+from policy.utils.hf_hub_utils import ensure_checkpoint
+from policy.utils.hydra_utils import get_checkpoint_seed, resolve_dictconfig
+from policy.utils.logging_utils import setup_logging
 from policy.utils.utils import print_config
 
 PROJECT_NAME = policy.__name__
-REPO_ROOTDIR = Path(__file__).parent.parent
 logger = logging.getLogger(__name__)
 
 torch.set_float32_matmul_precision("high")
-
-
-def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
-    """Finds and returns the seed used in the checkpoint's run from its .hydra/config.yaml."""
-
-    loaded_config = find_checkpoint_hydra_config(ckpt_path_str)
-    if loaded_config is None:
-        return None
-    return loaded_config.get("seed", None)
 
 
 @hydra.main(
@@ -82,9 +70,19 @@ def main(dict_config: DictConfig) -> dict:
         global_log_level="DEBUG" if config.debug else "INFO" if config.verbose else "WARNING",
     )
 
+    for path in (config.ckpt_path, config.finetuning_ckpt_path):
+        if path is not None:
+            ensure_checkpoint(path, config.hf_checkpoint_repo_id)
+
     if config.ckpt_path is not None:
         loaded_seed = get_checkpoint_seed(config.ckpt_path)
-        if loaded_seed is not None and loaded_seed != config.seed:
+        if loaded_seed is None:
+            logger.warning(
+                f"No .hydra/config.yaml found for '{config.ckpt_path}', so the resume seed cannot "
+                f"be checked against seed={config.seed}. If the data splits differ from the "
+                "original run, validation metrics will not be comparable."
+            )
+        elif loaded_seed != config.seed:
             raise ValueError(
                 f"Resuming training with seed mismatch! The checkpoint at '{config.ckpt_path}' "
                 f"was generated with seed={loaded_seed}, but the current config has seed={config.seed}.\n"
@@ -146,43 +144,6 @@ def main(dict_config: DictConfig) -> dict:
     assert error is not None
     # Results are returned like this so that the Orion sweeper can parse the results correctly.
     return dict(name=metric_name, type="objective", value=error)
-
-
-def setup_logging(log_level: str, global_log_level: str = "WARNING") -> None:
-    from policy.main import PROJECT_NAME
-
-    logging.basicConfig(
-        level=global_log_level.upper(),
-        # format="%(asctime)s - %(levelname)s - %(message)s",
-        format="%(message)s",
-        datefmt="[%X]",
-        force=True,
-        handlers=[
-            rich.logging.RichHandler(
-                markup=True,
-                rich_tracebacks=True,
-                tracebacks_width=100,
-                tracebacks_show_locals=False,
-            )
-        ],
-    )
-
-    policy_logger = logging.getLogger(PROJECT_NAME)
-    policy_logger.setLevel(log_level.upper())
-
-
-def instantiate_algorithm(
-    algorithm_config: HydraConfigFor[lightning.LightningModule],
-) -> lightning.LightningModule:
-    """Function used to instantiate the algorithm."""
-    # Create the algorithm
-
-    algo_or_algo_partial = hydra.utils.instantiate(algorithm_config)
-
-    if isinstance(algo_or_algo_partial, functools.partial):
-        return algo_or_algo_partial()
-    else:
-        return algo_or_algo_partial
 
 
 if __name__ == "__main__":

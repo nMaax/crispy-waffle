@@ -17,7 +17,9 @@ import lightning
 import rich
 from omegaconf import DictConfig
 
+from policy.algorithms.callbacks.rollout_evaluation import PRIMARY_SUCCESS_METRIC
 from policy.configs.config import Config
+from policy.utils.typing_utils import HydraConfigFor
 
 logger = getLogger(__name__)
 
@@ -176,10 +178,10 @@ def parse_objective_metric(metrics: dict, results_type: str) -> tuple[str, float
 
     rich.print(table)
 
-    if (success_once_rate := metrics.get(f"{results_type}/success_once_rate")) is not None:
+    if (success_rate := metrics.get(f"{results_type}/{PRIMARY_SUCCESS_METRIC}")) is not None:
         # Added for Imitation Learning
-        metric_name = "1-success_once_rate"
-        error = 1.0 - success_once_rate
+        metric_name = f"1-{PRIMARY_SUCCESS_METRIC}"
+        error = 1.0 - success_rate
     elif (loss := metrics.get(f"{results_type}/loss")) is not None:
         logger.info("Assuming that the objective to minimize is the loss metric.")
         metric_name = "loss"
@@ -191,6 +193,18 @@ def parse_objective_metric(metrics: dict, results_type: str) -> tuple[str, float
             f"{list(metrics.keys())}"
         )
     return metric_name, error
+
+
+def instantiate_algorithm(
+    algorithm_config: HydraConfigFor[lightning.LightningModule],
+) -> lightning.LightningModule:
+    """Instantiates the algorithm from its config, calling it if it came back as a partial."""
+    algo_or_algo_partial = hydra.utils.instantiate(algorithm_config)
+
+    if isinstance(algo_or_algo_partial, functools.partial):
+        return algo_or_algo_partial()
+    else:
+        return algo_or_algo_partial
 
 
 def instantiate_trainer(trainer_config: dict | DictConfig) -> lightning.Trainer | Any:

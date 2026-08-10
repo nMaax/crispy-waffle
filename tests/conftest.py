@@ -85,10 +85,11 @@ from omegaconf import DictConfig, open_dict
 from torch.utils.data import DataLoader
 
 from policy.configs.config import Config
-from policy.experiment import instantiate_trainer
-from policy.main import PROJECT_NAME, instantiate_algorithm, setup_logging
+from policy.experiment import instantiate_algorithm, instantiate_trainer
+from policy.main import PROJECT_NAME
 from policy.utils.env_vars import NUM_WORKERS, REPO_ROOTDIR
 from policy.utils.hydra_utils import resolve_dictconfig
+from policy.utils.logging_utils import setup_logging
 from policy.utils.test_utils import (
     IN_GITHUB_CI,
     PARAM_WHEN_USED_MARK_NAME,
@@ -123,6 +124,23 @@ skip_on_macOS_in_CI = pytest.mark.skipif(
     sys.platform == "darwin" and IN_GITHUB_CI,
     reason="todo: Fails for some reason on MacOS in GitHub CI.",
 )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_ambient_checkpoint_repo():
+    """Hides any real `HF_CHECKPOINT_REPO_ID` from the suite.
+
+    Several tests pass checkpoint paths that deliberately do not exist (`ckpt_path=dummy.ckpt`), and
+    `ensure_checkpoint` would try to fetch them from whatever repo the developer's shell happens to
+    export. Unsetting is done here rather than through `[tool.pytest_env]`, which can only *set* a
+    variable -- and setting it to the empty string would still be a value the config resolves.
+
+    `HF_DATASET_REPO` is deliberately left alone: the datamodule tests genuinely exercise that path.
+    """
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.delenv("HF_CHECKPOINT_REPO_ID", raising=False)
+    yield
+    monkeypatch.undo()
 
 
 @pytest.fixture(autouse=True)

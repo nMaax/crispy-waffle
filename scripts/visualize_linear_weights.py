@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 from scripts.utils import cli, theme
-from scripts.utils.checkpoints import checkpoint_slug
+from scripts.utils.checkpoints import checkpoint_slug, ensure_local_checkpoint
 from scripts.utils.figures import figure_path, save_figure, slugify
 from scripts.utils.report import Report
 
@@ -344,6 +344,7 @@ def main() -> None:
     args = parse_args()
     theme.apply_theme()
 
+    ensure_local_checkpoint(args.ckpt_path)
     state_dict = extract_state_dict(args.ckpt_path)
     slug = args.run_label or checkpoint_slug(args.ckpt_path)
 

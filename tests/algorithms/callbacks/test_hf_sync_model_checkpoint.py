@@ -1,16 +1,43 @@
-from pathlib import Path
+import json
+from pathlib import Path, PurePosixPath
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
+from lightning.pytorch.trainer.states import TrainerFn
 
 import policy.algorithms.callbacks.hf_sync_model_checkpoint as hf_sync_model_checkpoint
-from policy.algorithms.callbacks.hf_sync_model_checkpoint import HFSyncModelCheckpoint
+from policy.algorithms.callbacks.hf_sync_model_checkpoint import (
+    RUN_STATUS_FILENAMES,
+    HFSyncModelCheckpoint,
+)
+
+COMPLETED = RUN_STATUS_FILENAMES["completed"]
+INTERRUPTED = RUN_STATUS_FILENAMES["interrupted"]
 
 PREFIX = "logs/my-experiment/runs/2026-01-01/12-00-00"
 
 
-def _mock_trainer(is_global_zero=True):
-    return MagicMock(is_global_zero=is_global_zero, loggers=[], global_step=10)
+def _mock_trainer(is_global_zero=True, **overrides):
+    """A trainer that looks like a normal fitting run.
+
+    Every attribute `_should_skip_hf_upload` reads has to be set explicitly: a bare `MagicMock`
+    attribute is truthy, which would make the guard skip every upload and fail every test here.
+    """
+    trainer = MagicMock(
+        is_global_zero=is_global_zero,
+        loggers=[],
+        global_step=10,
+        current_epoch=2,
+        fast_dev_run=False,
+        overfit_batches=0,
+        sanity_checking=False,
+        received_sigterm=False,
+        state=MagicMock(fn=TrainerFn.FITTING),
+    )
+    for name, value in overrides.items():
+        setattr(trainer, name, value)
+    return trainer
 
 
 def _make_run_dirpath(tmp_path: Path, monkeypatch) -> Path:
@@ -129,11 +156,13 @@ def test_on_train_end_uploads_best_k_models(tmp_path, monkeypatch):
         mock_api = mock_api_cls.return_value
         cb.on_train_end(trainer, MagicMock())
 
-    assert mock_api.upload_file.call_count == 2
+    # The two checkpoints, plus the run-status marker.
+    assert mock_api.upload_file.call_count == 3
     uploaded_repo_paths = {c.kwargs["path_in_repo"] for c in mock_api.upload_file.call_args_list}
     assert uploaded_repo_paths == {
         f"{PREFIX}/checkpoints/step_000010.ckpt",
         f"{PREFIX}/checkpoints/step_000020.ckpt",
+        f"{PREFIX}/{COMPLETED}",
     }
 
 
@@ -168,12 +197,12 @@ def test_on_exception_uploads_best_k_models(tmp_path, monkeypatch):
         mock_api = mock_api_cls.return_value
         cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
 
-    mock_api.upload_file.assert_called_once_with(
-        path_or_fileobj=str(dirpath / "step_000010.ckpt"),
-        path_in_repo=f"{PREFIX}/checkpoints/step_000010.ckpt",
-        repo_id="org/repo",
-        repo_type="model",
-    )
+    assert mock_api.upload_file.call_args_list[0].kwargs == {
+        "path_or_fileobj": str(dirpath / "step_000010.ckpt"),
+        "path_in_repo": f"{PREFIX}/checkpoints/step_000010.ckpt",
+        "repo_id": "org/repo",
+        "repo_type": "model",
+    }
 
 
 def test_on_exception_noop_when_repo_id_none(tmp_path):
@@ -195,3 +224,132 @@ def test_on_exception_skips_non_rank_zero(tmp_path):
         cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
 
     mock_api_cls.assert_not_called()
+
+
+def test_hf_path_prefix_honours_patched_repo_rootdir(tmp_path, monkeypatch):
+    """The path mapping lives in policy.utils.hf_hub_utils, but the anchor must stay this module's.
+
+    Tests patch `REPO_ROOTDIR` in the callback's namespace, so `_hf_path_prefix` has to pass it
+    explicitly rather than let the helper look it up.
+    """
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+
+    assert cb._hf_path_prefix() == PREFIX
+
+
+def test_falsy_repo_id_disables_upload(tmp_path):
+    """An empty HF_CHECKPOINT_REPO_ID resolves to "" rather than None, and must still mean
+    "off"."""
+    cb = HFSyncModelCheckpoint(dirpath=str(tmp_path), hf_repo_id="")
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        cb._save_checkpoint(trainer, str(tmp_path / "last.ckpt"))
+        cb.on_train_end(trainer, MagicMock())
+
+    mock_api_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"fast_dev_run": True}, id="fast_dev_run"),
+        pytest.param({"overfit_batches": 1}, id="overfit_batches"),
+        pytest.param({"sanity_checking": True}, id="sanity_check"),
+        pytest.param({"state": MagicMock(fn=TrainerFn.TESTING)}, id="not_fitting"),
+    ],
+)
+def test_no_upload_for_throwaway_runs(tmp_path, monkeypatch, overrides):
+    """Debug runs must not reach the Hub.
+
+    The `TESTING` case is the one that matters beyond hygiene: `*__test.yaml` inherits
+    `callbacks: default`, so `eval.py` builds this callback too, and its dirpath is not a training
+    run directory.
+    """
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    cb.best_k_models = {str(dirpath / "step_000010.ckpt"): torch.tensor(0.1)}
+    trainer = _mock_trainer(**overrides)
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        cb._save_checkpoint(trainer, str(dirpath / "last.ckpt"))
+        cb.on_train_end(trainer, MagicMock())
+        cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
+
+    mock_api_cls.assert_not_called()
+
+
+def test_on_train_end_uploads_completion_marker_last(tmp_path, monkeypatch):
+    """The marker goes up after everything else, so its presence means the run synced fully."""
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    cb.best_k_models = {str(dirpath / "step_000010.ckpt"): torch.tensor(0.1)}
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        mock_api = mock_api_cls.return_value
+        cb.on_train_end(trainer, MagicMock())
+
+    calls = mock_api.upload_file.call_args_list
+    assert calls[-1].kwargs["path_in_repo"] == f"{PREFIX}/{COMPLETED}"
+
+    uploaded = json.loads(calls[-1].kwargs["path_or_fileobj"].decode())
+    # The status is the filename, so it must not be duplicated in the body.
+    assert "status" not in uploaded
+    assert uploaded["global_step"] == 10
+    assert uploaded["epoch"] == 2
+    assert uploaded["uploaded_checkpoints"] == ["step_000010.ckpt"]
+
+    # Mirrored into logs/ too, so the local tree and the repo stay identical.
+    assert json.loads((dirpath.parent / COMPLETED).read_text()) == uploaded
+
+
+def test_on_exception_uses_the_interrupted_marker(tmp_path, monkeypatch):
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        mock_api = mock_api_cls.return_value
+        cb.on_exception(trainer, MagicMock(), KeyboardInterrupt())
+
+    last_call = mock_api.upload_file.call_args_list[-1]
+    assert last_call.kwargs["path_in_repo"] == f"{PREFIX}/{INTERRUPTED}"
+    assert (dirpath.parent / INTERRUPTED).exists()
+    assert not (dirpath.parent / COMPLETED).exists()
+
+
+def test_marker_uploaded_only_once(tmp_path, monkeypatch):
+    """`on_exception` can follow `on_train_end` if teardown throws; the verdict must not flip."""
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        mock_api = mock_api_cls.return_value
+        cb.on_train_end(trainer, MagicMock())
+        cb.on_exception(trainer, MagicMock(), RuntimeError("teardown blew up"))
+
+    markers = [
+        c
+        for c in mock_api.upload_file.call_args_list
+        if PurePosixPath(c.kwargs["path_in_repo"]).name in RUN_STATUS_FILENAMES.values()
+    ]
+    assert len(markers) == 1
+    assert markers[0].kwargs["path_in_repo"] == f"{PREFIX}/{COMPLETED}"
+
+
+def test_final_sync_failure_does_not_raise(tmp_path, monkeypatch, caplog):
+    """A network blip at train end must not crash the end of an otherwise successful run."""
+    dirpath = _make_run_dirpath(tmp_path, monkeypatch)
+    cb = HFSyncModelCheckpoint(dirpath=str(dirpath), hf_repo_id="org/repo")
+    cb.best_k_models = {str(dirpath / "step_000010.ckpt"): torch.tensor(0.1)}
+    trainer = _mock_trainer()
+
+    with patch("policy.algorithms.callbacks.hf_sync_model_checkpoint.HfApi") as mock_api_cls:
+        mock_api_cls.return_value.upload_file.side_effect = RuntimeError("network down")
+        cb.on_train_end(trainer, MagicMock())  # must not raise
+
+    assert not cb._upload_lock.locked()
+    assert "Failed to sync the final checkpoints" in caplog.text

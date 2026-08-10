@@ -293,5 +293,8 @@ class TestManiSkillDataModuleHFFetch:
         outside_file = tmp_path / "elsewhere" / "trajectory.h5"
         outside_file.parent.mkdir(parents=True)
         dm = TrajectoryDataModule(dataset_file=outside_file, seed=1, hf_dataset_repo="org/demos")
-        with pytest.raises(ValueError):
+        # Since the fetch moved onto the shared helper, this now names both paths instead of being a
+        # bare relative_to() failure.
+        with pytest.raises(ValueError, match="outside") as error:
             dm.prepare_data()
+        assert str(outside_file) in str(error.value)

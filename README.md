@@ -219,22 +219,21 @@ If you want to force download of datasets (they would be automatically downloade
 ```bash
 uv run hf download "$HF_DATASET_REPO" --repo-type dataset --local-dir "$HOME/.maniskill/demos"
 ```
+
 ### Checkpoint sync & manual resume
 
 This will only work if you exported (or let Vast.ai do it automatically) `HF_CHECKPOINT_REPO_ID` (and `HF_TOKEN` if private). Leave it unset have a fully-local behavior where no data is uploaded to Hugging Face Hub.
 
-Just like datasets, checkpoint uploads land at the exact same relative path this run already uses locally under `logs/` — e.g. `logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt`.
+Just like datasets, checkpoint uploads land at the exact same relative path this run already uses locally under `logs/` — e.g. `logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt`. Code will automatically download any checkpoint path that does not exist locally.
 
-Note that Vast.ai never restarts a killed instance for you, so recovering is always manual by expliciting a `ckpt_path=`, if you need to download such checkpoint just do and download just that file:
-
-```bash
-uv run hf download "$HF_CHECKPOINT_REPO_ID" "logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt" --repo-type model --local-dir .
-```
-
-then relaunch with that path:
+Note that Vast.ai never restarts a killed instance for you, so recovery is still a manual `ckpt_path=`.
 
 ```bash
 uv run python policy/main.py experiment=<name> seed=<value> ckpt_path=logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt
 ```
 
-Keep in mind HF Hub repos are git/LFS-backed: repeatedly "overwriting" `last.ckpt` still keeps every prior revision in history, so the repo's storage keeps growing even though only the latest file matters for resume. Periodically squash history (`HfApi.super_squash_history`) or prune old commits if this becomes a problem.
+To fetch one by hand anyway, or on a machine where you'd rather not run training, you can use:
+
+```bash
+uv run hf download "$HF_CHECKPOINT_REPO_ID" "logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt" --repo-type model --local-dir .
+```

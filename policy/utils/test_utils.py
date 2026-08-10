@@ -1,5 +1,3 @@
-"""Utility functions useful for testing."""
-
 from __future__ import annotations
 
 import functools

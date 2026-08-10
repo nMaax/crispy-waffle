@@ -31,6 +31,12 @@ from policy.utils.typing_utils import (
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 
 
+PRIMARY_SUCCESS_METRIC = "success_once_rate"
+SECONDARY_SUCCESS_METRIC = "success_at_end_rate"
+
+SUCCESS_METRICS = (PRIMARY_SUCCESS_METRIC, SECONDARY_SUCCESS_METRIC)
+
+
 class RolloutEvaluationCallback(L.Callback):
     """A Lightning Callback for performing rollout evaluation of a policy in a ManiSkill
     environment."""
@@ -510,9 +516,12 @@ class RolloutEvaluationCallback(L.Callback):
 
         # We do not support multi GPUs in maniskill, so we set sync_dist=False
         pl_module.log(
-            f"{scope}/success_once_rate", float(success_once_rate), sync_dist=False, prog_bar=True
+            f"{scope}/{SUCCESS_METRICS[0]}",
+            float(success_once_rate),
+            sync_dist=False,
+            prog_bar=True,
         )
-        pl_module.log(f"{scope}/success_at_end_rate", float(success_at_end_rate), sync_dist=False)
+        pl_module.log(f"{scope}/{SUCCESS_METRICS[1]}", float(success_at_end_rate), sync_dist=False)
         pl_module.log(f"{scope}/truncation_rate", float(avg_truncation_rate), sync_dist=False)
         pl_module.log(f"{scope}/avg_episode_length", float(avg_episode_length), sync_dist=False)
 

@@ -32,6 +32,7 @@ from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
     build_external_cond,
     describe_model_config,
+    ensure_local_checkpoint,
     load_goal_conditioned_diffusion_policy,
     require_run_config,
     run_slug,
@@ -657,6 +658,7 @@ def main() -> None:
     args = parse_args()
     theme.apply_theme()
 
+    ensure_local_checkpoint(args.ckpt_path)
     model = load_goal_conditioned_diffusion_policy(args.ckpt_path)
     cfg = require_run_config(args.ckpt_path)
     slug = args.run_label or run_slug(args.ckpt_path, model, cfg, args.seed)

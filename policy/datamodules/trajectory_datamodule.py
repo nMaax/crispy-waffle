@@ -87,19 +87,15 @@ class TrajectoryDataModule(L.LightningDataModule):
         self._prepare_local_dataset()
 
     def _download_dataset_from_hf(self) -> None:
-        from huggingface_hub import hf_hub_download
+        from policy.utils.hf_hub_utils import DATASET_REPO_TYPE, fetch_missing
 
         assert self.hf_dataset_repo is not None
-        local_dir = Path.home() / ".maniskill" / "demos"
-        for path in (self.dataset_file, self.json_path):
-            if path.exists():
-                continue
-            hf_hub_download(
-                repo_id=self.hf_dataset_repo,
-                repo_type="dataset",
-                filename=str(path.relative_to(local_dir)),
-                local_dir=local_dir,
-            )
+        fetch_missing(
+            (self.dataset_file, self.json_path),
+            repo_id=self.hf_dataset_repo,
+            repo_type=DATASET_REPO_TYPE,
+            anchor=Path.home() / ".maniskill" / "demos",
+        )
 
     def _prepare_local_dataset(self) -> None:
         self._validate_dataset_file()

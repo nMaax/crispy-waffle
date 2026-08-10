@@ -1,5 +1,3 @@
-"""Utility functions related to working with [Hydra](https://hydra.cc)."""
-
 from __future__ import annotations
 
 from logging import getLogger as get_logger
@@ -41,6 +39,15 @@ def find_checkpoint_hydra_config(ckpt_path_str: str) -> DictConfig | None:
             except Exception:
                 pass
     return None
+
+
+def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
+    """The seed a checkpoint's run used, read from its `.hydra/config.yaml`, or None if unknown."""
+
+    loaded_config = find_checkpoint_hydra_config(ckpt_path_str)
+    if loaded_config is None:
+        return None
+    return loaded_config.get("seed", None)
 
 
 def parse_slice(slice_def: str | int) -> slice | int:
