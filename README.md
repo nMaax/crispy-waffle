@@ -158,38 +158,54 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
 
 ---
 
-## Remote experiments on Vast.ai (or other rented GPUs)
+## Setting up a new machine
 
-Rented instances can be pre-empted or disconnected without warning and typically don't offer sudo. Data and checkpoints will then live on HuggingFace Hub, so a killed instance never loses more than the last few thousand training steps.
-
-### One-time credential setup
-
-**On Vast.ai**, set `HF_TOKEN`, `HF_DATASET_REPO`, and `HF_CHECKPOINT_REPO_ID` once in your [Vast.ai Account Settings](https://cloud.vast.ai/account/) ("Environment Variables"). Per [Vast.ai's docs](https://docs.vast.ai/instances/docker-execution-environment), variables set there are automatically injected into every container you launch afterward.
-
-**Locally** (e.g. to test the sync paths against a real HF Hub account before ever touching Vast.ai), export the same three yourself:
+### Owned machine
 
 ```bash
-# bash/zsh
-export HF_TOKEN=hf_xxxxxxxxxxxx
-export HF_CHECKPOINT_REPO_ID=<you>/crispy-waffle-checkpoints
-export HF_DATASET_REPO=<you>/crispy-waffle-demos
+command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh # install uv
+export PATH="$HOME/.local/bin:$PATH" # make uv visible in this shell without a new login
+uv sync
+uv run wandb login   # paste your API key from https://wandb.ai/authorize
+uv run hf auth login # paste a HF token from https://huggingface.co/settings/tokens
 ```
 
-```fish
-# fish
-set -x HF_TOKEN hf_xxxxxxxxxxxx
-set -x HF_CHECKPOINT_REPO_ID <you>/crispy-waffle-checkpoints
-set -x HF_DATASET_REPO <you>/crispy-waffle-demos
-```
+`hf auth login` is only needed if you want automatic dataset/checkpoint download from a private HF
+repo — public repos, and fully-local runs, need neither an HF login nor `HF_TOKEN`.
 
-Then create both repos ahead of your first run. `--exist-ok` makes this safe to rerun on every new machine without erroring on a repo you already created. Remind that repo creation never touches existing content, so it can't overwrite checkpoints or data already uploaded:
+### Vast.ai (or other rented GPU)
+
+Rented instances can be pre-empted or disconnected without warning and typically don't offer sudo.
+Data and checkpoints live on HF Hub instead, so a killed instance never loses more than the last
+few thousand training steps.
+
+`uv` is already installed in the pytorch Vast.ai image, so per instance you only need:
 
 ```bash
-uv run hf repo create "$HF_CHECKPOINT_REPO_ID" --repo-type model --private --exist-ok
-uv run hf repo create "$HF_DATASET_REPO" --repo-type dataset --private --exist-ok
+uv sync
 ```
 
-You can upload datasets as you like, preserving its path relative to `~/.maniskill/demos`. The datamodule will reconstruct that same relative path when it downloads if it find the data is missing, so the repo layout has to mirror it exactly:
+Set `HF_TOKEN`, `HF_DATASET_REPO`, and `HF_CHECKPOINT_REPO_ID` once in your
+[Vast.ai Account Settings](https://cloud.vast.ai/account/) ("Environment Variables") — per
+[Vast.ai's docs](https://docs.vast.ai/instances/docker-execution-environment), these are injected
+into every container you launch afterward. That's the whole setup: dataset download and checkpoint
+upload/download are fully automated from there.
+
+The one thing that isn't automated: Vast.ai never restarts a killed instance for you, so recovery
+means resuming manually on a new instance:
+
+```bash
+uv run python policy/main.py experiment=<name> seed=<value> ckpt_path=logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt
+```
+
+`ckpt_path` doesn't need to exist locally yet, the code downloads it from `HF_CHECKPOINT_REPO_ID`
+automatically if missing.
+
+## Data & checkpoint sync
+
+Uploading a dataset preserves its path relative to `~/.maniskill/demos`; the datamodule
+reconstructs that same relative path when it auto-downloads, so the repo layout must mirror it
+exactly:
 
 ```bash
 uv run hf upload "$HF_DATASET_REPO" ~/.maniskill/demos/<env-id> <env-id> --repo-type dataset
@@ -201,39 +217,16 @@ e.g. for `StackCube-v1`:
 uv run hf upload "$HF_DATASET_REPO" ~/.maniskill/demos/StackCube-v1 StackCube-v1 --repo-type dataset
 ```
 
-This recursively uploads that env's whole subtree (both the `.h5` and its `.json`) to the matching subpath at the repo root.
+This recursively uploads that env's whole subtree (both the `.h5` and its `.json`) to the matching
+subpath at the repo root. Checkpoints upload the same way automatically, at
+`logs/<name>/runs/<date>/<time>/checkpoints/...`, whenever `HF_CHECKPOINT_REPO_ID` is set.
 
-### One-time machine setup (no sudo)
-
-If you instead already uploaded all the data you needed and you are just instantiating a new Vast.ai instance, run
-
-```bash
-# bash/zsh
-command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh # Install uv
-export PATH="$HOME/.local/bin:$PATH" # Make uv visible in this same shell, without waiting for a new login
-uv sync # Install project dependencies into .venv
-```
-
-If you want to force download of datasets (they would be automatically downloaded if missing at the first run anyway), you can do
+To see what's actually in the checkpoint repo — which runs completed, which look abandoned, and
+which are safe to prune (superseded by a later, more complete run of the same experiment) — run:
 
 ```bash
-uv run hf download "$HF_DATASET_REPO" --repo-type dataset --local-dir "$HOME/.maniskill/demos"
+uv run python scripts/hf_checkpoint_inventory.py
 ```
 
-### Checkpoint sync & manual resume
-
-This will only work if you exported (or let Vast.ai do it automatically) `HF_CHECKPOINT_REPO_ID` (and `HF_TOKEN` if private). Leave it unset have a fully-local behavior where no data is uploaded to Hugging Face Hub.
-
-Just like datasets, checkpoint uploads land at the exact same relative path this run already uses locally under `logs/` — e.g. `logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt`. Code will automatically download any checkpoint path that does not exist locally.
-
-Note that Vast.ai never restarts a killed instance for you, so recovery is still a manual `ckpt_path=`.
-
-```bash
-uv run python policy/main.py experiment=<name> seed=<value> ckpt_path=logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt
-```
-
-To fetch one by hand anyway, or on a machine where you'd rather not run training, you can use:
-
-```bash
-uv run hf download "$HF_CHECKPOINT_REPO_ID" "logs/<name>/runs/<date>/<time>/checkpoints/last.ckpt" --repo-type model --local-dir .
-```
+It's read-only: it only prints candidate `delete_folder(...)` calls for you to review and run
+yourself, it never deletes anything.
