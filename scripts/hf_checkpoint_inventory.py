@@ -21,22 +21,13 @@ STATUS_PRECEDENCE = ("completed", "interrupted", "unknown")
 
 @dataclass
 class RunEntry:
-    """One run directory in the repo, as assembled from the file listing."""
-
     prefix: str
-    """Repo path of the run directory, e.g. `logs/<experiment>/runs/<date>/<time>`."""
     checkpoints: list[str] = field(default_factory=list)
     total_bytes: int = 0
     has_hydra_config: bool = False
     marker: str | None = None
-    """Filename of the run-status marker, which is what encodes the status.
-
-    None when absent.
-    """
     details: dict[str, object] | None = None
-    """Contents of that marker, only populated when `--details` asks for it."""
     config: dict[str, object] | None = None
-    """Fields read out of the run's `.hydra/config.yaml`, when `--details` fetched it."""
 
     @property
     def experiment(self) -> str:
@@ -44,17 +35,10 @@ class RunEntry:
 
     @property
     def when(self) -> str:
-        """Everything after the `runs`/`multiruns` segment, which sorts chronologically.
-
-        `<date>/<time>` for a single run, `<date>/<time>/<job>` for one job of a multirun -- so the
-        two layouts compare correctly against each other. Taking a fixed number of trailing path
-        segments instead would silently drop the date for multiruns.
-        """
         return split_run_path(PurePosixPath(self.prefix).parts)[1] or self.prefix
 
     @property
     def her_ratio(self) -> str:
-        """Absent for anything that is not goal-conditioned, hence the placeholder."""
         return _shown(self.config.get("her_ratio") if self.config else None)
 
     @property
@@ -63,19 +47,10 @@ class RunEntry:
 
     @property
     def completeness(self) -> tuple[int, int]:
-        """How finished this run looks, for deciding which of two runs supersedes the other.
-
-        A confirmed clean finish beats an unconfirmed one; failing that, more checkpoints means the
-        run at least reached the top-k sync at train end.
-        """
         return (1 if self.state == "completed" else 0, len(self.checkpoints))
 
     @property
     def state(self) -> str:
-        """`completed`, `interrupted`, or `unknown` when no marker was ever uploaded.
-
-        Read straight off the marker's filename, so the whole inventory needs no downloads.
-        """
         return STATUS_BY_FILENAME.get(self.marker or "", "unknown")
 
     @property
@@ -132,12 +107,7 @@ def collect_runs(repo_id: str) -> dict[str, RunEntry]:
 
 
 def load_details(repo_id: str, runs: dict[str, RunEntry]) -> None:
-    """Fetches each run's status marker and Hydra config into the HF cache.
-
-    Deliberately without `local_dir`, so these land in `~/.cache/huggingface` and `logs/` is never
-    written to. Both files are a few KB. The status itself already came from the tree listing; this
-    is for what a filename cannot carry (`global_step`, `her_ratio`, `seed`).
-    """
+    """Fetches each run's status marker and Hydra config into the HF cache."""
     from huggingface_hub import hf_hub_download
 
     def fetch(relative: str) -> Path | None:
@@ -169,11 +139,7 @@ def _read_config_fields(path: Path) -> dict[str, object]:
 
 
 def observations(run: RunEntry) -> list[str]:
-    """What is notable about a run. Informational only -- none of these justify deleting it.
-
-    Every run trained before the status marker existed lacks one, so `no-marker` on its own says
-    nothing about whether the run is worth keeping.
-    """
+    """What is notable about a run."""
     notes = []
     if run.marker is None:
         notes.append("no-marker")
@@ -188,12 +154,7 @@ def observations(run: RunEntry) -> list[str]:
 
 
 def superseded_by(run: RunEntry, runs: dict[str, RunEntry]) -> RunEntry | None:
-    """A later run of the same experiment that is at least as complete, if there is one.
-
-    `>=` rather than `>` so that among several equally complete runs only the newest survives. This
-    deliberately does not require the newer run to have a status marker: runs predating the marker
-    would otherwise never supersede anything, which is the whole reason duplicates went unflagged.
-    """
+    """A later run of the same experiment that is at least as complete, if there is one."""
     for other in runs.values():
         if (
             other.experiment == run.experiment
@@ -205,11 +166,7 @@ def superseded_by(run: RunEntry, runs: dict[str, RunEntry]) -> RunEntry | None:
 
 
 def prune_reasons(run: RunEntry, runs: dict[str, RunEntry]) -> list[str]:
-    """Why this run could be deleted. Empty means keep it.
-
-    Redundancy is the only reason offered: a run that is the sole copy of its experiment is never
-    proposed for deletion, however incomplete it looks.
-    """
+    """Why this run could be deleted."""
     newer = superseded_by(run, runs)
     if newer is None:
         return []
@@ -289,11 +246,7 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
 def _rows(
     runs: list[RunEntry], reasons: dict[str, list[str]], *, with_experiment: bool
 ) -> tuple[list[str], list[list]]:
-    """`(headers, rows)` for a group of runs.
-
-    A column that says the same thing on every row is dropped: runs predating the status marker are
-    all `unknown`, and without a marker there is no step count either.
-    """
+    """`(headers, rows)` for a group of runs."""
     show_state = len({run.state for run in runs}) > 1
     show_step = any(run.global_step is not None for run in runs)
 
