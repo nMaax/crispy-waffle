@@ -1,11 +1,15 @@
 {
   "venvPath": ".",
   "venv": ".venv",
+  "extraPaths": [
+    "."
+  ],
   "typeCheckingMode": "basic",
   "reportPrivateImportUsage": "none",
   "reportAttributeAccessIssue": "warning",
   "include": [
-    "policy"
+    "policy",
+    "scripts"
   ],
   "exclude": [
     ".venv",

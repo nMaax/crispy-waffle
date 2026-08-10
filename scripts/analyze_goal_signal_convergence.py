@@ -1,63 +1,68 @@
-"""Analyzes whether the goal-conditioning signal ("z" -- the literal conditioning tensor that
-reaches the UNet's FiLM layers) shrinks toward zero as a live GoalConditionedDiffusionPolicy
-rollout converges to its goal.
+"""Checks whether the goal-conditioning signal fades as a rollout reaches its goal.
 
-Runs a handful of live ManiSkill episodes driven by the checkpoint's own `get_action()` policy (no
-offline HDF5 replay), recording the exact goal-delta tensor `_build_external_cond()` produces at
-every environment step -- not just at replanning boundaries, since that call alone never invokes
-the expensive diffusion denoising loop -- alongside a task-agnostic ground-truth distance to goal
-derived from the canonicalized `a_pose`. Plots ||z|| vs. time and ||z|| vs. ground-truth distance
-across all collected episodes.
+`z` is the literal conditioning tensor that reaches the diffusion network's FiLM layers. If goal
+conditioning is working as intended, `||z||` should shrink as the robot closes in on the goal.
 
-Strictly scoped to GoalConditionedDiffusionPolicy: BESO/BESO++ condition through DiffusionGPT (a
-transformer), not ConditionalUnet1D/FiLM, so there is no analogous standalone "z" to extract there.
+Runs live episodes driven by the checkpoint's own policy and records. Produces
+    - `||z||` over time,
+    - `||z||` against true distance
+    - a per-episode first-to-last convergence ratio
+
+By default it sweeps the whole LockedRotation family, so one invocation covers the training task
+and the three zero-shot targets.
 """
 
+from __future__ import annotations
+
 import argparse
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from gymnasium.spaces import Box
 from matplotlib.lines import Line2D
-from omegaconf import DictConfig
 
-import policy.environments  # noqa: F401
+import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.transforms import observation_pipeline
-from policy.utils import to_tensor
-from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
-from policy.utils.live_rollout_utils import (
-    DEFAULT_LOCKED_ROTATION_ENV_IDS,
-    build_rollout_env,
-    extract_episode_metrics,
-    load_env_config,
-    resolve_env_kwargs,
-    resolve_max_episode_steps,
+from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
+from scripts.utils import cli, theme
+from scripts.utils.checkpoints import (
+    describe_model_config,
+    load_goal_conditioned_diffusion_policy,
+    require_run_config,
+    run_slug,
 )
-from policy.utils.typing_utils import (
-    GoalConditionedEnvProtocol,
-    TensorTree,
-    get_subtree,
-    get_tensor,
+from scripts.utils.figures import figure_path, save_figure
+from scripts.utils.report import Report
+from scripts.utils.rollouts import (
+    build_obs_transform,
+    build_rollout_env,
+    iter_env_kwargs,
+    resolve_max_episode_steps,
+    run_episode,
+)
+from scripts.utils.taps import (
+    capture_pre_norm,
+    embedder_output_norm,
+    magnitude_band,
+    relative_spread,
 )
 
-SUCCESS_COLOR = "#10b981"
-FAILURE_COLOR = "#f87171"
+SCRIPT_NAME = Path(__file__).stem
 
 
 @dataclass
 class StepRecord:
-    """One environment step's recorded convergence signal."""
+    """One environment step's conditioning signal and true distance to goal."""
 
     episode_idx: int
     step_idx: int
     z_norm: float
+    """||z||, the conditioning vector the network receives."""
+    h_norm: float | None
+    """||h||, the same representation one layer earlier, before the output normalisation."""
     gt_distance: float
 
 
@@ -72,372 +77,101 @@ class EpisodeResult:
     episode_len: int
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--ckpt_path",
-        type=str,
-        required=True,
-        help="Path to a GoalConditionedDiffusionPolicy checkpoint (e.g. logs/.../last.ckpt).",
-    )
-    parser.add_argument(
-        "--env_id",
-        type=str,
-        nargs="+",
-        default=None,
-        help="One or more rollout env_ids to analyze (e.g. a zero-shot target like "
-        "'PlaceCubeLeftLockedRotation-v1'), each run and plotted independently. Default: the "
-        f"whole LockedRotation family ({', '.join(DEFAULT_LOCKED_ROTATION_ENV_IDS)}). Every "
-        "other rollout setting (obs_mode, control_mode, robot_uids, no_proprio_vel) is always "
-        "sourced from the checkpoint, mirroring the `__ZeroShot` experiment configs' extra "
-        "RolloutEvaluationCallback entries.",
-    )
-    parser.add_argument(
-        "--num_episodes", type=int, default=8, help="Number of live rollout episodes to collect."
-    )
-    parser.add_argument(
-        "--max_episode_steps",
-        type=int,
-        default=None,
-        help="Override for max episode length. Default: the checkpoint's own training-time "
-        "trainer.callbacks.rollout_evaluation.max_episode_steps if set (RolloutEvaluationCallback "
-        "commonly overrides the env's bare registered default, e.g. 200 vs. 50 for "
-        "StackCubeLockedRotation-v1 -- val/success_once_rate, the metric checkpoints are actually "
-        "selected on, was computed under that longer budget), else the env's registered default.",
-    )
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=None,
-        help="Diffusion denoising steps used for the actual action.",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Base env reset seed, offset per episode."
-    )
-    parser.add_argument(
-        "--no_clamp_action",
-        action="store_false",
-        dest="clamp_action",
-        default=True,
-        help="Disable clamping actions to the action space bounds.",
-    )
-    parser.add_argument(
-        "--render_mode",
-        type=str,
-        default=None,
-        choices=["human", "rgb_array"],
-        help="Optional render mode; 'human' sleeps briefly per step, like the training callback.",
-    )
-    parser.add_argument(
-        "--video_dir",
-        type=str,
-        default=None,
-        help="If set, records episode videos via ManiSkill's RecordEpisode wrapper.",
-    )
-    parser.add_argument(
-        "--num_bins",
-        type=int,
-        default=25,
-        help="Number of bins for the pooled ||z|| vs. ground-truth-distance trend line.",
-    )
-    parser.add_argument(
-        "--save_path_prefix",
-        type=str,
-        default=None,
-        help="Prefix for saved figures under "
-        "scripts/figures/analyze_goal_signal_convergence/<env_id>/.",
-    )
-    parser.add_argument(
-        "--show", action="store_true", default=False, help="Also display plots interactively."
-    )
-    return parser.parse_args()
-
-
-def _describe_model_config(
-    model: GoalConditionedDiffusionPolicy, cfg: DictConfig
-) -> list[tuple[str, str]]:
-    """`(key, value)` pairs describing this checkpoint's tokenizer/embedder/pooling architecture,
-    goal-conditioning mode, and HER ratio -- the single source of truth for both the human-readable
-    title line (`build_metadata_str`) and the filesystem-safe filename slug
-    (`build_metadata_slug`)."""
-    pooling = getattr(model.embedder, "pooling", None)
-    fields = [
-        ("tokenizer", type(model.tokenizer).__name__ if model.tokenizer is not None else "none"),
-        ("embedder", type(model.embedder).__name__ if model.embedder is not None else "none"),
-        ("pooling", type(pooling).__name__ if pooling is not None else "none"),
-        ("goal_delta", str(model.goal_delta)),
-    ]
-    her_ratio = cfg.get("datamodule", {}).get("her_ratio", None)
-    if her_ratio is not None:
-        fields.append(("her_ratio", str(her_ratio)))
-    return fields
-
-
-def build_metadata_str(model: GoalConditionedDiffusionPolicy, cfg: DictConfig, env_id: str) -> str:
-    """A compact `key=value` summary of the config this checkpoint was trained with -- env,
-    tokenizer/embedder/pooling architecture, goal-conditioning mode, HER ratio -- appended under
-    every figure's title so a saved PNG identifies its own provenance without cross-referencing the
-    checkpoint path.
-
-    `env_id` is taken explicitly (the *actual* rollout env, `env_kwargs["env_id"]`) rather than read
-    off `cfg.datamodule.env_id` (the checkpoint's *training* env) -- these differ whenever `--env_id`
-    overrides the rollout to a zero-shot target.
-    """
-    fields = [("env", env_id), *_describe_model_config(model, cfg)]
-    return " | ".join(f"{k}={v}" for k, v in fields)
-
-
-def build_metadata_slug(model: GoalConditionedDiffusionPolicy, cfg: DictConfig) -> str:
-    """Filesystem-safe counterpart to `build_metadata_str` (env_id omitted -- the caller splices
-    the *actual* rollout env_id, which may be `--env_id`-overridden, into the filename prefix
-    directly instead), appended to every saved figure's filename so checkpoints that differ only in
-    HER ratio, pooling, tokenizer, embedder, or goal-delta mode (but happen to share a Hydra
-    experiment/run directory name) don't overwrite each other's PNGs."""
-    return "_".join(f"{k}-{v}" for k, v in _describe_model_config(model, cfg))
-
-
-def build_external_cond_only(
-    model: GoalConditionedDiffusionPolicy, obs: TensorTree, goal: TensorTree
-) -> dict[str, TensorTree]:
-    """Normalizes obs/goal and builds the network's conditioning tree -- no diffusion loop.
-
-    Cheap:
-    safe to call at every environment step to keep the recorded z-trace dense.
-    """
-    if model.obs_normalizer is not None:
-        obs = model.obs_normalizer.normalize(obs)
-        goal = model.obs_normalizer.normalize(goal)
-    return model._build_external_cond(obs, goal)
-
-
-def get_action_and_external_cond(
-    model: GoalConditionedDiffusionPolicy,
-    obs: TensorTree,
-    goal: TensorTree,
-    num_inference_steps: int | None,
-) -> tuple[torch.Tensor, dict[str, TensorTree]]:
-    """Replicates `get_action()`'s body but also returns the `external_cond` that produced the
-    action, so the caller records the exact conditioning tensor without a second (expensive)
-    diffusion pass.
-
-    `GoalConditionedDiffusionPolicy.get_action()` does exactly this sequence with no transform in
-    between, so this is behaviorally identical to calling `get_action()` once.
-    """
-    external_cond = build_external_cond_only(model, obs, goal)
-    action_seq = model._run_diffusion_loop(
-        external_cond=external_cond,
-        num_inference_steps=num_inference_steps,
-        output_clip_range=None,
-    )
-    return action_seq, external_cond
-
-
 def compute_z(
     model: GoalConditionedDiffusionPolicy, external_cond: dict[str, TensorTree]
 ) -> torch.Tensor:
-    """The literal per-step goal-delta vector z, shape [B, D], uniform across all three
-    `goal_delta` modes:
+    """The per-step goal-delta vector `z`, shape [B, D]."""
 
-    - `goal_delta in ("input", "embedding")`: the "task" entry already IS the delta fed to the
-      network (`embed(goal - obs)` or `embed(goal) - embed(obs)`).
-    - `goal_delta is None`: no delta tensor exists in `external_cond`; z is the explicit
-      "distance-in-embedding-space to goal" proxy, `embed(obs) - embed(goal)`.
-
-    A pooling embedder (`model._embedder_pools_time()`) collapses the obs time axis, moving the
-    "task" entry from `external_cond["obs"]["task"]` up to a sibling `external_cond["task"]".
-    """
+    # The generated tensor can get structured in quite diifferent ways depending on the embedder and pooling,
+    # so we need to do extra work to fetch the correct tensor.
     pools_time = model._embedder_pools_time()
     task = (
         get_tensor(external_cond, "task")
         if pools_time
         else get_tensor(get_subtree(external_cond, "obs"), "task")
     )
-    current = task[:, -1] if task.ndim == 3 else task  # most recent observed frame
+    current = task[:, -1] if task.ndim == 3 else task  # most recently observed frame
 
     if model.goal_delta is None:
-        goal_val = external_cond["goal"]
+        goal_value = external_cond["goal"]
         goal_task = (
-            goal_val if isinstance(goal_val, torch.Tensor) else get_tensor(goal_val, "task")
+            goal_value if isinstance(goal_value, torch.Tensor) else get_tensor(goal_value, "task")
         )
         return current - goal_task
     return current
 
 
-def z_norm(
-    model: GoalConditionedDiffusionPolicy, external_cond: dict[str, TensorTree]
-) -> torch.Tensor:
-    """||z||, shape [B]."""
-    return torch.linalg.norm(compute_z(model, external_cond), dim=-1)
+def z_norm(model: GoalConditionedDiffusionPolicy, external_cond: dict[str, TensorTree]) -> float:
+    """`||z||` for a single-env rollout."""
+    return float(torch.linalg.norm(compute_z(model, external_cond), dim=-1).item())
 
 
 def ground_truth_distance(
-    obs_canon: Mapping[str, TensorTree], goal_canon: Mapping[str, TensorTree]
-) -> torch.Tensor:
-    """Task-agnostic distance-to-goal: L2 norm of the position-only difference between the
-    canonicalized obs's and goal's `a_pose` (works uniformly across StackCube*/PlaceCube*/
-    PlaceSphere* variants, all of which populate `a_pose` per `Canonicalizer.DIM_SPEC`).
-
-    `obs_canon` still carries its FrameStack time axis (only the most recent frame is used);
-    `goal_canon` (from `generate_heuristic_goal()`) never does. Shape [B].
-    """
-    obs_a_pose = get_tensor(obs_canon, "a_pose")
-    obs_pos = obs_a_pose[:, -1, :3] if obs_a_pose.ndim == 3 else obs_a_pose[..., :3]
-    goal_pos = get_tensor(goal_canon, "a_pose")[..., :3]
-    return torch.linalg.norm(goal_pos - obs_pos, dim=-1)
+    obs_canonical: Mapping[str, TensorTree], goal_canonical: Mapping[str, TensorTree]
+) -> float:
+    """Straight-line distance from the manipulated object to its goal position."""
+    obs_pose = get_tensor(obs_canonical, "a_pose")
+    obs_position = obs_pose[:, -1, :3] if obs_pose.ndim == 3 else obs_pose[..., :3]
+    goal_position = get_tensor(goal_canonical, "a_pose")[..., :3]
+    return float(torch.linalg.norm(goal_position - obs_position, dim=-1).item())
 
 
-def collect_episode(
-    model: GoalConditionedDiffusionPolicy,
-    env,
-    inner_env,
-    apply_transforms,
-    episode_idx: int,
-    seed: int,
-    num_inference_steps: int | None,
-    clamp_action: bool,
-    render_mode: str | None,
-) -> EpisodeResult:
-    """Runs one episode to completion, recording a StepRecord at every environment step (cheap:
-
-    `build_external_cond_only` alone), replanning (the expensive
-    `get_action_and_external_cond`) every `model.act_horizon` steps -- mirroring
-    `RolloutEvaluationCallback._run_rollouts`'s inner loop structure for a single fixed episode.
-    """
-    if hasattr(model, "reset"):
-        model.reset()
-
-    action_space = env.action_space
-    if not isinstance(action_space, Box):
-        raise ValueError(f"Expected Box action space, got {type(action_space)}")
-    action_low = torch.as_tensor(action_space.low, device=model.device, dtype=torch.float32)
-    action_high = torch.as_tensor(action_space.high, device=model.device, dtype=torch.float32)
-
-    obs, info = env.reset(seed=seed)
-    obs = apply_transforms(to_tensor(obs, device=model.device, dtype=torch.float32))
-
-    assert isinstance(inner_env, GoalConditionedEnvProtocol)
-    goal_state = apply_transforms(
-        to_tensor(inner_env.generate_heuristic_goal(), device=model.device, dtype=torch.float32)
-    )
-
-    if render_mode == "human":
-        env.render()
-
-    steps: list[StepRecord] = []
-    step_idx = 0
-    truncated_all = False
-
-    with torch.no_grad():
-        while not truncated_all:
-            action_seq, external_cond = get_action_and_external_cond(
-                model, obs, goal_state, num_inference_steps
-            )
-
-            for i in range(model.act_horizon):
-                steps.append(
-                    StepRecord(
-                        episode_idx=episode_idx,
-                        step_idx=step_idx,
-                        z_norm=z_norm(model, external_cond).item(),
-                        gt_distance=ground_truth_distance(obs, goal_state).item(),
-                    )
-                )
-
-                action = action_seq[:, i]
-                if clamp_action:
-                    action = torch.clamp(
-                        action, action_low.to(action.dtype), action_high.to(action.dtype)
-                    )
-
-                obs_raw, _reward, _terminated, truncated, info = env.step(action)
-                if render_mode == "human":
-                    time.sleep(0.05)
-                    env.render()
-
-                obs = apply_transforms(
-                    to_tensor(obs_raw, device=model.device, dtype=torch.float32)
-                )
-                goal_state = apply_transforms(
-                    to_tensor(
-                        inner_env.generate_heuristic_goal(),
-                        device=model.device,
-                        dtype=torch.float32,
-                    )
-                )
-                step_idx += 1
-
-                truncated_all = torch.as_tensor(
-                    truncated, device=model.device, dtype=torch.bool
-                ).all()
-                if truncated_all:
-                    break
-
-                # Refresh (cheaply) so the trace stays dense at every step, not just at
-                # replanning boundaries.
-                external_cond = build_external_cond_only(model, obs, goal_state)
-
-    success_once, success_at_end, episode_len = extract_episode_metrics(info)
-    if episode_len < 0:
-        episode_len = step_idx
-
-    return EpisodeResult(
-        episode_idx=episode_idx,
-        steps=steps,
-        success_once=success_once,
-        success_at_end=success_at_end,
-        episode_len=episode_len,
-    )
-
-
-def collect_all_episodes(
-    model: GoalConditionedDiffusionPolicy,
-    args: argparse.Namespace,
-    env_kwargs: dict,
-    max_episode_steps: int | None,
+def collect_episodes(
+    model, cfg, env_kwargs: dict, args: argparse.Namespace
 ) -> list[EpisodeResult]:
-    """Builds the env once, runs `args.num_episodes` episodes with per-episode seed offsets, then
-    closes it.
+    """Runs the requested episodes in one env, recording a step trace for each."""
+    max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
+    print(
+        f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
+        f"control_mode={env_kwargs['control_mode']}  "
+        f"physx_backend={env_kwargs['physx_backend']}  max_episode_steps={max_episode_steps}"
+    )
 
-    `max_episode_steps` is resolved by the caller (`resolve_max_episode_steps`) --
-    not read off `args.max_episode_steps` directly, since `None` there means "resolve from the
-    checkpoint's own training config", not "use the env's bare registered default".
-    """
     env, inner_env = build_rollout_env(
-        env_kwargs,
-        model.obs_horizon,
-        max_episode_steps,
-        args.render_mode,
-        args.video_dir,
+        env_kwargs, model.obs_horizon, max_episode_steps, args.render_mode, args.video_dir
     )
-    apply_transforms = observation_pipeline(
-        env_id=env_kwargs["env_id"],
-        is_flat=not isinstance(env.observation_space, gym.spaces.Dict),
-        canonicalize=True,
-        as_dict=True,
-        no_proprio_vel=env_kwargs["no_proprio_vel"],
-    )
+    transform = build_obs_transform(env, env_kwargs, cfg)
 
     results: list[EpisodeResult] = []
     try:
-        for i in range(args.num_episodes):
-            result = collect_episode(
-                model,
-                env,
-                inner_env,
-                apply_transforms,
-                episode_idx=i,
-                seed=args.seed + i,
-                num_inference_steps=args.num_inference_steps,
-                clamp_action=args.clamp_action,
-                render_mode=args.render_mode,
+        for episode in range(args.num_episodes):
+            with capture_pre_norm(model.embedder) as pre_norm:
+
+                def record(step, pre_norm=pre_norm) -> StepRecord:
+                    h = float(torch.linalg.norm(pre_norm[0].flatten())) if pre_norm else None
+                    pre_norm.clear()
+                    return StepRecord(
+                        episode_idx=step.episode_idx,
+                        step_idx=step.step_idx,
+                        z_norm=z_norm(model, step.external_cond),
+                        h_norm=h,
+                        gt_distance=ground_truth_distance(step.obs, step.goal),
+                    )
+
+                rollout = run_episode(
+                    model,
+                    env,
+                    inner_env,
+                    transform,
+                    episode_idx=episode,
+                    seed=args.seed + episode,
+                    num_inference_steps=args.num_inference_steps,
+                    clamp_action=args.clamp_action,
+                    render_mode=args.render_mode,
+                    on_step=record,
+                )
+            results.append(
+                EpisodeResult(
+                    episode_idx=episode,
+                    steps=rollout.records,
+                    success_once=rollout.success_once,
+                    success_at_end=rollout.success_at_end,
+                    episode_len=rollout.episode_len,
+                )
             )
-            results.append(result)
             print(
-                f"  Episode {i}: {len(result.steps)} steps, "
-                f"success_once={result.success_once}, success_at_end={result.success_at_end}"
+                f"  episode {episode}: {len(rollout.records)} steps, "
+                f"success_once={rollout.success_once}, success_at_end={rollout.success_at_end}"
             )
     finally:
         env.close()
@@ -445,256 +179,327 @@ def collect_all_episodes(
     return results
 
 
-def print_summary(results: list[EpisodeResult]) -> None:
-    print(f"\n{'=' * 88}\nSummary across {len(results)} episode(s)")
-
-    all_z = np.array([s.z_norm for r in results for s in r.steps])
-    all_gt = np.array([s.gt_distance for r in results for s in r.steps])
-    all_success = np.array([r.success_once for r in results for _s in r.steps])
-
-    for r in results:
-        if not r.steps:
-            continue
-        ratio = r.steps[-1].z_norm / r.steps[0].z_norm if r.steps[0].z_norm > 0 else float("nan")
-        print(
-            f"  Episode {r.episode_idx}: z_norm[0]={r.steps[0].z_norm:.4f}  "
-            f"z_norm[-1]={r.steps[-1].z_norm:.4f}  ratio={ratio:.4f}  "
-            f"success_once={r.success_once}  success_at_end={r.success_at_end}"
-        )
-
-    def _corr(z: np.ndarray, gt: np.ndarray) -> str:
-        if len(z) < 2 or np.unique(z).size < 2 or np.unique(gt).size < 2:
-            return "N/A (insufficient variance)"
-        return f"{np.corrcoef(z, gt)[0, 1]:.4f}"
-
-    print(f"\n  Pearson corr(||z||, gt_distance), all steps:       {_corr(all_z, all_gt)}")
-    if all_success.any():
-        print(
-            f"  Pearson corr(||z||, gt_distance), successful only: "
-            f"{_corr(all_z[all_success], all_gt[all_success])}"
-        )
-    if (~all_success).any():
-        print(
-            f"  Pearson corr(||z||, gt_distance), failed only:     "
-            f"{_corr(all_z[~all_success], all_gt[~all_success])}"
-        )
+SIGNALS = (
+    ("z", "||z|| (post-norm, what FiLM receives)"),
+    ("h", "||h|| (pre-norm)"),
+)
 
 
-def _apply_dark_theme() -> None:
-    plt.rcParams.update(
-        {
-            "figure.facecolor": "#0f172a",
-            "axes.facecolor": "#1e293b",
-            "text.color": "#f8fafc",
-            "axes.labelcolor": "#94a3b8",
-            "xtick.color": "#64748b",
-            "ytick.color": "#64748b",
-            "grid.color": "#334155",
-            "grid.alpha": 0.5,
-        }
-    )
+def signal_values(result: EpisodeResult, which: str) -> list[float]:
+    """The chosen signal's per-step magnitudes, dropping steps where it is unavailable."""
+    if which == "z":
+        return [step.z_norm for step in result.steps]
+    return [step.h_norm for step in result.steps if step.h_norm is not None]
 
 
-def _success_legend_handles() -> list[Line2D]:
-    return [
-        Line2D([0], [0], color=SUCCESS_COLOR, lw=2, label="Success"),
-        Line2D([0], [0], color=FAILURE_COLOR, lw=2, label="Failure"),
-    ]
+def has_signal(results: list[EpisodeResult], which: str) -> bool:
+    return any(signal_values(result, which) for result in results)
 
 
-def plot_z_norm_vs_time(
-    results: list[EpisodeResult], metadata_str: str, save_path: Path, show: bool
+def convergence_ratio(result: EpisodeResult, which: str = "z") -> float:
+    """Last-step magnitude relative to the first.
+
+    Below 1.0 means the signal shrank.
+    """
+    values = signal_values(result, which)
+    if not values or values[0] <= 0:
+        return float("nan")
+    return values[-1] / values[0]
+
+
+def correlation(signal: np.ndarray, distance: np.ndarray) -> str:
+    """Pearson correlation, or a note when there is not enough variance to compute one."""
+    if len(signal) < 2 or np.unique(signal).size < 2 or np.unique(distance).size < 2:
+        return "n/a (insufficient variance)"
+    return f"{np.corrcoef(signal, distance)[0, 1]:.4f}"
+
+
+def outcome_color(result: EpisodeResult) -> str:
+    return theme.SUCCESS if result.success_once else theme.FAILURE
+
+
+def draw_band(ax: plt.Axes, band: tuple[float, float] | None) -> Line2D | None:
+    """Shades the range the output normalisation confines this signal to."""
+    if band is None:
+        return None
+    ax.axhspan(band[0], band[1], color=theme.TEXT_MUTED, alpha=0.10, zorder=0)
+    return Line2D([], [], color=theme.TEXT_MUTED, lw=6, alpha=0.3, label="reachable by LayerNorm")
+
+
+def plot_over_time(
+    results: list[EpisodeResult], band, fields, save_path: Path, *, show, dpi
 ) -> None:
-    fig, ax = plt.subplots(figsize=(9, 6))
-    for r in results:
-        if not r.steps:
-            continue
-        color = SUCCESS_COLOR if r.success_once else FAILURE_COLOR
-        ax.plot(
-            [s.step_idx for s in r.steps],
-            [s.z_norm for s in r.steps],
-            color=color,
-            alpha=0.7,
-            linewidth=1.2,
-        )
+    """One panel per signal, each line an episode coloured by its outcome."""
+    signals = [(key, label) for key, label in SIGNALS if has_signal(results, key)]
+    fig, axes = plt.subplots(1, len(signals), figsize=(6.5 * len(signals), 5.5), squeeze=False)
 
-    ax.set_title(
-        f"Goal-Conditioning Signal ||z|| over a Live Rollout\n{metadata_str}",
-        fontsize=13,
-        fontweight="bold",
-    )
-    ax.set_xlabel("Environment step")
-    ax.set_ylabel("||z||")
-    ax.grid(True, linestyle="--", linewidth=0.5)
-    ax.legend(handles=_success_legend_handles(), loc="best", frameon=True)
-
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(
-        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
-    )
-    print(f"Saved: {save_path.resolve()}")
-    if show:
-        plt.show()
-    plt.close(fig)
-
-
-def plot_z_norm_vs_gt_distance(
-    results: list[EpisodeResult],
-    num_bins: int,
-    metadata_str: str,
-    save_path: Path,
-    show: bool,
-) -> None:
-    fig, ax = plt.subplots(figsize=(9, 6))
-
-    for r in results:
-        if not r.steps:
-            continue
-        color = SUCCESS_COLOR if r.success_once else FAILURE_COLOR
-        ax.scatter(
-            [s.gt_distance for s in r.steps],
-            [s.z_norm for s in r.steps],
-            color=color,
-            alpha=0.35,
-            s=12,
-            linewidths=0,
-        )
-
-    all_gt = np.array([s.gt_distance for r in results for s in r.steps])
-    all_z = np.array([s.z_norm for r in results for s in r.steps])
-    if len(all_gt) > 0 and all_gt.max() > all_gt.min():
-        bin_edges = np.linspace(all_gt.min(), all_gt.max(), num_bins + 1)
-        bin_idx = np.clip(np.digitize(all_gt, bin_edges) - 1, 0, num_bins - 1)
-        bin_centers, bin_means, bin_stds = [], [], []
-        for b in range(num_bins):
-            mask = bin_idx == b
-            if not mask.any():
+    for index, (key, label) in enumerate(signals):
+        ax = axes[0][index]
+        for result in results:
+            values = signal_values(result, key)
+            if not values:
                 continue
-            bin_centers.append((bin_edges[b] + bin_edges[b + 1]) / 2)
-            bin_means.append(all_z[mask].mean())
-            bin_stds.append(all_z[mask].std())
-        bin_centers, bin_means, bin_stds = map(np.array, (bin_centers, bin_means, bin_stds))
-        ax.plot(bin_centers, bin_means, color="#f8fafc", linewidth=2, label="Binned mean")
-        ax.fill_between(
-            bin_centers, bin_means - bin_stds, bin_means + bin_stds, color="#f8fafc", alpha=0.15
+            ax.plot(
+                range(len(values)),
+                values,
+                color=outcome_color(result),
+                alpha=0.75,
+                linewidth=1.4,
+            )
+        handles = list(theme.outcome_legend_handles())
+        if key == "z":
+            band_handle = draw_band(ax, band)
+            if band_handle is not None:
+                handles.append(band_handle)
+        ax.set_xlabel("environment step")
+        ax.set_ylabel(label)
+        theme.style_axes(ax)
+        ax.legend(handles=handles, loc="best", facecolor=theme.SURFACE, edgecolor=theme.GRID)
+
+    theme.set_title(fig, "Goal-conditioning signal over a rollout", fields)
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
+
+
+def plot_vs_distance(
+    results: list[EpisodeResult], num_bins: int, band, fields, save_path: Path, *, show, dpi
+) -> None:
+    """All steps pooled against true distance, with a binned mean through the scatter."""
+    signals = [(key, label) for key, label in SIGNALS if has_signal(results, key)]
+    fig, axes = plt.subplots(1, len(signals), figsize=(6.5 * len(signals), 5.5), squeeze=False)
+
+    for index, (key, label) in enumerate(signals):
+        ax = axes[0][index]
+        for result in results:
+            values = signal_values(result, key)
+            if not values:
+                continue
+            ax.scatter(
+                [step.gt_distance for step in result.steps][: len(values)],
+                values,
+                color=outcome_color(result),
+                alpha=0.35,
+                s=12,
+                linewidths=0,
+            )
+
+        distances = np.array(
+            [step.gt_distance for r in results for step in r.steps[: len(signal_values(r, key))]]
+        )
+        magnitudes = np.array([v for r in results for v in signal_values(r, key)])
+
+        handles = list(theme.outcome_legend_handles())
+        if key == "z":
+            band_handle = draw_band(ax, band)
+            if band_handle is not None:
+                handles.append(band_handle)
+
+        if distances.size and distances.max() > distances.min():
+            edges = np.linspace(distances.min(), distances.max(), num_bins + 1)
+            which_bin = np.clip(np.digitize(distances, edges) - 1, 0, num_bins - 1)
+            centers, means, deviations = [], [], []
+            for bin_index in range(num_bins):
+                mask = which_bin == bin_index
+                if not mask.any():
+                    continue
+                centers.append((edges[bin_index] + edges[bin_index + 1]) / 2)
+                means.append(magnitudes[mask].mean())
+                deviations.append(magnitudes[mask].std())
+            centers, means, deviations = map(np.array, (centers, means, deviations))
+            ax.plot(centers, means, color=theme.TEXT_PRIMARY, linewidth=2)
+            ax.fill_between(
+                centers,
+                means - deviations,
+                means + deviations,
+                color=theme.TEXT_PRIMARY,
+                alpha=0.15,
+            )
+            handles.append(Line2D([], [], color=theme.TEXT_PRIMARY, lw=2, label="binned mean"))
+
+        ax.set_xlabel("true distance to goal")
+        ax.set_ylabel(label)
+        theme.style_axes(ax)
+        ax.legend(handles=handles, loc="best", facecolor=theme.SURFACE, edgecolor=theme.GRID)
+
+    theme.set_title(fig, "Conditioning signal against true distance to goal", fields)
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
+
+
+def plot_convergence_ratio(results: list[EpisodeResult], fields, save_path: Path, *, show, dpi):
+    """Per-episode last/first ratio for each signal; at or above 1.0 means it never converged."""
+    valid = [result for result in results if result.steps]
+    signals = [(key, label) for key, label in SIGNALS if has_signal(results, key)]
+
+    fig, ax = plt.subplots(figsize=(max(7, len(valid) * 1.1), 6))
+    positions = np.arange(len(valid))
+    width = 0.8 / max(1, len(signals))
+
+    for index, (key, label) in enumerate(signals):
+        ax.bar(
+            positions + index * width,
+            [convergence_ratio(result, key) - 1.0 for result in valid],
+            width=width * 0.9,
+            color=theme.SERIES[index],
+            label=label,
         )
 
-    ax.set_title(
-        f"||z|| vs. Ground-Truth Distance to Goal (pooled across episodes)\n{metadata_str}",
-        fontsize=13,
-        fontweight="bold",
+    ax.axhline(0.0, color=theme.TEXT_MUTED, linewidth=1)
+    ax.set_xticks(positions + width * (len(signals) - 1) / 2)
+    ax.set_xticklabels([f"ep {result.episode_idx}" for result in valid], fontsize=9)
+    for tick, result in zip(ax.get_xticklabels(), valid, strict=False):
+        tick.set_color(outcome_color(result))
+
+    ax.set_xlabel("episode (label colour = success / failure)")
+    ax.set_ylabel("change in magnitude:  last / first  -  1")
+    theme.style_axes(ax)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.12),
+        ncol=len(signals),
+        facecolor=theme.SURFACE,
+        edgecolor=theme.GRID,
     )
-    ax.set_xlabel("Ground-truth distance to goal (||goal_pos - obs_pos||)")
-    ax.set_ylabel("||z||")
-    ax.grid(True, linestyle="--", linewidth=0.5)
-    handles = [
-        *_success_legend_handles(),
-        Line2D([0], [0], color="#f8fafc", lw=2, label="Binned mean"),
-    ]
-    ax.legend(handles=handles, loc="best", frameon=True)
+    theme.set_title(fig, "Per-episode convergence of the conditioning signal", fields)
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
 
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(
-        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
+
+def build_report(results: list[EpisodeResult], fields, ckpt_path: Path, band, norm_name) -> Report:
+    """Per-episode traces, how much each signal actually moves, and the correlations."""
+    report = Report("Goal-signal convergence", [("ckpt", str(ckpt_path)), *fields])
+    signals = [(key, label) for key, label in SIGNALS if has_signal(results, key)]
+
+    report.section("Per-episode")
+    report.table(
+        ["episode", "steps", "signal", "first", "last", "ratio", "success_once", "success_end"],
+        [
+            [
+                result.episode_idx,
+                len(signal_values(result, key)),
+                key,
+                f"{signal_values(result, key)[0]:.4f}" if signal_values(result, key) else "-",
+                f"{signal_values(result, key)[-1]:.4f}" if signal_values(result, key) else "-",
+                f"{convergence_ratio(result, key):.4f}",
+                result.success_once,
+                result.success_at_end,
+            ]
+            for result in results
+            for key, _ in signals
+        ],
     )
-    print(f"Saved: {save_path.resolve()}")
-    if show:
-        plt.show()
-    plt.close(fig)
 
+    distances = np.array([step.gt_distance for r in results for step in r.steps])
+    succeeded = np.array([r.success_once for r in results for _ in r.steps], dtype=bool)
 
-def plot_summary_bars(
-    results: list[EpisodeResult], metadata_str: str, save_path: Path, show: bool
-) -> None:
-    valid = [r for r in results if r.steps]
-    fig, ax = plt.subplots(figsize=(max(6, len(valid) * 0.8), 6))
+    report.section("How much each signal actually moves")
+    rows = []
+    for key, label in signals:
+        values = np.array([v for r in results for v in signal_values(r, key)])
+        rows.append(
+            [
+                label,
+                f"{values.mean():.4f}",
+                f"{values.std():.4f}",
+                f"{relative_spread(values):.5f}",
+            ]
+        )
+    report.table(["signal", "mean", "std", "relative spread"], rows)
 
-    ratios = [
-        (r.steps[-1].z_norm / r.steps[0].z_norm if r.steps[0].z_norm > 0 else 0.0) for r in valid
-    ]
-    colors = [SUCCESS_COLOR if r.success_once else FAILURE_COLOR for r in valid]
-    ax.bar([r.episode_idx for r in valid], ratios, color=colors, alpha=0.85)
-    ax.axhline(1.0, color="#64748b", linestyle="--", linewidth=1)
+    if band is not None:
+        report.kv(f"{norm_name} reachable band", f"[{band[0]:.3f}, {band[1]:.3f}]")
+        report.note(
+            "The embedder's output passes through a normalisation, which fixes the sum of squares "
+            "of its normalised input. ||z|| is therefore confined to the band above no matter what "
+            "the observation was: a ratio near 1.0 and a tiny relative spread are what that "
+            "constraint produces, not evidence about the policy. Read ||h|| for whether the signal "
+            "genuinely shrinks, and ||z|| for what the network is actually handed."
+        )
 
-    ax.set_title(
-        f"Per-Episode ||z|| Convergence Ratio (last / first step)\n{metadata_str}",
-        fontsize=13,
-        fontweight="bold",
+    report.section("Correlation with true distance")
+    for key, label in signals:
+        values = np.array([v for r in results for v in signal_values(r, key)])
+        usable = min(len(values), len(distances))
+        report.kv(f"{label} — all steps", correlation(values[:usable], distances[:usable]))
+        if succeeded[:usable].any():
+            mask = succeeded[:usable]
+            report.kv(
+                f"{label} — successful",
+                correlation(values[:usable][mask], distances[:usable][mask]),
+            )
+    report.note(
+        "A correlation can look convincing even for a signal whose magnitude barely moves — check "
+        "it against the relative spread above before reading anything into it."
     )
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("||z||[-1] / ||z||[0]")
-    ax.grid(True, linestyle="--", linewidth=0.5, axis="y")
-    ax.legend(handles=_success_legend_handles(), loc="best", frameon=True)
 
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(
-        save_path, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight"
+    successes = sum(result.success_once for result in results)
+    report.section("Outcome").kv("success_once", f"{successes}/{len(results)}")
+    return report
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        parents=[cli.checkpoint_args(), cli.output_args(), cli.rollout_args()],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    print(f"Saved: {save_path.resolve()}")
-    if show:
-        plt.show()
-    plt.close(fig)
+    parser.add_argument(
+        "--num-bins",
+        type=int,
+        default=20,
+        help="Bins used for the mean trend line over true distance. (default: 20)",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    ckpt_path = Path(args.ckpt_path)
-    if not ckpt_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found at {ckpt_path}")
+    theme.apply_theme()
 
-    print(f"Loading checkpoint from: {ckpt_path}")
-    model = load_goal_conditioned_diffusion_policy(ckpt_path)
+    if not args.ckpt_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found at {args.ckpt_path}")
+
+    model = load_goal_conditioned_diffusion_policy(args.ckpt_path)
+    cfg = require_run_config(args.ckpt_path)
+    slug = args.run_label or run_slug(args.ckpt_path, model, cfg, args.seed)
     print(
-        f"Loaded {type(model).__name__}: goal_delta={model.goal_delta!r}  "
-        f"obs_horizon={model.obs_horizon}  act_horizon={model.act_horizon}"
+        f"Loaded {type(model).__name__}: goal_delta={model.goal_delta!r} "
+        f"obs_horizon={model.obs_horizon} act_horizon={model.act_horizon}"
     )
 
-    cfg = load_env_config(ckpt_path)
-    max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
-    metadata_slug = build_metadata_slug(model, cfg)
-    _apply_dark_theme()
-    base_prefix = args.save_path_prefix or ckpt_path.parent.parent.parent.name
+    norm = embedder_output_norm(model.embedder)
+    band = magnitude_band(norm) if norm is not None else None
+    norm_name = type(norm).__name__ if norm is not None else "none"
+    if norm is None:
+        print("Embedder has no output normalisation; ||z|| is unconstrained.")
+    else:
+        print(f"Embedder output passes through {norm_name}; ||z|| confined to {band}.")
 
-    # Defaults to the whole LockedRotation family (one env at a time) rather than a single env, so
-    # one invocation covers both the checkpoint's own training env and its zero-shot targets
-    # without having to repeat the command four times.
-    env_ids = args.env_id or DEFAULT_LOCKED_ROTATION_ENV_IDS
+    for _, _, env_kwargs in iter_env_kwargs(cfg, args.env_id):
+        env_id = env_kwargs["env_id"]
+        results = collect_episodes(model, cfg, env_kwargs, args)
+        fields = describe_model_config(model, cfg, extra=[("env", env_id)])
 
-    for i, env_id in enumerate(env_ids):
-        if len(env_ids) > 1:
-            print(f"\n{'#' * 88}\n# Env {i + 1}/{len(env_ids)}: {env_id}\n{'#' * 88}")
+        def path_for(name: str) -> Path:
+            return figure_path(
+                SCRIPT_NAME, name, env_id=env_id, run_slug=slug, out_dir=args.out_dir
+            )
 
-        env_kwargs = resolve_env_kwargs(cfg, env_id_override=env_id)
-        print(
-            f"Env: {env_kwargs['env_id']}  obs_mode={env_kwargs['obs_mode']}  "
-            f"control_mode={env_kwargs['control_mode']}  "
-            f"physx_backend={env_kwargs['physx_backend']}  max_episode_steps={max_episode_steps}"
-        )
-
-        print(f"\nRunning {args.num_episodes} live rollout episode(s)...")
-        results = collect_all_episodes(model, args, env_kwargs, max_episode_steps)
-
-        print_summary(results)
-
-        metadata_str = build_metadata_str(model, cfg, env_kwargs["env_id"])
-        # env_id/seed spliced in directly (not folded into metadata_slug, which stays scoped to
-        # checkpoint-config-only fields) -- env_id is now overridable (and, by default, swept
-        # across several envs per invocation), so it's no longer implied by base_prefix alone.
-        prefix = f"{base_prefix}_env-{env_kwargs['env_id']}_seed{args.seed}_{metadata_slug}"
-        save_dir = Path("scripts/figures/analyze_goal_signal_convergence") / env_kwargs["env_id"]
-        plot_z_norm_vs_time(results, metadata_str, save_dir / f"{prefix}_z_vs_time.png", args.show)
-        plot_z_norm_vs_gt_distance(
+        plot_over_time(results, band, fields, path_for("z-vs-time"), show=args.show, dpi=args.dpi)
+        plot_vs_distance(
             results,
             args.num_bins,
-            metadata_str,
-            save_dir / f"{prefix}_z_vs_gt_distance.png",
-            args.show,
+            band,
+            fields,
+            path_for("z-vs-distance"),
+            show=args.show,
+            dpi=args.dpi,
         )
-        plot_summary_bars(
-            results, metadata_str, save_dir / f"{prefix}_z_convergence_ratio.png", args.show
+        summary_path = path_for("z-convergence-ratio")
+        plot_convergence_ratio(results, fields, summary_path, show=args.show, dpi=args.dpi)
+
+        build_report(results, fields, args.ckpt_path, band, norm_name).emit(
+            summary_path, save=not args.no_report
         )
 
 

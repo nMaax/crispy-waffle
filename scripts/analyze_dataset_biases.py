@@ -1,13 +1,17 @@
-"""Dataset analysis script for ManiSkill HDF5 trajectory data.
+"""Summarises episodes statistics over a recorded demonstration dataset.
 
-Dynamically extracts object positions, orientations, grasp/place offsets, and
-observation/action statistics using the environment's STATE_SCHEMA.
-Strict execution: fails fast with clear errors if env_id or schema is missing.
+Reads a ManiSkill HDF5 trajectory file, slices each observation using the environment's own
+`STATE_SCHEMA`, and reports the spread of initial object poses, the typical grasp and place
+offsets, and per-dimension observation/action statistics.
+
+Pass several `--env-id` values to compare datasets across tasks; each gets its own figure and
+report.
 """
+
+from __future__ import annotations
 
 import argparse
 import importlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -15,339 +19,356 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
+from scripts.utils import cli, theme
+from scripts.utils.episodes import default_demo_path, trajectory_keys
+from scripts.utils.figures import figure_path, save_figure
+from scripts.utils.report import Report
+
+SCRIPT_NAME = Path(__file__).stem
+
+# Height above the table above which the manipulated object counts as lifted.
 LIFT_THRESHOLD: float = 0.025
+
+# Per-dimension breakdowns get long; observations here are ~50-dimensional.
+MAX_DIMS_REPORTED = 60
 
 
 def fetch_env_schema(env_id: str) -> dict[str, Any]:
-    """Fetch STATE_SCHEMA from policy.environments or Gymnasium registry for env_id.
-
-    Raises:
-        KeyError: If env_id is not registered in Gymnasium.
-        AttributeError: If the environment class lacks a STATE_SCHEMA.
-    """
+    """Looks up an environment's `STATE_SCHEMA` through the Gymnasium registry."""
     from gymnasium.envs.registration import registry
 
-    import policy.environments  # noqa: F401
+    import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 
     if env_id not in registry:
         raise KeyError(
-            f"Environment '{env_id}' is not registered in Gymnasium registry. "
-            "Ensure it is imported in policy.environments."
+            f"Environment {env_id!r} is not registered. Check the spelling, or make sure it is "
+            "exported from policy.environments."
         )
 
-    spec = registry[env_id]
-    entry_point = spec.entry_point
-
+    entry_point = registry[env_id].entry_point
     cls: Any = None
     if callable(entry_point):
         cls = entry_point()
     elif isinstance(entry_point, str):
         module_name, class_name = entry_point.split(":")
-        mod = importlib.import_module(module_name)
-        cls = getattr(mod, class_name, None)
+        cls = getattr(importlib.import_module(module_name), class_name, None)
 
     if cls is None:
-        raise ValueError(f"Could not resolve environment class for '{env_id}'.")
-
+        raise ValueError(f"Could not resolve the environment class for {env_id!r}.")
     if not hasattr(cls, "STATE_SCHEMA"):
-        cls_name = getattr(cls, "__name__", str(cls))
         raise AttributeError(
-            f"Environment class '{cls_name}' for '{env_id}' does not define a 'STATE_SCHEMA'."
+            f"{getattr(cls, '__name__', cls)} ({env_id}) does not define a STATE_SCHEMA, so its "
+            "observations cannot be sliced into named features."
         )
-
-    return getattr(cls, "STATE_SCHEMA")
+    return cls.STATE_SCHEMA
 
 
 def flatten_state_schema(schema: dict[str, Any]) -> dict[str, slice]:
-    """Convert nested STATE_SCHEMA dict into flat mapping of feature_name -> slice."""
+    """Flattens a nested `STATE_SCHEMA` into `feature_name -> slice`."""
     flat: dict[str, slice] = {}
 
-    def _recurse(d: dict[str, Any], prefix: str = "") -> None:
-        for k, v in d.items():
-            key_name = f"{prefix}{k}" if prefix else k
+    def recurse(node: dict[str, Any], prefix: str = "") -> None:
+        for key, value in node.items():
+            name = f"{prefix}{key}" if prefix else key
             if (
-                isinstance(v, tuple)
-                and len(v) == 2
-                and isinstance(v[0], int)
-                and isinstance(v[1], int)
+                isinstance(value, tuple)
+                and len(value) == 2
+                and all(isinstance(bound, int) for bound in value)
             ):
-                start, end = v
-                length = end - start
-                if length == 7 and ("pose" in key_name.lower() or "Pose" in key_name):
-                    base_name = key_name.replace("_pose", "").replace("Pose", "")
-                    flat[f"{base_name}_pos"] = slice(start, start + 3)
-                    flat[f"{base_name}_quat"] = slice(start + 3, end)
+                start, end = value
+                if end - start == 7 and "pose" in name.lower():
+                    base = name.replace("_pose", "").replace("Pose", "")
+                    flat[f"{base}_pos"] = slice(start, start + 3)
+                    flat[f"{base}_quat"] = slice(start + 3, end)
                 else:
-                    flat[key_name] = slice(start, end)
-            elif isinstance(v, dict):
-                sub_prefix = "" if k in ("agent", "extra") else f"{key_name}_"
-                _recurse(v, sub_prefix)
+                    flat[name] = slice(start, end)
+            elif isinstance(value, dict):
+                # `agent`/`extra` are grouping levels in the schema, not part of the feature name.
+                recurse(value, "" if key in ("agent", "extra") else f"{name}_")
 
-    _recurse(schema)
+    recurse(schema)
     if not flat:
-        raise ValueError("Flattened STATE_SCHEMA is empty.")
+        raise ValueError("The flattened STATE_SCHEMA is empty.")
     return flat
 
 
-def load_raw_trajectory_data(
-    h5_path: Path, env_id: str | None = None
-) -> tuple[dict[str, np.ndarray], dict[str, slice]]:
-    """Extract raw observation slices and full step data from HDF5 dataset."""
+def find_offset_keys(schema: dict[str, slice]) -> tuple[int | None, str | None, str | None]:
+    """Identifies the object height index and the two relative-offset features."""
+    object_z_index = next(
+        (
+            slc.start + 2
+            for key, slc in schema.items()
+            if ("cube_a" in key.lower() or "obj" in key.lower()) and "pos" in key.lower()
+        ),
+        None,
+    )
+    tcp_relative = next((key for key in schema if "tcp_to" in key.lower()), None)
+    target_relative = next(
+        (key for key in schema if "to_" in key.lower() and key != tcp_relative), None
+    )
+    return object_z_index, tcp_relative, target_relative
+
+
+def load_dataset(h5_path: Path, env_id: str) -> tuple[dict[str, np.ndarray], dict[str, slice]]:
+    """Reads every trajectory once, collecting initial features, offsets and full step data."""
     if not h5_path.exists():
         raise FileNotFoundError(f"Dataset not found at {h5_path}")
 
-    # Determine env_id from argument or dataset metadata json
-    if not env_id:
-        json_path = h5_path.with_suffix(".json")
-        if json_path.exists():
-            with open(json_path) as f:
-                meta = json.load(f)
-                env_id = meta.get("env_info", {}).get("env_id")
+    schema = flatten_state_schema(fetch_env_schema(env_id))
+    required_dim = max(slc.stop for slc in schema.values())
+    object_z_index, tcp_relative, target_relative = find_offset_keys(schema)
 
-    if not env_id:
-        raise ValueError(
-            f"Could not infer env_id for dataset {h5_path}. Please pass --env_id explicitly."
-        )
-
-    raw_schema = fetch_env_schema(env_id)
-    schema = flatten_state_schema(raw_schema)
-
-    max_schema_dim = max(slc.stop for slc in schema.values())
-
-    # Inspect dataset observation dimension
-    with h5py.File(h5_path, "r") as f:
-        first_key = next((k for k in f.keys() if k.startswith("traj_")), None)
-        if first_key is None:
-            raise ValueError(f"No trajectory keys found in {h5_path}")
-        traj_group = f[first_key]
-        if not isinstance(traj_group, h5py.Group):
-            raise ValueError(f"Invalid dataset group at {first_key}")
-        obs_dim = np.asarray(traj_group["obs"]).shape[-1]
-
-    if obs_dim < max_schema_dim:
-        raise ValueError(
-            f"Dataset observation dimension ({obs_dim}) is smaller than schema requirement ({max_schema_dim})."
-        )
-
-    data: dict[str, list[np.ndarray]] = {key: [] for key in schema}
+    initial: dict[str, list[np.ndarray]] = {key: [] for key in schema}
     grasp_offsets: list[np.ndarray] = []
     place_offsets: list[np.ndarray] = []
-    all_actions: list[np.ndarray] = []
-    all_inputs: list[np.ndarray] = []
+    observations: list[np.ndarray] = []
+    actions: list[np.ndarray] = []
 
-    # Detect object position and relative offset keys from schema
-    obj_z_idx: int | None = None
-    tcp_rel_key: str | None = None
-    target_rel_key: str | None = None
+    with h5py.File(h5_path, "r") as handle:
+        keys = trajectory_keys(handle)
+        if not keys:
+            raise ValueError(f"No `traj_*` groups found in {h5_path}")
 
-    for k, slc in schema.items():
-        if ("cube_a" in k.lower() or "obj" in k.lower()) and "pos" in k.lower():
-            obj_z_idx = slc.start + 2
-            break
+        first = handle[keys[0]]
+        assert isinstance(first, h5py.Group)
+        obs_dim = np.asarray(first["obs"]).shape[-1]
+        if obs_dim < required_dim:
+            raise ValueError(
+                f"Observations in this dataset are {obs_dim}-dimensional, but {env_id}'s schema "
+                f"needs at least {required_dim}. The dataset was probably recorded with a "
+                "different obs_mode or a different env."
+            )
 
-    for k in schema:
-        if "tcp_to" in k.lower():
-            tcp_rel_key = k
-            break
-
-    for k in schema:
-        if "to_" in k.lower() and k != tcp_rel_key:
-            target_rel_key = k
-            break
-
-    with h5py.File(h5_path, "r") as f:
-        for traj_key in f.keys():
-            if not traj_key.startswith("traj_"):
+        for key in keys:
+            group = handle[key]
+            if not isinstance(group, h5py.Group):
                 continue
 
-            traj_group = f[traj_key]
-            if not isinstance(traj_group, h5py.Group):
-                continue
+            obs = np.asarray(group["obs"])
+            observations.append(obs)
+            actions.append(np.asarray(group["actions"]))
 
-            obs = np.asarray(traj_group["obs"])
-            actions = np.asarray(traj_group["actions"])
+            for name, slc in schema.items():
+                initial[name].append(obs[0, slc])
 
-            all_inputs.append(obs)
-            all_actions.append(actions)
+            if object_z_index is not None and tcp_relative is not None:
+                lifted = obs[obs[:, object_z_index] > LIFT_THRESHOLD]
+                if lifted.size:
+                    grasp_offsets.append(np.mean(lifted[:, schema[tcp_relative]], axis=0))
 
-            for key, slc in schema.items():
-                data[key].append(obs[0, slc])
+            if target_relative is not None:
+                place_offsets.append(obs[-1, schema[target_relative]])
 
-            if obj_z_idx is not None and tcp_rel_key is not None:
-                obj_z = obs[:, obj_z_idx]
-                lifted_mask = obj_z > LIFT_THRESHOLD
-                if np.any(lifted_mask):
-                    lifted_obs = obs[lifted_mask]
-                    grasp_offsets.append(np.mean(lifted_obs[:, schema[tcp_rel_key]], axis=0))
-
-            if target_rel_key is not None:
-                place_offsets.append(obs[-1, schema[target_rel_key]])
-
-    result = {key: np.array(vals) for key, vals in data.items()}
-    result["actions"] = np.concatenate(all_actions, axis=0) if all_actions else np.empty((0,))
-    result["inputs"] = np.concatenate(all_inputs, axis=0) if all_inputs else np.empty((0,))
+    data = {name: np.array(values) for name, values in initial.items()}
+    data["actions"] = np.concatenate(actions, axis=0) if actions else np.empty((0,))
+    data["observations"] = np.concatenate(observations, axis=0) if observations else np.empty((0,))
     if grasp_offsets:
-        result["grasp_offsets"] = np.array(grasp_offsets)
+        data["grasp_offsets"] = np.array(grasp_offsets)
     if place_offsets:
-        result["place_offsets"] = np.array(place_offsets)
+        data["place_offsets"] = np.array(place_offsets)
+    data["_num_episodes"] = np.array(len(keys))
+    return data, schema
 
-    return result, schema
+
+def report_feature_spread(report: Report, schema: dict[str, slice], data: dict) -> None:
+    """Per-feature mean/std of the initial state, i.e. how varied the task setup is."""
+    report.section("Initial-state spread (across episodes)")
+    rows = []
+    for name in schema:
+        values = data.get(name)
+        if values is None or values.size == 0:
+            continue
+        mean = np.mean(values, axis=0)
+        std = np.std(values, axis=0)
+        rows.append(
+            [
+                name,
+                np.array2string(mean, precision=4, suppress_small=True),
+                np.array2string(std, precision=4, suppress_small=True),
+            ]
+        )
+    report.table(["feature", "mean", "std"], rows)
+    report.note(
+        "A near-zero std means that feature is effectively constant across the dataset -- the "
+        "policy can learn it as a bias rather than from the observation."
+    )
 
 
-def print_stat_summary(name: str, data: np.ndarray) -> None:
-    """Print mean, median, and std for a feature vector dataset."""
-    if data.size == 0:
-        print(f"--- {name} (empty data) ---")
+def report_dimension_stats(report: Report, name: str, values: np.ndarray) -> None:
+    """Global and per-dimension statistics for a stacked [steps, dims] array."""
+    report.section(f"{name} statistics")
+    if values.size == 0:
+        report.note("(no data)")
         return
 
-    mean = np.mean(data, axis=0)
-    std = np.std(data, axis=0)
-    median = np.median(data, axis=0)
+    report.kv("shape", values.shape)
+    report.kv("global mean", f"{np.mean(values):.5f}")
+    report.kv("global std", f"{np.std(values):.5f}")
+    report.kv("global min", f"{np.min(values):.5f}")
+    report.kv("global max", f"{np.max(values):.5f}")
 
-    print(f"--- {name} ---")
-    print(f"Mean:   {mean}")
-    print(f"Median: {median}")
-    print(f"Std:    {std}")
-
-    if data.ndim > 1 and data.shape[1] >= 2:
-        print(f"Proposed In-Dist Dim 0: [{mean[0] - std[0]:.5f}, {mean[0] + std[0]:.5f}]")
-        print(f"Proposed In-Dist Dim 1: [{mean[1] - std[1]:.5f}, {mean[1] + std[1]:.5f}]")
-    print()
-
-
-def print_extended_stats(
-    name: str, data: np.ndarray, max_dims_to_print: int = 60
-) -> None:
-    """Print global and feature-wise statistics for high-dimensional data."""
-    if data.size == 0:
-        print(f"No data available for: {name}")
+    if values.ndim == 1:
         return
 
-    print("=========================================")
-    print(f" STATS FOR: {name.upper()}")
-    print("=========================================")
-    print(f"Shape: {data.shape}")
-    print(f"Global Mean: {np.mean(data):.5f}")
-    print(f"Global Std:  {np.std(data):.5f}")
-    print(f"Global Min:  {np.min(data):.5f}")
-    print(f"Global Max:  {np.max(data):.5f}")
-    print("\nPer-Dimension Breakdown:")
-
-    means = np.mean(data, axis=0)
-    stds = np.std(data, axis=0)
-    mins = np.min(data, axis=0)
-    maxs = np.max(data, axis=0)
-
-    dims_to_print = min(data.shape[1] if data.ndim > 1 else 1, max_dims_to_print)
-
-    for i in range(dims_to_print):
-        m = means[i] if data.ndim > 1 else means
-        s = stds[i] if data.ndim > 1 else stds
-        mn = mins[i] if data.ndim > 1 else mins
-        mx = maxs[i] if data.ndim > 1 else maxs
-        print(f"  Dim {i:2d} -> Mean: {m:.4f} | Std: {s:.4f} | Min: {mn:.4f} | Max: {mx:.4f}")
-
-    if data.ndim > 1 and data.shape[1] > max_dims_to_print:
-        print(f"  ... and {data.shape[1] - max_dims_to_print} more dimensions.")
-    print()
+    limit = min(values.shape[1], MAX_DIMS_REPORTED)
+    means, stds = np.mean(values, axis=0), np.std(values, axis=0)
+    mins, maxs = np.min(values, axis=0), np.max(values, axis=0)
+    report.table(
+        ["dim", "mean", "std", "min", "max"],
+        [
+            [i, f"{means[i]:.4f}", f"{stds[i]:.4f}", f"{mins[i]:.4f}", f"{maxs[i]:.4f}"]
+            for i in range(limit)
+        ],
+    )
+    if values.shape[1] > limit:
+        report.note(f"... and {values.shape[1] - limit} further dimensions not shown.")
 
 
-def plot_feature_distributions(
-    data_dict: dict[str, np.ndarray], schema: dict[str, slice]
-) -> None:
-    """Plot histograms for initial 3D positions and 4D quaternions found in schema."""
-    pos_items = [
-        (k, data_dict[k])
-        for k in schema
-        if "pos" in k.lower()
-        and k in data_dict
-        and data_dict[k].ndim > 1
-        and data_dict[k].shape[1] == 3
+def plot_distributions(
+    data: dict[str, np.ndarray],
+    schema: dict[str, slice],
+    env_id: str,
+    save_path: Path,
+    *,
+    show: bool,
+    dpi: int,
+) -> Path | None:
+    """Histograms of the initial positions and quaternions, one panel per feature."""
+
+    def panels(suffix: str, width: int) -> list[tuple[str, np.ndarray]]:
+        return [
+            (name, data[name])
+            for name in schema
+            if suffix in name.lower()
+            and name in data
+            and data[name].ndim > 1
+            and data[name].shape[1] == width
+        ]
+
+    position_panels = panels("pos", 3)
+    quaternion_panels = panels("quat", 4)
+    groups = [
+        ("position", position_panels, ["x", "y", "z"]),
+        ("quaternion", quaternion_panels, ["w", "x", "y", "z"]),
     ]
-    quat_items = [
-        (k, data_dict[k])
-        for k in schema
-        if "quat" in k.lower()
-        and k in data_dict
-        and data_dict[k].ndim > 1
-        and data_dict[k].shape[1] == 4
-    ]
+    groups = [group for group in groups if group[1]]
+    if not groups:
+        return None
 
-    if pos_items:
-        fig, axes_raw = plt.subplots(
-            1, len(pos_items), figsize=(4 * len(pos_items), 4), squeeze=False
+    num_columns = max(len(panels_) for _, panels_, _ in groups)
+    fig, axes = plt.subplots(
+        len(groups),
+        num_columns,
+        figsize=(4.2 * num_columns, 3.8 * len(groups)),
+        squeeze=False,
+    )
+
+    for row, (group_name, group_panels, component_labels) in enumerate(groups):
+        for column in range(num_columns):
+            ax = axes[row, column]
+            if column >= len(group_panels):
+                ax.axis("off")
+                continue
+
+            name, values = group_panels[column]
+            for component, label in enumerate(component_labels):
+                ax.hist(
+                    values[:, component],
+                    bins=30,
+                    alpha=0.55,
+                    color=theme.SERIES[component],
+                    label=label,
+                )
+            ax.set_title(f"{name} ({group_name})", fontsize=10, color=theme.TEXT_SECONDARY)
+            ax.set_xlabel("value", fontsize=9)
+            ax.set_ylabel("episodes", fontsize=9)
+            theme.style_axes(ax)
+            ax.legend(facecolor=theme.SURFACE, edgecolor=theme.GRID, fontsize=8)
+
+    theme.set_title(
+        fig,
+        "Initial-state distributions",
+        [("env", env_id), ("episodes", str(int(data["_num_episodes"])))],
+    )
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
+    return save_path
+
+
+def analyse_env(env_id: str, args: argparse.Namespace) -> None:
+    """Runs the whole analysis for one environment's dataset."""
+    dataset_path = args.dataset_path or default_demo_path(env_id)
+    data, schema = load_dataset(dataset_path, env_id)
+
+    report = Report(
+        "Dataset bias summary",
+        [
+            ("env", env_id),
+            ("dataset", str(dataset_path)),
+            ("episodes", str(int(data["_num_episodes"]))),
+        ],
+    )
+
+    report_feature_spread(report, schema, data)
+
+    report.section("Mean offsets")
+    if "grasp_offsets" in data and data["grasp_offsets"].size:
+        report.kv(
+            "grasp (tcp -> object)",
+            np.array2string(np.mean(data["grasp_offsets"], axis=0), precision=5),
         )
-        axes = axes_raw[0]
-        colors = ["red", "green", "blue"]
-        labels = ["X", "Y", "Z"]
-
-        for i, (name, arr) in enumerate(pos_items):
-            ax = axes[i]
-            for j in range(3):
-                ax.hist(arr[:, j], bins=30, alpha=0.5, color=colors[j], label=labels[j])
-            ax.set_title(name)
-            ax.legend()
-        plt.suptitle("Initial Position Distributions")
-        plt.tight_layout()
-        plt.show()
-
-    if quat_items:
-        fig, axes_raw = plt.subplots(
-            1, len(quat_items), figsize=(4 * len(quat_items), 4), squeeze=False
+    if "place_offsets" in data and data["place_offsets"].size:
+        report.kv(
+            "place (final relative)",
+            np.array2string(np.mean(data["place_offsets"], axis=0), precision=5),
         )
-        axes = axes_raw[0]
-        colors = ["red", "green", "blue", "purple"]
-        labels = ["W", "X", "Y", "Z"]
 
-        for i, (name, arr) in enumerate(quat_items):
-            ax = axes[i]
-            for j in range(4):
-                ax.hist(arr[:, j], bins=30, alpha=0.5, color=colors[j], label=labels[j])
-            ax.set_title(name)
-            ax.legend()
-        plt.suptitle("Initial Quaternion Distributions")
-        plt.tight_layout()
-        plt.show()
+    report_dimension_stats(report, "Action", data["actions"])
+    report_dimension_stats(report, "Observation", data["observations"])
+
+    save_path = figure_path(
+        SCRIPT_NAME, "initial-distributions", env_id=env_id, out_dir=args.out_dir
+    )
+    plotted = plot_distributions(data, schema, env_id, save_path, show=args.show, dpi=args.dpi)
+    report.emit(plotted or save_path, save=not args.no_report)
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Analyze initial object poses, offsets, and dataset statistics dynamically."
+        description=__doc__,
+        parents=[cli.output_args()],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--h5_path",
-        type=Path,
-        default=(
-            Path.home()
-            / ".maniskill/demos/StackCube-v1/motionplanning"
-            / "trajectory.state.pd_ee_delta_pos.physx_cuda.h5"
-        ),
-        help="Path to HDF5 trajectory dataset.",
-    )
-    parser.add_argument(
-        "--env_id",
+        "--env-id",
         type=str,
+        nargs="+",
+        default=["StackCubeLockedRotation-v1"],
+        help="Environments whose datasets to analyse, one report each. "
+        "(default: StackCubeLockedRotation-v1)",
+    )
+    parser.add_argument(
+        "--dataset-path",
+        type=Path,
         default=None,
-        help="Environment ID (e.g. 'StackCube-v1', 'PlaceSphere-v1'). Inferred from dataset json if omitted.",
+        help="Explicit .h5 to read. Only valid with a single --env-id; otherwise each env uses "
+        "its conventional demo path.",
     )
     args = parser.parse_args()
 
-    raw_data, schema = load_raw_trajectory_data(args.h5_path, env_id=args.env_id)
+    if args.dataset_path is not None and len(args.env_id) > 1:
+        parser.error("--dataset-path applies to a single dataset; pass one --env-id with it.")
+    return args
 
-    print("=== EXTRACTED FEATURE SUMMARIES ===")
-    for key in schema:
-        if key in raw_data:
-            print_stat_summary(key, raw_data[key])
 
-    if "grasp_offsets" in raw_data and raw_data["grasp_offsets"].size > 0:
-        print(f"Mean Grasp Offset: {np.mean(raw_data['grasp_offsets'], axis=0)}")
-    if "place_offsets" in raw_data and raw_data["place_offsets"].size > 0:
-        print(f"Mean Place Offset: {np.mean(raw_data['place_offsets'], axis=0)}\n")
+def main() -> None:
+    args = parse_args()
+    theme.apply_theme()
 
-    print_extended_stats("Action", raw_data["actions"])
-    print_extended_stats("Input (Observation)", raw_data["inputs"])
-
-    plot_feature_distributions(raw_data, schema)
+    for index, env_id in enumerate(args.env_id):
+        if len(args.env_id) > 1:
+            print(f"\n{'#' * 88}\n# Env {index + 1}/{len(args.env_id)}: {env_id}\n{'#' * 88}")
+        analyse_env(env_id, args)
 
 
 if __name__ == "__main__":

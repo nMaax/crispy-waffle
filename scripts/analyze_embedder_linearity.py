@@ -1,171 +1,180 @@
-"""Check whether a GoalConditionedDiffusionPolicy's state embedder behaves like an (overly complex)
-linear or identity function, using real held-out data.
+"""Measures how close a policy's state embedder is to being a plain affine map.
 
-Captures the embedder's actual input/output pairs as they flow during training/inference --
-whichever `goal_delta` mode the checkpoint was trained with (absolute, delta-before-embed
-"input", or delta-after-embed "embedding") -- then reports how well a single affine map explains
-the mapping (R^2), how linearly related the two representations are overall (linear CKA), and how
-directionally aligned the true output is with what that affine map would predict (cosine
-similarity). Strictly scoped to the embedder/encoder MLP; the downstream UNet/FiLM network is
-never touched.
+This script captures the embedder's (input, output) pairs and scores:
+
+- **R^2** of the best-fit affine map: how much of the output an affine map explains.
+- **linear CKA**: how linearly related the two representations are overall, independent of width.
+- **cosine similarity** between the true output and the affine map's prediction.
+
+Only the embedder is used; the diffusion network is never run.
+
+With `--source rollout` the same measurement is taken on live rollouts instead of recorded data,
+including the zero-shot environments.
 """
 
+from __future__ import annotations
+
 import argparse
-import sys
 from pathlib import Path
 
 import hydra
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from omegaconf import OmegaConf
 from sklearn.metrics import r2_score
 
-from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.utils import map_leaves
-from policy.utils.checkpoint_utils import load_goal_conditioned_diffusion_policy
+from scripts.utils import cli, theme
+from scripts.utils.checkpoints import (
+    describe_model_config,
+    load_goal_conditioned_diffusion_policy,
+    require_run_config,
+    run_slug,
+)
+from scripts.utils.figures import figure_path, save_figure
+from scripts.utils.report import Report
+from scripts.utils.rollouts import (
+    build_obs_transform,
+    build_rollout_env,
+    iter_env_kwargs,
+    resolve_max_episode_steps,
+    run_episode,
+)
+from scripts.utils.taps import capture_pre_norm, embedder_output_norm
+
+SCRIPT_NAME = Path(__file__).stem
+
+NEAR_LINEAR = 0.95
+MOSTLY_LINEAR = 0.80
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--ckpt_glob",
-        type=str,
-        default="logs/GoalConditionedDiffusionPolicyMLPDeltaInput__*/**/checkpoints/last.ckpt",
-        help="Recursive glob (relative to cwd) selecting checkpoints to analyze.",
-    )
-    parser.add_argument(
-        "--ckpt_path",
-        type=str,
-        action="append",
-        default=[],
-        help="Explicit checkpoint path to analyze in addition to --ckpt_glob matches. Repeatable.",
-    )
-    parser.add_argument(
-        "--include_intermediate",
-        action="store_true",
-        help="Also match intermediate step_*.ckpt files alongside last.ckpt when resolving "
-        "--ckpt_glob.",
-    )
-    parser.add_argument(
-        "--split",
-        type=str,
-        default="val",
-        choices=["train", "val"],
-        help="Which dataset split to draw real embedder inputs from.",
-    )
-    parser.add_argument(
-        "--num_batches",
-        type=int,
-        default=None,
-        help="Cap on the number of batches to draw from the dataloader. Default: the whole split.",
-    )
-    parser.add_argument(
-        "--test_split",
-        type=float,
-        default=0.2,
-        help="Fraction of captured samples held out to score the best-fit linear map's R^2 / "
-        "cosine similarity out-of-sample.",
-    )
-    parser.add_argument("--seed", type=int, default=42, help="Seed for the train/test split.")
-    return parser.parse_args()
+class EmbedderCapture:
+    """Collects what the embedder sees and produces, via forward hooks."""
+
+    def __init__(self, model) -> None:
+        if model.embedder is None:
+            raise RuntimeError("configure_model() must run before the embedder can be captured.")
+        self.model = model
+        self.inputs: list[torch.Tensor] = []
+        self.outputs: list[torch.Tensor] = []
+        self.pre_norm_outputs: list[torch.Tensor] = []
+        self._handle = None
+        self._pre_norm_ctx = None
+
+    def __enter__(self) -> EmbedderCapture:
+        def hook(_module, inputs, output):
+            self.inputs.append(inputs[0].detach().cpu())
+            self.outputs.append(output.detach().cpu())
+
+        self._handle = self.model.embedder.register_forward_hook(hook)
+        self._pre_norm_ctx = capture_pre_norm(self.model.embedder)
+        self._captured_pre_norm = self._pre_norm_ctx.__enter__()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        if self._handle is not None:
+            self._handle.remove()
+        if self._pre_norm_ctx is not None:
+            # Move the captures out before the hook is torn down, so they survive the context.
+            self.pre_norm_outputs = [t.cpu() for t in self._captured_pre_norm]
+            self._pre_norm_ctx.__exit__(None, None, None)
+
+    def stacked(self) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+        """Returns the captured pairs as `(inputs, outputs)`, one row per sample."""
+        if not self.inputs:
+            raise RuntimeError("The embedder was never called; nothing was captured.")
+        x = torch.cat([t.reshape(t.shape[0], -1) for t in self.inputs], dim=0)
+        y = torch.cat([t.reshape(t.shape[0], -1) for t in self.outputs], dim=0)
+        if x.shape[0] != y.shape[0]:
+            raise RuntimeError(
+                f"Captured {x.shape[0]} embedder inputs but {y.shape[0]} outputs; they cannot be "
+                "paired. This embedder changes the batch size internally."
+            )
+
+        pre = None
+        if self.pre_norm_outputs:
+            stacked_pre = torch.cat(
+                [t.reshape(t.shape[0], -1) for t in self.pre_norm_outputs], dim=0
+            )
+            if stacked_pre.shape[0] == x.shape[0]:
+                pre = stacked_pre.double().numpy()
+
+        return x.double().numpy(), y.double().numpy(), pre
 
 
-def resolve_checkpoints(
-    ckpt_glob: str, extra_paths: list[str], include_intermediate: bool
-) -> list[Path]:
-    """Resolves --ckpt_glob (optionally widened to intermediate steps) plus explicit --ckpt_path
-    entries into a deduplicated, order-preserving list of checkpoint paths."""
-    root = Path(".")
-    matches = list(root.glob(ckpt_glob))
-    if include_intermediate:
-        matches += list(root.glob(ckpt_glob.replace("last.ckpt", "step_*.ckpt")))
-    matches += [Path(p) for p in extra_paths]
+def capture_from_dataset(model, cfg, split: str, num_batches: int | None, seed: int):
+    """Replays recorded batches through the embedder."""
+    datamodule = hydra.utils.instantiate(cfg.datamodule, num_workers=0)
+    datamodule.setup(stage="fit")
+    dataloader = datamodule.train_dataloader() if split == "train" else datamodule.val_dataloader()
 
-    seen: set[Path] = set()
-    resolved: list[Path] = []
-    for path in matches:
-        key = path.resolve()
-        if key in seen:
-            continue
-        seen.add(key)
-        resolved.append(path)
-    return sorted(resolved)
+    # HER goal relabelling draws from the global torch RNG on every item, so seed here to keep the
+    # captured pairs reproducible between runs.
+    torch.manual_seed(seed)
 
-
-def build_datamodule(ckpt_path: Path):
-    """Instantiates the datamodule this checkpoint was actually trained with, from its saved Hydra
-    run config next to `checkpoints/` -- so the embedder sees the same real, canonicalized, dict-
-    structured observations it saw at train time, not hand-rolled/raw ones."""
-    config_file = ckpt_path.parent.parent / ".hydra" / "config.yaml"
-    if not config_file.exists():
-        raise FileNotFoundError(
-            f"No saved Hydra run config found at {config_file}; cannot reconstruct the exact "
-            "datamodule this checkpoint was trained with."
-        )
-    cfg = OmegaConf.load(config_file)
-    return hydra.utils.instantiate(cfg.datamodule, num_workers=0)
-
-
-def capture_embedder_io(
-    model: GoalConditionedDiffusionPolicy,
-    dataloader,
-    num_batches: int | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Hooks `model.embedder` and drives the model's own conditioning-building logic over real
-    batches, capturing every (input, output) pair the embedder actually sees.
-
-    Calls
-    `_build_external_cond` directly rather than `get_action`, so the UNet/FiLM network and its
-    multi-step denoising loop are never invoked -- only the embedder runs.
-    """
-    captured_inputs: list[torch.Tensor] = []
-    captured_outputs: list[torch.Tensor] = []
-
-    def hook(_module, inputs, output):
-        captured_inputs.append(inputs[0].detach().cpu())
-        captured_outputs.append(output.detach().cpu())
-
-    assert model.embedder is not None, "configure_model() must run before capturing embedder I/O."
-    handle = model.embedder.register_forward_hook(hook)
-    try:
-        with torch.no_grad():
-            for batch_idx, batch in enumerate(dataloader):
-                if num_batches is not None and batch_idx >= num_batches:
-                    break
-                obs_seq = map_leaves(lambda t: t.to(model.device), batch["obs_seq"])
-                goal = batch.get("goal")
+    with EmbedderCapture(model) as capture, torch.no_grad():
+        for index, batch in enumerate(dataloader):
+            if num_batches is not None and index >= num_batches:
+                break
+            obs = map_leaves(lambda t: t.to(model.device), batch["obs_seq"])
+            goal = batch.get("goal")
+            if goal is not None:
+                goal = map_leaves(lambda t: t.to(model.device), goal)
+            if model.obs_normalizer is not None:
+                obs = model.obs_normalizer.normalize(obs)
                 if goal is not None:
-                    goal = map_leaves(lambda t: t.to(model.device), goal)
-                if model.obs_normalizer is not None:
-                    obs_seq = model.obs_normalizer.normalize(obs_seq)
-                    if goal is not None:
-                        goal = model.obs_normalizer.normalize(goal)
-                model._build_external_cond(obs_seq, goal)
+                    goal = model.obs_normalizer.normalize(goal)
+            model._build_external_cond(obs, goal)
+
+    return capture.stacked()
+
+
+def capture_from_rollout(model, cfg, env_kwargs: dict, args: argparse.Namespace):
+    """Drives the policy live and captures the embedder as the rollout proceeds."""
+    max_episode_steps = resolve_max_episode_steps(cfg, args.max_episode_steps)
+    env, inner_env = build_rollout_env(
+        env_kwargs, model.obs_horizon, max_episode_steps, args.render_mode, args.video_dir
+    )
+    transform = build_obs_transform(env, env_kwargs, cfg)
+
+    successes = 0
+    try:
+        with EmbedderCapture(model) as capture:
+            for episode in range(args.num_episodes):
+                result = run_episode(
+                    model,
+                    env,
+                    inner_env,
+                    transform,
+                    episode_idx=episode,
+                    seed=args.seed + episode,
+                    num_inference_steps=args.num_inference_steps,
+                    clamp_action=args.clamp_action,
+                    render_mode=args.render_mode,
+                )
+                successes += int(result.success_once)
+                print(
+                    f"  episode {episode}: {result.num_steps} steps, "
+                    f"success_once={result.success_once}"
+                )
+        return capture.stacked(), successes
     finally:
-        handle.remove()
-
-    if not captured_inputs:
-        raise RuntimeError("No batches were available to capture embedder input/output from.")
-
-    x = torch.cat(captured_inputs, dim=0).double().numpy()
-    y = torch.cat(captured_outputs, dim=0).double().numpy()
-    return x, y
+        env.close()
 
 
-def fit_affine_map(x_train: np.ndarray, y_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Least-squares affine map: y ~= x @ w + b."""
-    x_aug = np.concatenate([x_train, np.ones((x_train.shape[0], 1))], axis=1)
-    coeffs, *_ = np.linalg.lstsq(x_aug, y_train, rcond=None)
-    return coeffs[:-1], coeffs[-1]
+def fit_affine_map(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Least-squares affine map `y ~= x @ w + b`."""
+    augmented = np.concatenate([x, np.ones((x.shape[0], 1))], axis=1)
+    coefficients, *_ = np.linalg.lstsq(augmented, y, rcond=None)
+    return coefficients[:-1], coefficients[-1]
 
 
 def linear_cka(x: np.ndarray, y: np.ndarray) -> float:
-    """Linear CKA (Kornblith et al., 2019): bounded in [0, 1], invariant to rotation, and defined
-    for representations of different width -- 1.0 iff `x` and `y` are related by an orthogonal
-    transform (of which identity is a special case)."""
+    """Linear CKA (Kornblith et al., 2019).
+
+    Bounded in [0, 1], invariant to rotation, and defined for representations of different width.
+    It reaches 1.0 exactly when the two are related by an orthogonal transform.
+    """
     x = x - x.mean(axis=0, keepdims=True)
     y = y - y.mean(axis=0, keepdims=True)
     hsic = np.linalg.norm(y.T @ x, ord="fro") ** 2  # codespell:ignore fro
@@ -175,104 +184,215 @@ def linear_cka(x: np.ndarray, y: np.ndarray) -> float:
 
 
 def mean_cosine_similarity(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
-    """Per-row cosine similarity between two equal-shaped matrices; returns (mean, std)."""
-    denom = np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
-    valid = denom > 0
-    cos = np.full(a.shape[0], np.nan)
-    cos[valid] = np.sum(a[valid] * b[valid], axis=1) / denom[valid]
-    return float(np.nanmean(cos)), float(np.nanstd(cos))
+    """Row-wise cosine similarity between two equal-shaped matrices, as `(mean, std)`."""
+    denominator = np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
+    valid = denominator > 0
+    cosine = np.full(a.shape[0], np.nan)
+    cosine[valid] = np.sum(a[valid] * b[valid], axis=1) / denominator[valid]
+    return float(np.nanmean(cosine)), float(np.nanstd(cosine))
 
 
-def verdict_from_metrics(r2: float, cka: float) -> str:
-    if r2 > 0.95 and cka > 0.95:
-        return "near-linear -- a single Linear layer would likely explain this embedder about as well."
-    if r2 > 0.8 and cka > 0.8:
-        return "mostly linear -- some nonlinear contribution, but the bulk is explained by an affine map."
-    return "meaningfully nonlinear -- the MLP's nonlinear capacity is doing real work here."
+def verdict(r2: float, cka: float) -> str:
+    """A one-line reading of the numbers."""
+    if r2 > NEAR_LINEAR and cka > NEAR_LINEAR:
+        return "near-linear: a single Linear layer would likely do the same job."
+    if r2 > MOSTLY_LINEAR and cka > MOSTLY_LINEAR:
+        return "mostly linear: some nonlinear contribution, but an affine map explains the bulk."
+    return "meaningfully nonlinear: the embedder's nonlinear capacity is doing real work."
 
 
-def analyze_checkpoint(ckpt_path: Path, args: argparse.Namespace) -> dict:
-    print(f"\n{'=' * 88}\nCheckpoint: {ckpt_path}")
-
-    model = load_goal_conditioned_diffusion_policy(ckpt_path)
-    datamodule = build_datamodule(ckpt_path)
-    datamodule.setup(stage="fit")
-    dataloader = (
-        datamodule.train_dataloader() if args.split == "train" else datamodule.val_dataloader()
-    )
-
-    # HER goal relabeling (GoalConditionedTrajectoryDataset) draws from the global torch RNG on
-    # every __getitem__, so re-seed here to make the captured (input, output) pairs -- and thus
-    # the metrics below -- reproducible across runs and comparable across checkpoints.
-    torch.manual_seed(args.seed)
-    x, y = capture_embedder_io(model, dataloader, args.num_batches)
-    n, task_dim = x.shape
-    output_dim = y.shape[1]
-    print(
-        f"  goal_delta={model.goal_delta!r}  task_dim={task_dim}  output_dim={output_dim}  "
-        f"samples={n}  (split={args.split!r})"
-    )
-
-    rng = np.random.default_rng(args.seed)
-    perm = rng.permutation(n)
-    n_test = max(1, int(round(n * args.test_split)))
-    test_idx, train_idx = perm[:n_test], perm[n_test:]
+def score(x: np.ndarray, y: np.ndarray, test_split: float, seed: int) -> dict:
+    """Fits the affine map on a random split and scores it on the held-out remainder."""
+    n = x.shape[0]
+    permutation = np.random.default_rng(seed).permutation(n)
+    n_test = max(1, int(round(n * test_split)))
+    test_idx, train_idx = permutation[:n_test], permutation[n_test:]
 
     w, b = fit_affine_map(x[train_idx], y[train_idx])
-    y_pred_test = x[test_idx] @ w + b
-    r2 = float(r2_score(y[test_idx], y_pred_test))
-    cos_mean, cos_std = mean_cosine_similarity(y[test_idx], y_pred_test)
-    cka = linear_cka(x, y)
+    predicted = x[test_idx] @ w + b
 
-    print(f"  Linear-fit R^2 (held-out, {len(test_idx)} samples):  {r2:.4f}")
-    print(f"  Linear CKA(input, output):                         {cka:.4f}")
-    print(f"  Cosine sim(output, best-affine-fit prediction):    {cos_mean:.4f} +/- {cos_std:.4f}")
-
-    if task_dim == output_dim:
-        cos_id_mean, cos_id_std = mean_cosine_similarity(x, y)
-        rel_l2 = float(np.linalg.norm(y - x) / np.linalg.norm(x))
-        print(
-            f"  [same-dim] Cosine sim(input, output):              "
-            f"{cos_id_mean:.4f} +/- {cos_id_std:.4f}"
-        )
-        print(f"  [same-dim] Relative L2 error ||out-in|| / ||in||:  {rel_l2:.4f}")
-
-    verdict = verdict_from_metrics(r2, cka)
-    print(f"  Verdict (heuristic): {verdict}")
-
+    cosine_mean, cosine_std = mean_cosine_similarity(y[test_idx], predicted)
     return {
-        "ckpt_path": str(ckpt_path),
-        "goal_delta": model.goal_delta,
-        "task_dim": task_dim,
-        "output_dim": output_dim,
         "num_samples": n,
-        "r2": r2,
-        "cka": cka,
-        "cosine_to_linear_fit": cos_mean,
+        "task_dim": x.shape[1],
+        "output_dim": y.shape[1],
+        "r2": float(r2_score(y[test_idx], predicted)),
+        "cka": linear_cka(x, y),
+        "cosine_mean": cosine_mean,
+        "cosine_std": cosine_std,
+        "y_true": y[test_idx],
+        "y_pred": predicted,
     }
+
+
+def plot_linearity(
+    results: dict[str, dict], title_fields: list[tuple[str, str]], save_path: Path, *, show, dpi
+) -> None:
+    """Left: how well an affine map predicts the embedder. Right: the scores side by side."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.2))
+
+    ax = axes[0]
+    for index, (label, result) in enumerate(results.items()):
+        true_values = result["y_true"].ravel()
+        predicted = result["y_pred"].ravel()
+        # Subsample so a long rollout does not draw millions of near-identical points.
+        if true_values.size > 4000:
+            pick = np.random.default_rng(0).choice(true_values.size, 4000, replace=False)
+            true_values, predicted = true_values[pick], predicted[pick]
+        ax.scatter(
+            true_values,
+            predicted,
+            s=4,
+            alpha=0.35,
+            color=theme.SERIES[index % len(theme.SERIES)],
+            label=label,
+            edgecolors="none",
+        )
+
+    limits = np.array(ax.get_xlim())
+    ax.plot(limits, limits, color=theme.TEXT_MUTED, linestyle="--", linewidth=1)
+    ax.set_xlabel("embedder output")
+    ax.set_ylabel("best affine map's prediction")
+    ax.set_title(
+        "Points on the diagonal mean affine-explainable",
+        fontsize=10,
+        color=theme.TEXT_SECONDARY,
+    )
+    theme.style_axes(ax)
+    ax.legend(facecolor=theme.SURFACE, edgecolor=theme.GRID, fontsize=8)
+
+    ax = axes[1]
+    labels = list(results)
+    metrics = [("R²", "r2"), ("CKA", "cka"), ("cos", "cosine_mean")]
+    width = 0.8 / len(metrics)
+    positions = np.arange(len(labels))
+    for index, (metric_label, key) in enumerate(metrics):
+        ax.bar(
+            positions + index * width,
+            [results[label][key] for label in labels],
+            width=width * 0.9,
+            color=theme.SERIES[index],
+            label=metric_label,
+        )
+    ax.axhline(NEAR_LINEAR, color=theme.TEXT_MUTED, linestyle="--", linewidth=1)
+    ax.set_xticks(positions + width)
+    ax.set_xticklabels(labels, rotation=15, ha="right", fontsize=8)
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("score (1.0 = perfectly affine)")
+    ax.set_title("Higher means more linear", fontsize=10, color=theme.TEXT_SECONDARY)
+    theme.style_axes(ax)
+    ax.legend(facecolor=theme.SURFACE, edgecolor=theme.GRID, fontsize=8)
+
+    theme.set_title(fig, "Embedder linearity", title_fields)
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        parents=[
+            cli.checkpoint_args(),
+            cli.output_args(),
+            cli.source_args(),
+            cli.rollout_args(default_num_episodes=3),
+        ],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--split",
+        choices=["train", "val"],
+        default="val",
+        help="Dataset split to draw embedder inputs from, in --source dataset. (default: val)",
+    )
+    parser.add_argument(
+        "--num-batches",
+        type=int,
+        default=None,
+        help="Cap on batches drawn from the dataloader. (default: the whole split)",
+    )
+    parser.add_argument(
+        "--test-split",
+        type=float,
+        default=0.2,
+        help="Fraction of captured samples held out to score the affine fit. (default: 0.2)",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    ckpt_paths = resolve_checkpoints(args.ckpt_glob, args.ckpt_path, args.include_intermediate)
-    if not ckpt_paths:
-        print(f"No checkpoints matched --ckpt_glob={args.ckpt_glob!r} (and no --ckpt_path given).")
-        sys.exit(1)
+    theme.apply_theme()
 
-    print(f"Found {len(ckpt_paths)} checkpoint(s) to analyze.")
-    results = []
-    for ckpt_path in ckpt_paths:
-        try:
-            results.append(analyze_checkpoint(ckpt_path, args))
-        except Exception as e:
-            print(f"  Skipping {ckpt_path}: {e}")
+    model = load_goal_conditioned_diffusion_policy(args.ckpt_path)
+    cfg = require_run_config(args.ckpt_path)
+    slug = args.run_label or run_slug(args.ckpt_path, model, cfg, args.seed)
 
-    if len(results) > 1:
-        print(f"\n{'=' * 88}\nSummary across checkpoints")
-        print(f"{'checkpoint':<70} {'R^2':>8} {'CKA':>8} {'cos(lin)':>10}")
-        for r in results:
-            name = str(r["ckpt_path"])[-70:]
-            print(f"{name:<70} {r['r2']:>8.4f} {r['cka']:>8.4f} {r['cosine_to_linear_fit']:>10.4f}")
+    results: dict[str, dict] = {}
+    extra_report_rows: list[list[str]] = []
+
+    def add(label: str, x, y, pre) -> None:
+        """Scores the affine fit against the embedder output, and against its pre-norm form."""
+        suffix = " (post-norm)" if pre is not None else ""
+        results[label + suffix] = score(x, y, args.test_split, args.seed)
+        if pre is not None:
+            results[label + " (pre-norm)"] = score(x, pre, args.test_split, args.seed)
+
+    if args.source == "dataset":
+        x, y, pre = capture_from_dataset(model, cfg, args.split, args.num_batches, args.seed)
+        add(f"dataset/{args.split}", x, y, pre)
+    else:
+        for _, _, env_kwargs in iter_env_kwargs(cfg, args.env_id):
+            (x, y, pre), successes = capture_from_rollout(model, cfg, env_kwargs, args)
+            add(env_kwargs["env_id"], x, y, pre)
+            extra_report_rows.append([env_kwargs["env_id"], f"{successes}/{args.num_episodes}"])
+
+    norm = embedder_output_norm(model.embedder)
+    fields = describe_model_config(
+        model,
+        cfg,
+        extra=[("source", args.source), ("output_norm", type(norm).__name__ if norm else "none")],
+    )
+    save_path = figure_path(
+        SCRIPT_NAME,
+        f"linearity-{args.source}",
+        run_slug=slug,
+        out_dir=args.out_dir,
+    )
+    plot_linearity(results, fields, save_path, show=args.show, dpi=args.dpi)
+
+    report = Report("Embedder linearity", [("ckpt", str(args.ckpt_path)), *fields])
+    report.section("Scores")
+    report.table(
+        ["source", "samples", "in-dim", "out-dim", "R^2", "CKA", "cos(affine)"],
+        [
+            [
+                label,
+                result["num_samples"],
+                result["task_dim"],
+                result["output_dim"],
+                f"{result['r2']:.4f}",
+                f"{result['cka']:.4f}",
+                f"{result['cosine_mean']:.4f} +/- {result['cosine_std']:.4f}",
+            ]
+            for label, result in results.items()
+        ],
+    )
+
+    if extra_report_rows:
+        report.section("Rollout success").table(["env", "success_once"], extra_report_rows)
+
+    report.section("Reading")
+    for label, result in results.items():
+        report.kv(label, verdict(result["r2"], result["cka"]))
+    if norm is not None:
+        report.note(
+            f"The embedder ends in a {type(norm).__name__}, which is itself nonlinear. The "
+            "post-norm score therefore describes the embedder and the normalisation together; the "
+            "pre-norm score isolates the embedder's own map."
+        )
+
+    report.emit(save_path, save=not args.no_report)
 
 
 if __name__ == "__main__":

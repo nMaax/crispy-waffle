@@ -1,7 +1,12 @@
-"""Visualization script for linear layer weights and biases from PyTorch checkpoints.
+"""Plots the weight matrices and bias vectors of a checkpoint's linear layers.
 
-Loads a .ckpt file and plots weight matrices and bias vectors using matplotlib.
+Pass `--list-modules` to discover which prefixes a checkpoint actually contains.
+
+Alongside each figure it writes a report of per-layer weight statistics (spread, saturation, how
+much of the layer is effectively zero).
 """
+
+from __future__ import annotations
 
 import argparse
 import re
@@ -12,16 +17,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from scripts.utils import cli, theme
+from scripts.utils.checkpoints import checkpoint_slug
+from scripts.utils.figures import figure_path, save_figure, slugify
+from scripts.utils.report import Report
+
+SCRIPT_NAME = Path(__file__).stem
+
+# Matrices at most this wide/tall get their values written into the cells.
+ANNOTATE_MAX_DIM = 12
+# Above this many rows/columns, per-index ticks become unreadable.
+TICK_MAX_DIM = 50
+
 
 def get_layer_index(key: str) -> int:
-    """Extract numeric layer index from state dict key (e.g., 'net.0.weight' -> 0)."""
+    """Extracts the numeric layer index from a state-dict key, e.g. `net.0.weight` -> 0."""
     matches = re.findall(r"\.(\d+)\.", key)
     return int(matches[-1]) if matches else 0
 
 
 def extract_state_dict(ckpt_path: Path) -> dict[str, torch.Tensor]:
-    """Load checkpoint file and extract state_dict."""
-    print(f"Loading checkpoint from: {ckpt_path}")
+    """Loads a checkpoint and returns its state dict."""
     try:
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     except Exception:
@@ -32,80 +48,188 @@ def extract_state_dict(ckpt_path: Path) -> dict[str, torch.Tensor]:
     return checkpoint
 
 
+# Module-name fragments that mark a normalisation layer. Matched by name because this script works
+# on a raw state dict and never instantiates the model, so the module classes are not available.
+NORM_MODULE_HINTS = ("norm", "layernorm", "batchnorm", "groupnorm", "_ln", "_bn")
+
+# Parameters that are learned lookups rather than maps: positional embeddings, learned queries.
+VECTOR_PARAM_HINTS = ("emb", "query")
+
+
+def is_weight_key(key: str) -> bool:
+    """Whether a state-dict key holds a learned weight rather than a bias."""
+    name = key.rsplit(".", 1)[-1]
+    return name == "weight" or (name.endswith("_weight") and not name.endswith("bias"))
+
+
+def bias_key_for(weight_key: str) -> str:
+    """The bias that pairs with a weight, for both the `.weight` and `in_proj_weight` spellings."""
+    return weight_key[: -len("weight")] + "bias"
+
+
+def parameter_kind(key: str, tensor: torch.Tensor) -> str:
+    """Classifies a parameter as `linear`, `norm` or `vector`."""
+    *path, name = key.split(".")
+    module = path[-1].lower() if path else ""
+
+    if any(hint in name.lower() for hint in VECTOR_PARAM_HINTS):
+        return "vector"
+    if any(hint in module for hint in NORM_MODULE_HINTS):
+        return "norm"
+    return "linear" if tensor.ndim >= 2 else "vector"
+
+
+def all_parameters(state_dict: dict[str, torch.Tensor]) -> list[tuple[str, str]]:
+    """Every non-bias parameter with its kind, sorted by key."""
+    return [
+        (key, parameter_kind(key, state_dict[key]))
+        for key in sorted(state_dict)
+        if not key.rsplit(".", 1)[-1].endswith("bias")
+    ]
+
+
 def list_available_modules(state_dict: dict[str, torch.Tensor]) -> list[str]:
-    """Inspect state dict and return candidate prefixes containing weight tensors."""
-    weight_keys = [k for k in state_dict.keys() if k.endswith(".weight")]
+    """Returns candidate `--prefix` values: every module path that owns a weight tensor."""
     prefixes = set()
-    for wk in weight_keys:
-        # e.g., 'agent.model.net.0.weight' -> 'agent.model.net.'
-        parts = wk.split(".")
+    for key in (k for k in state_dict if is_weight_key(k)):
+        parts = key.split(".")
         if len(parts) > 1:
-            prefix = ".".join(parts[:-1]) + "."
-            prefixes.add(prefix)
-            # also add parent module prefix (e.g., 'agent.model.')
+            prefixes.add(".".join(parts[:-1]) + ".")
             if len(parts) > 2:
                 prefixes.add(".".join(parts[:-2]) + ".")
-
     return sorted(prefixes)
 
 
-def find_layers(prefix: str, state_dict: dict[str, Any]) -> list[tuple[str, str | None]]:
-    """Find matching weight and bias key pairs for a given module prefix."""
-    # Match keys starting with prefix or containing prefix
-    weight_keys = [
-        k for k in state_dict.keys()
-        if (k.startswith(prefix) or f".{prefix}" in k) and k.endswith(".weight")
-    ]
+def report_available_modules(state_dict: dict[str, torch.Tensor], report: Report) -> None:
+    """Records the discoverable prefixes and every parameter with its kind."""
+    report.section("Available prefixes")
+    for prefix in list_available_modules(state_dict):
+        report.note(f"--prefix {prefix}")
 
-    if not weight_keys and not prefix.endswith("."):
-        prefix_dot = f"{prefix}."
-        weight_keys = [
-            k for k in state_dict.keys()
-            if (k.startswith(prefix_dot) or f".{prefix_dot}" in k) and k.endswith(".weight")
+    report.section("Parameters")
+    report.table(
+        ["key", "shape", "kind"],
+        [
+            [key, str(tuple(state_dict[key].shape)), kind]
+            for key, kind in all_parameters(state_dict)
+        ],
+    )
+    report.note(
+        "Only `linear` parameters are plotted by default; pass --include-norms for the rest."
+    )
+
+
+def find_layers(
+    prefix: str, state_dict: dict[str, Any], include_norms: bool = False
+) -> list[tuple[str, str | None, str]]:
+    """Finds `(weight_key, bias_key, kind)` under a module prefix, ordered by layer index."""
+
+    def matching(candidate_prefix: str) -> list[str]:
+        return [
+            key
+            for key in state_dict
+            if (key.startswith(candidate_prefix) or f".{candidate_prefix}" in key)
+            and is_weight_key(key)
         ]
 
-    layers: list[tuple[str, str | None]] = []
-    for wk in weight_keys:
-        bk = wk.replace(".weight", ".bias")
-        layers.append((wk, bk if bk in state_dict else None))
+    weight_keys = matching(prefix)
+    if not weight_keys and not prefix.endswith("."):
+        weight_keys = matching(f"{prefix}.")
 
-    layers.sort(key=lambda x: get_layer_index(x[0]))
+    layers = []
+    for key in weight_keys:
+        kind = parameter_kind(key, state_dict[key])
+        if kind != "linear" and not include_norms:
+            continue
+        bias = bias_key_for(key)
+        layers.append((key, bias if bias in state_dict else None, kind))
+
+    layers.sort(key=lambda entry: get_layer_index(entry[0]))
     return layers
 
 
-def visualize_linear_weights(
+def as_matrix(tensor: torch.Tensor) -> np.ndarray:
+    """Flattens a parameter to 2D so it can be shown as a heatmap."""
+    matrix: np.ndarray = tensor.detach().cpu().numpy()
+    if matrix.ndim == 1:
+        return matrix.reshape(1, -1)
+    if matrix.ndim > 2:
+        return matrix.reshape(matrix.shape[0], -1)
+    return matrix
+
+
+def summarise(matrix: np.ndarray) -> dict[str, float]:
+    """Per-layer statistics worth reading before squinting at the heatmap."""
+    magnitude = float(np.max(np.abs(matrix))) if matrix.size else 0.0
+    threshold = 0.01 * magnitude
+    return {
+        "mean": float(np.mean(matrix)) if matrix.size else 0.0,
+        "std": float(np.std(matrix)) if matrix.size else 0.0,
+        "max_abs": magnitude,
+        "near_zero_frac": float(np.mean(np.abs(matrix) <= threshold)) if matrix.size else 0.0,
+    }
+
+
+def draw_parameter(
+    ax: plt.Axes,
+    matrix: np.ndarray,
+    title: str,
+    cmap,
+    *,
+    snap: bool,
+    colorbar_label: str,
+    annotate: bool,
+    show_xticks: bool = True,
+) -> None:
+    """Draws one weight matrix or bias vector, with symmetric colour limits around zero."""
+    if snap:
+        vmin, vmax = -1.1, 1.1
+    else:
+        magnitude = float(np.max(np.abs(matrix))) if matrix.size else 1.0
+        vmin, vmax = -magnitude, magnitude or 1.0
+
+    image = ax.imshow(matrix, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+    plt.colorbar(image, ax=ax, label=colorbar_label)
+    ax.set_title(title, fontsize=10, color=theme.TEXT_SECONDARY)
+
+    if show_xticks and matrix.shape[1] <= TICK_MAX_DIM:
+        ax.set_xticks(range(matrix.shape[1]))
+    elif not show_xticks:
+        ax.set_xticks([])
+    if matrix.shape[0] <= TICK_MAX_DIM:
+        ax.set_yticks(range(matrix.shape[0]))
+
+    ax.grid(which="both", color=theme.GRID, linestyle="-", linewidth=0.1, alpha=0.3)
+
+    if annotate and max(matrix.shape) <= ANNOTATE_MAX_DIM:
+        for row in range(matrix.shape[0]):
+            for col in range(matrix.shape[1]):
+                ax.text(
+                    col,
+                    row,
+                    f"{matrix[row, col]:.2f}",
+                    ha="center",
+                    va="center",
+                    color=theme.TEXT_PRIMARY,
+                    fontsize=8,
+                )
+
+
+def visualize_weights(
     ckpt_path: Path,
     prefix: str,
-    save_path: Path | None = None,
-    snap_weights: bool = False,
-    cmap: str = "seismic",
-    annotate_small: bool = True,
+    layers: list[tuple[str, str | None, str]],
+    state_dict: dict[str, torch.Tensor],
+    save_path: Path,
+    report: Report,
+    *,
+    snap_weights: bool,
+    show: bool,
+    dpi: int,
 ) -> None:
-    """Load checkpoint and plot weights/biases for linear layers matching prefix."""
-    state_dict = extract_state_dict(ckpt_path)
-    layers = find_layers(prefix, state_dict)
-
-    if not layers:
-        print(f"\n[Error] Could not find any weight tensors matching prefix/module: '{prefix}'")
-        print("\nAvailable weight prefixes in checkpoint:")
-        avail_prefixes = list_available_modules(state_dict)
-        for p in avail_prefixes:
-            print(f"  --prefix {p}")
-        print("\nAvailable weight keys:")
-        for k in sorted(state_dict.keys()):
-            if k.endswith(".weight"):
-                print(f"  - {k} (shape: {tuple(state_dict[k].shape)})")
-        return
-
+    """Renders one row per layer: the weight matrix, and its bias vector beside it."""
+    cmap = theme.diverging_cmap()
     num_layers = len(layers)
-    print(f"Found {num_layers} layer(s) matching prefix '{prefix}'.")
-
-    if save_path is None:
-        clean_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", prefix.strip("."))
-        save_path = Path(
-            f"scripts/figures/visualize_linear_weights/"
-            f"linear_weights_{ckpt_path.stem}_{clean_prefix}.png"
-        )
 
     fig, axes = plt.subplots(
         num_layers,
@@ -114,146 +238,163 @@ def visualize_linear_weights(
         squeeze=False,
         gridspec_kw={"width_ratios": [10, 1]},
     )
-    fig.suptitle(f"Weight & Bias Visualization: {ckpt_path.name}\nPrefix: '{prefix}'", fontsize=14, y=0.99)
+    theme.set_title(
+        fig,
+        "Layer weights and biases",
+        [("ckpt", ckpt_path.name), ("prefix", prefix), ("layers", str(num_layers))],
+    )
 
-    for i, (w_key, b_key) in enumerate(layers):
-        ax_w = axes[i, 0]
-        ax_b = axes[i, 1]
-
-        # Weight matrix visualization
-        weight_tensor = state_dict[w_key]
-        weight_matrix: np.ndarray = weight_tensor.detach().cpu().numpy()
-        if weight_matrix.ndim == 1:
-            weight_matrix = weight_matrix.reshape(1, -1)
-        elif weight_matrix.ndim > 2:
-            # Flatten spatial / conv dimensions into 2D matrix
-            weight_matrix = weight_matrix.reshape(weight_matrix.shape[0], -1)
-
+    stats_rows = []
+    for index, (weight_key, bias_key, kind) in enumerate(layers):
+        weight = as_matrix(state_dict[weight_key])
         if snap_weights:
-            weight_matrix = np.round(weight_matrix)
+            weight = np.round(weight)
 
-        print(f"Layer {i+1}/{num_layers} ({w_key}): shape {weight_matrix.shape}")
+        draw_parameter(
+            axes[index, 0],
+            weight,
+            f"weights: {weight_key} {tuple(weight.shape)}",
+            cmap,
+            snap=snap_weights,
+            colorbar_label="weight",
+            annotate=True,
+        )
+        axes[index, 0].set_xlabel("input dim", fontsize=9)
+        axes[index, 0].set_ylabel("output dim", fontsize=9)
 
-        if snap_weights:
-            vmin, vmax = -1.1, 1.1
-        else:
-            mag = float(np.max(np.abs(weight_matrix))) if weight_matrix.size > 0 else 1.0
-            vmin, vmax = -mag, mag
+        stats = summarise(weight)
+        stats_rows.append(
+            [
+                weight_key,
+                kind,
+                str(tuple(weight.shape)),
+                f"{stats['mean']:+.4f}",
+                f"{stats['std']:.4f}",
+                f"{stats['max_abs']:.4f}",
+                f"{stats['near_zero_frac']:.1%}",
+            ]
+        )
 
-        im_w = ax_w.imshow(weight_matrix, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
-        plt.colorbar(im_w, ax=ax_w, label="Weight Value")
-
-        ax_w.set_title(f"Weights: {w_key} {tuple(weight_matrix.shape)}", fontsize=11)
-        ax_w.set_xlabel("Input Dim", fontsize=10)
-        ax_w.set_ylabel("Output Dim", fontsize=10)
-
-        if weight_matrix.shape[1] <= 50:
-            ax_w.set_xticks(range(weight_matrix.shape[1]))
-        if weight_matrix.shape[0] <= 50:
-            ax_w.set_yticks(range(weight_matrix.shape[0]))
-        ax_w.grid(which="both", color="black", linestyle="-", linewidth=0.1, alpha=0.3)
-
-        # Annotate small matrices with values
-        if annotate_small and weight_matrix.shape[0] <= 12 and weight_matrix.shape[1] <= 12:
-            for r in range(weight_matrix.shape[0]):
-                for c in range(weight_matrix.shape[1]):
-                    val = weight_matrix[r, c]
-                    color = "white" if abs(val) > 0.5 * max(abs(vmin), abs(vmax)) else "black"
-                    ax_w.text(c, r, f"{val:.2f}", ha="center", va="center", color=color, fontsize=8)
-
-        # Bias vector visualization
-        if b_key is not None:
-            bias_tensor = state_dict[b_key]
-            bias_vec: np.ndarray = bias_tensor.detach().cpu().numpy().reshape(-1, 1)
+        if bias_key is not None:
+            bias = as_matrix(state_dict[bias_key]).reshape(-1, 1)
             if snap_weights:
-                bias_vec = np.round(bias_vec)
-
-            print(f"Layer {i+1}/{num_layers} ({b_key}): shape {bias_vec.shape}")
-
-            if snap_weights:
-                bvmin, bvmax = -1.1, 1.1
-            else:
-                bmag = float(np.max(np.abs(bias_vec))) if bias_vec.size > 0 else 1.0
-                bvmin, bvmax = -bmag, bmag
-
-            im_b = ax_b.imshow(bias_vec, cmap=cmap, aspect="auto", vmin=bvmin, vmax=bvmax)
-            plt.colorbar(im_b, ax=ax_b, label="Bias Value")
-
-            ax_b.set_title(f"Bias: {b_key}", fontsize=11)
-            ax_b.set_xticks([])
-            if bias_vec.shape[0] <= 50:
-                ax_b.set_yticks(range(bias_vec.shape[0]))
-            ax_b.grid(which="both", color="black", linestyle="-", linewidth=0.1, alpha=0.3)
+                bias = np.round(bias)
+            draw_parameter(
+                axes[index, 1],
+                bias,
+                f"bias: {bias_key.split('.')[-2]}",
+                cmap,
+                snap=snap_weights,
+                colorbar_label="bias",
+                annotate=False,
+                show_xticks=False,
+            )
         else:
-            ax_b.axis("off")
-            ax_b.set_title("No Bias", fontsize=11)
+            axes[index, 1].axis("off")
+            axes[index, 1].set_title("no bias", fontsize=10, color=theme.TEXT_MUTED)
 
-    plt.tight_layout()
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
-    print(f"\n[Success] Weight visualization saved to: {save_path}")
+    report.section("Per-layer weight statistics")
+    report.table(["layer", "shape", "mean", "std", "max|w|", "near-zero"], stats_rows)
+    report.note(
+        "near-zero counts weights below 1% of that layer's own largest weight; a high value "
+        "means most of the layer contributes little relative to its strongest connection."
+    )
+
+    save_figure(fig, save_path, show=show, dpi=dpi)
+    print(f"Figure saved: {save_path}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        parents=[cli.checkpoint_args(), cli.output_args()],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--prefix",
+        "-p",
+        type=str,
+        default=None,
+        help="Module prefix to plot, e.g. 'embedder.' or 'network.'. Omit to list what the "
+        "checkpoint contains.",
+    )
+    parser.add_argument(
+        "--list-modules",
+        "-l",
+        action="store_true",
+        help="List the weight modules in the checkpoint and exit.",
+    )
+    parser.add_argument(
+        "--include-norms",
+        action="store_true",
+        help="Also plot normalisation gains and learned vectors. Off by default: they are "
+        "per-feature scales, not maps, so a heatmap of them invites reading structure that is not "
+        "there.",
+    )
+    parser.add_argument(
+        "--snap-weights",
+        action="store_true",
+        help="Round weights to the nearest integer before plotting, to check for quantised or "
+        "near-binary structure.",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Visualize weights and biases of linear/neural network layers from PyTorch checkpoints."
-    )
-    parser.add_argument("ckpt_path", type=Path, help="Path to PyTorch .ckpt file.")
-    parser.add_argument(
-        "--prefix", "-p",
-        type=str,
-        required=False,
-        default=None,
-        help="Module prefix/name to visualize (e.g. 'model', 'agent.mlp', 'encoder'). Required unless --list-modules is passed.",
-    )
-    parser.add_argument(
-        "--save_path", "-s",
-        type=Path,
-        default=None,
-        help="Output path for plot. Default: "
-        "scripts/figures/visualize_linear_weights/linear_weights_<ckpt>_<prefix>.png",
-    )
-    parser.add_argument(
-        "--list-modules", "-l",
-        action="store_true",
-        help="List available weight modules in checkpoint and exit.",
-    )
-    parser.add_argument(
-        "--snap_weights",
-        action="store_true",
-        help="Snap weights to nearest integer values before plotting.",
-    )
-    parser.add_argument(
-        "--cmap",
-        type=str,
-        default="seismic",
-        help="Matplotlib colormap (default: seismic).",
-    )
-    args = parser.parse_args()
+    args = parse_args()
+    theme.apply_theme()
 
     state_dict = extract_state_dict(args.ckpt_path)
+    slug = args.run_label or checkpoint_slug(args.ckpt_path)
 
     if args.list_modules or args.prefix is None:
-        print("\nAvailable weight prefixes in checkpoint:")
-        avail_prefixes = list_available_modules(state_dict)
-        for p in avail_prefixes:
-            print(f"  --prefix {p}")
-        print("\nAll weight keys in state dict:")
-        for k in sorted(state_dict.keys()):
-            if k.endswith(".weight"):
-                print(f"  - {k} (shape: {tuple(state_dict[k].shape)})")
-
+        report = Report(
+            "Checkpoint weight inventory",
+            [("ckpt", str(args.ckpt_path)), ("tensors", str(len(state_dict)))],
+        )
+        report_available_modules(state_dict, report)
         if args.prefix is None and not args.list_modules:
-            print("\n[Notice] Please specify a module prefix using --prefix / -p.")
+            report.section("Next step").note("Pick one of the prefixes above and pass --prefix.")
+        report.emit(
+            figure_path(SCRIPT_NAME, "modules", run_slug=slug, out_dir=args.out_dir, ext="png"),
+            save=not args.no_report,
+        )
         return
 
-    visualize_linear_weights(
-        ckpt_path=args.ckpt_path,
-        prefix=args.prefix,
-        save_path=args.save_path,
-        snap_weights=args.snap_weights,
-        cmap=args.cmap,
+    layers = find_layers(args.prefix, state_dict, include_norms=args.include_norms)
+    save_path = figure_path(
+        SCRIPT_NAME,
+        f"weights-{slugify(args.prefix.strip('.'))}",
+        run_slug=slug,
+        out_dir=args.out_dir,
     )
+
+    report = Report(
+        "Layer weights and biases",
+        [("ckpt", str(args.ckpt_path)), ("prefix", args.prefix)],
+    )
+
+    if not layers:
+        report.section("No match").note(
+            f"No plottable weight tensors matched prefix {args.prefix!r}. If the module contains "
+            "only normalisation gains or learned vectors, pass --include-norms."
+        )
+        report_available_modules(state_dict, report)
+        report.emit(save_path, save=not args.no_report)
+        return
+
+    visualize_weights(
+        args.ckpt_path,
+        args.prefix,
+        layers,
+        state_dict,
+        save_path,
+        report,
+        snap_weights=args.snap_weights,
+        show=args.show,
+        dpi=args.dpi,
+    )
+    report.emit(save_path, save=not args.no_report)
 
 
 if __name__ == "__main__":
