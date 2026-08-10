@@ -161,12 +161,8 @@ def observations(run: RunEntry) -> list[str]:
 
 
 def superseded_by(run: RunEntry, runs: dict[str, RunEntry]) -> RunEntry | None:
-    """A later run of the same experiment *and sweep point* (her_ratio, seed) that is at least as
-    complete, if there is one.
-
-    Matching on the experiment name alone would flag one HER/seed sweep point as a redundant copy
-    of another just because it ran on a different day.
-    """
+    """A later run of the same experiment and sweep point (her_ratio, seed) that is at least as
+    complete, if there is one."""
     for other in runs.values():
         if (
             other.sweep_identity == run.sweep_identity
@@ -217,8 +213,6 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
     )
 
     if sort == "name":
-        # One section per experiment: the name is 30-50 characters and repeating it on every row
-        # both wastes the width every other column needs and hides which runs are siblings.
         for experiment in dict.fromkeys(run.experiment for run in ordered):
             group = [run for run in ordered if run.experiment == experiment]
             report.section(experiment)
@@ -232,11 +226,11 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
     candidates = [run for run in ordered if reasons[run.prefix]]
     report.section("Prune candidates")
     if not candidates:
-        report.note("None: no run is superseded by a later, at-least-as-complete one.")
+        report.note("None: no run is superseded by a later one.")
     else:
         report.note(
-            f"{len(candidates)} of {len(ordered)} runs are superseded by a later, at-least-as-"
-            "complete run of the same experiment. Paste the ones you agree with; this script "
+            f"{len(candidates)} of {len(ordered)} runs are superseded by a later run of "
+            "the same experiment. Paste the ones you agree with; this script "
             "deletes nothing."
         )
         report.blank()
@@ -249,8 +243,12 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
     report.blank()
     report.note(
         "Deleting files does not shrink the repo: every revision of an overwritten last.ckpt stays "
-        "in LFS history. Use HfApi().super_squash_history() when the repo size stops matching what "
-        "the tree above accounts for."
+        "in LFS history. Squash it when the repo size stops matching what the tree above accounts "
+        "for (irreversible; HF's storage quota takes up to 36h to reflect it):"
+    )
+    report.raw(
+        'uv run python -c "from huggingface_hub import HfApi; '
+        f"HfApi().super_squash_history(repo_id='{repo_id}', repo_type='model')\""
     )
     return report
 
