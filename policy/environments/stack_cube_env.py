@@ -5,7 +5,7 @@ from mani_skill.envs.tasks.tabletop.stack_cube import StackCubeEnv as ManiSkillS
 from mani_skill.utils.registration import register_env
 
 
-@register_env("StackCube-v1", max_episode_steps=50, override=True)
+@register_env("StackCube-v1", max_episode_steps=250, override=True)
 class StackCubeEnv(ManiSkillStackCubeEnv):
     STATE_SCHEMA = {
         "agent": {

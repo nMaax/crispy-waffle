@@ -8,7 +8,7 @@ from mani_skill.utils.registration import register_env
 from .place_sphere_env import PlaceSphereEnv
 
 
-@register_env("PlaceSphereRestrictedSpawn-v1", max_episode_steps=50, override=True)
+@register_env("PlaceSphereRestrictedSpawn-v1", max_episode_steps=250, override=True)
 class PlaceSphereRestrictedSpawnEnv(ManiSkillPlaceSphereRestrictedSpawnEnv):
     STATE_SCHEMA = PlaceSphereEnv.STATE_SCHEMA
     generate_heuristic_goal = PlaceSphereEnv.generate_heuristic_goal

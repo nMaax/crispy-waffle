@@ -7,7 +7,7 @@ from policy.environments.place_cube_left_env import PlaceCubeLeftEnv
 from policy.environments.stack_cube_env import StackCubeEnv
 
 
-@register_env("PlaceCubeRight-v1", max_episode_steps=50, override=True)
+@register_env("PlaceCubeRight-v1", max_episode_steps=250, override=True)
 class PlaceCubeRightEnv(ManiSkillPlaceCubeRightEnv):
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
     # The heuristic goal is offset-agnostic: it reads ``TARGET_Y_OFFSET`` from the

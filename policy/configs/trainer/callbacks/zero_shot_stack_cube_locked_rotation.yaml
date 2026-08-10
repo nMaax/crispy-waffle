@@ -1,0 +1,64 @@
+defaults:
+  - test_stack_cube_locked_rotation.yaml
+  - _self_
+
+# Adds zero-shot rollout evaluation on the 3 generalization envs (locked-rotation variants) on top
+# of the in-distribution `StackCubeLockedRotation-v1` rollout, for a single test invocation that
+# logs one wandb bar chart per metric comparing all 4 envs. See `RolloutEvaluationCallback`'s
+# `name` param and `policy/eval.py::_log_zero_shot_bar_charts`.
+rollout_evaluation:
+  name: "StackCubeLockedRotation-v1"
+
+rollout_evaluation_place_left:
+  _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+  _recursive_: false
+  num_episodes: 100
+  num_envs: null
+  max_episode_steps: 250
+  ignore_terminations: true
+  clamp_action: true
+  video_dir: null
+  seed: ${seed}
+  env_id: "PlaceCubeLeftLockedRotation-v1"
+  name: "PlaceCubeLeftLockedRotation-v1"
+  robot_uids: null
+  obs_mode: "state"
+  control_mode: "pd_ee_delta_pos"
+  physx_backend: "physx_cuda"
+  canonicalize: true
+
+rollout_evaluation_place_right:
+  _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+  _recursive_: false
+  num_episodes: 100
+  num_envs: null
+  max_episode_steps: 250
+  ignore_terminations: true
+  clamp_action: true
+  video_dir: null
+  seed: ${seed}
+  env_id: "PlaceCubeRightLockedRotation-v1"
+  name: "PlaceCubeRightLockedRotation-v1"
+  robot_uids: null
+  obs_mode: "state"
+  control_mode: "pd_ee_delta_pos"
+  physx_backend: "physx_cuda"
+  canonicalize: true
+
+rollout_evaluation_stack_swapped:
+  _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+  _recursive_: false
+  num_episodes: 100
+  num_envs: null
+  max_episode_steps: 250
+  ignore_terminations: true
+  clamp_action: true
+  video_dir: null
+  seed: ${seed}
+  env_id: "StackCubeSwappedLockedRotation-v1"
+  name: "StackCubeSwappedLockedRotation-v1"
+  robot_uids: null
+  obs_mode: "state"
+  control_mode: "pd_ee_delta_pos"
+  physx_backend: "physx_cuda"
+  canonicalize: true

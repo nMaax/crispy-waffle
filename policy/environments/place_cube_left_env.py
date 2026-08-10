@@ -9,7 +9,7 @@ from mani_skill.utils.registration import register_env
 from policy.environments.stack_cube_env import StackCubeEnv
 
 
-@register_env("PlaceCubeLeft-v1", max_episode_steps=50, override=True)
+@register_env("PlaceCubeLeft-v1", max_episode_steps=250, override=True)
 class PlaceCubeLeftEnv(ManiSkillPlaceCubeLeftEnv):
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
 

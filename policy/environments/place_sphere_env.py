@@ -8,7 +8,7 @@ from mani_skill.envs.tasks.tabletop.place_sphere import (
 from mani_skill.utils.registration import register_env
 
 
-@register_env("PlaceSphere-v1", max_episode_steps=50, override=True)
+@register_env("PlaceSphere-v1", max_episode_steps=250, override=True)
 class PlaceSphereEnv(ManiSkillPlaceSphereEnv):
     STATE_SCHEMA = {
         "agent": {

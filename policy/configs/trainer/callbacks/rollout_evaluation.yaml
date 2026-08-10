@@ -3,7 +3,7 @@ rollout_evaluation:
   _recursive_: false
   num_episodes: 50 # default for training
   num_envs: null # =1: CPU backend, >1: GPU backend, null: auto, i.e., min(num_val_episodes, num_test_episodes)
-  max_episode_steps: 200 # WARN: HIGHLY IMPORTANT!!!
+  max_episode_steps: 250 # WARN: HIGHLY IMPORTANT!!!
   ignore_terminations: true # WARN: HIGHLY IMPORTANT!!!
   clamp_action: true
   video_dir: null

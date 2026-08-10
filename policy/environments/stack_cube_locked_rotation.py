@@ -6,7 +6,7 @@ from mani_skill.utils.registration import register_env
 from policy.environments.stack_cube_env import StackCubeEnv
 
 
-@register_env("StackCubeLockedRotation-v1", max_episode_steps=50, override=True)
+@register_env("StackCubeLockedRotation-v1", max_episode_steps=250, override=True)
 class StackCubeLockedRotationEnv(ManiSkillStackCubeLockedRotationEnv):
     STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
     generate_heuristic_goal = StackCubeEnv.generate_heuristic_goal
