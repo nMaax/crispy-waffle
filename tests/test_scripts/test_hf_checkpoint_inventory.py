@@ -81,6 +81,16 @@ class TestSuperseded:
         other = RunEntry(prefix="logs/SomethingElse__X-v1__default__train/runs/2026-09-09/09-09-09")
         assert superseded_by(mine, as_dict(mine, other)) is None
 
+    def test_a_different_sweep_point_never_supersedes(self):
+        """her_ratio=0.8 and her_ratio=0.0 are two intentional runs, not one redundant with the
+        other, even under the same experiment name and even if one ran on a later day."""
+        early = run("runs/2026-08-05/21-19-46")
+        early.config = {"her_ratio": 0.8, "seed": 2}
+        later = run("multiruns/2026-08-08/12-03-25/0")
+        later.config = {"her_ratio": 0.0, "seed": 2}
+        assert superseded_by(early, as_dict(early, later)) is None
+        assert superseded_by(later, as_dict(early, later)) is None
+
 
 class TestPruneReasons:
     def test_a_sole_copy_is_never_a_prune_candidate(self):
@@ -127,9 +137,14 @@ def header_of(text: str) -> str:
 
 class TestBuildReport:
     def test_groups_runs_under_their_experiment(self):
-        """The experiment name is too wide to repeat per row, so it becomes a section heading."""
+        """The experiment name is too wide to repeat per row, so it becomes a section heading.
+
+        The heading keeps the full name (including the `GoalConditioned` prefix `compact_name`
+        strips for filenames) -- the report has room for it and truncating it here hid real
+        experiment identity, not just repetition.
+        """
         text = build_report("org/repo", as_dict(run("runs/2026-08-05/21-19-46")), "name").render()
-        assert "## DiffusionPolicyAttentionMLPPoolDeltaInput" in text
+        assert f"## {EXPERIMENT}" in text
         assert "experiment" not in header_of(text)
 
     def test_flat_sort_keeps_the_experiment_column(self):

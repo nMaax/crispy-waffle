@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from policy.algorithms.callbacks.hf_sync_model_checkpoint import RUN_STATUS_FILENAMES
-from scripts.utils.checkpoints import compact_name, split_run_path
+from scripts.utils.checkpoints import split_run_path
 from scripts.utils.report import Report, styled
 
 # Folder/file names that sit directly inside a run directory, and so mark where one ends.
@@ -44,6 +44,13 @@ class RunEntry:
     @property
     def seed(self) -> str:
         return _shown(self.config.get("seed") if self.config else None)
+
+    @property
+    def sweep_identity(self) -> tuple[str, object, object]:
+        """What makes two runs actual copies of each other, as opposed to different points in a
+        hyperparameter sweep (her_ratio, seed) that happen to share an experiment name."""
+        config = self.config or {}
+        return (self.experiment, config.get("her_ratio"), config.get("seed"))
 
     @property
     def completeness(self) -> tuple[int, int]:
@@ -154,10 +161,15 @@ def observations(run: RunEntry) -> list[str]:
 
 
 def superseded_by(run: RunEntry, runs: dict[str, RunEntry]) -> RunEntry | None:
-    """A later run of the same experiment that is at least as complete, if there is one."""
+    """A later run of the same experiment *and sweep point* (her_ratio, seed) that is at least as
+    complete, if there is one.
+
+    Matching on the experiment name alone would flag one HER/seed sweep point as a redundant copy
+    of another just because it ran on a different day.
+    """
     for other in runs.values():
         if (
-            other.experiment == run.experiment
+            other.sweep_identity == run.sweep_identity
             and other.when > run.when
             and other.completeness >= run.completeness
         ):
@@ -209,7 +221,7 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
         # both wastes the width every other column needs and hides which runs are siblings.
         for experiment in dict.fromkeys(run.experiment for run in ordered):
             group = [run for run in ordered if run.experiment == experiment]
-            report.section(compact_name(experiment))
+            report.section(experiment)
             report.table(*_rows(group, reasons, with_experiment=False))
     else:
         report.section("Runs")
@@ -260,7 +272,7 @@ def _rows(
 
     rows = [
         [
-            *([compact_name(run.experiment)] if with_experiment else []),
+            *([run.experiment] if with_experiment else []),
             run.when,
             *([styled(run.state, STATE_STYLES.get(run.state, ""))] if show_state else []),
             run.her_ratio,
