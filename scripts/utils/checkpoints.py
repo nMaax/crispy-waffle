@@ -76,12 +76,17 @@ def _checkpoint_metadata(ckpt_path_str: str) -> dict[str, Any]:
     }
 
 
+def split_run_path(parts: tuple[str, ...]) -> tuple[str | None, str | None]:
+    """Splits a run path around its `runs`/`multiruns` segment."""
+    for index, part in enumerate(parts):
+        if part in ("runs", "multiruns") and index > 0:
+            return parts[index - 1], "/".join(parts[index + 1 :]) or None
+    return None, None
+
+
 def _experiment_from_parts(parts: tuple[str, ...]) -> str | None:
     """Extracts `<experiment>` from a `.../<experiment>/{runs,multiruns}/<date>/...` path."""
-    for i, part in enumerate(parts):
-        if part in ("runs", "multiruns") and i > 0:
-            return parts[i - 1]
-    return None
+    return split_run_path(parts)[0]
 
 
 def experiment_name(ckpt_path: Path) -> str | None:

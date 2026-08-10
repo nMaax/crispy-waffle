@@ -294,7 +294,7 @@ def visualize_weights(
             axes[index, 1].set_title("no bias", fontsize=10, color=theme.TEXT_MUTED)
 
     report.section("Per-layer weight statistics")
-    report.table(["layer", "shape", "mean", "std", "max|w|", "near-zero"], stats_rows)
+    report.table(["layer", "kind", "shape", "mean", "std", "max|w|", "near-zero"], stats_rows)
     report.note(
         "near-zero counts weights below 1% of that layer's own largest weight; a high value "
         "means most of the layer contributes little relative to its strongest connection."
