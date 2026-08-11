@@ -1,0 +1,18 @@
+defaults:
+  - goal_conditioned_diffusion_policy
+  - override tokenizer: per_object
+  - override embedder: self_attention
+  - override network: unet1d_cross_attention
+
+_target_: policy.algorithms.cross_attention_goal_conditioned_diffusion_policy.CrossAttentionGoalConditionedDiffusionPolicy
+
+# PerObjectStateTokenizer's only compatible value (validated in configure_model): its tokens are
+# goal-relative by construction, so there is no absolute ("null") or post-embedder-diff
+# ("embedding") equivalent for it -- and this class further requires "input" since the network
+# cross-attends over the per-object token sequence that mode produces (see configure_model).
+goal_delta: input
+
+embedder:
+  obs_horizon: ${..obs_horizon}
+  # pooling stays null (the embedder/pooling default): the network cross-attends over the
+  # per-object token sequence, so nothing should collapse it into one vector first.

@@ -4,6 +4,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
+from policy.algorithms.cross_attention_goal_conditioned_diffusion_policy import (
+    CrossAttentionGoalConditionedDiffusionPolicy,
+)
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.mlp import MLP
@@ -153,6 +156,50 @@ class TestGoalConditionedDiffusionPolicyAttention(
 ):
     """Test suite for GoalConditionedDiffusionPolicy with the self-attention embedder, with and
     without a pooling head."""
+
+    def test_forward_pass_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+    ):
+        pytest.skip("Diffusion policies do not use standard forward pass during training.")
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch.get("goal", None)
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            training_step_content.batch["act_seq"].shape[0],
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
+
+@pytest.mark.parametrize(
+    "algorithm_config", ["goal_conditioned_diffusion_policy_cross_attention"], indirect=True
+)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicyCrossAttention(
+    LightningModuleTests[CrossAttentionGoalConditionedDiffusionPolicy]
+):
+    """Test suite for CrossAttentionGoalConditionedDiffusionPolicy (per-object tokens cross-
+    attended by CrossAttentionConditionalUnet1D, Stable-Diffusion-style)."""
 
     def test_forward_pass_is_reproducible(
         self,
@@ -825,6 +872,99 @@ class TestDiffusionPolicyLogic:
         assert isinstance(obs_cond, Mapping)
         assert torch.equal(obs_cond["proprio"], obs["proprio"])
         assert obs_cond["task"].shape == (batch_size, 2, 8 * 3)
+
+    @staticmethod
+    def _make_cross_attention_policy(**overrides) -> CrossAttentionGoalConditionedDiffusionPolicy:
+        kwargs = {
+            "network": {"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
+            "ema": {},
+            "noise_scheduler": {},
+            "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": {"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            "proprio_dim": 18,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
+            "goal_delta": "input",
+            "tokenizer": {"_target_": "policy.algorithms.tokenizers.PerObjectStateTokenizer"},
+            "embedder": {
+                "_target_": "policy.algorithms.networks.self_attention.SelfAttention",
+                "output_dim": 8,
+                "obs_horizon": 2,
+                "num_heads": 2,
+            },
+        }
+        kwargs.update(overrides)
+        policy = CrossAttentionGoalConditionedDiffusionPolicy(**kwargs)
+        # Mirrors _make_per_object_policy: pre-set the real tokenizer so configure_model()'s own
+        # tokenizer-dependent validation and shape logic run against real
+        # compatible_goal_deltas/output_dim/tokens_per_step values instead of the mocked
+        # hydra_zen.instantiate's MagicMock.
+        policy.tokenizer = PerObjectStateTokenizer()
+        return policy
+
+    def test_cross_attention_policy_rejects_a_single_token_tokenizer(self):
+        policy = self._make_cross_attention_policy(
+            tokenizer={"_target_": "policy.algorithms.tokenizers.FlattenStateTokenizer"},
+        )
+        policy.tokenizer = FlattenStateTokenizer(task_dim=policy.task_dim)
+        with pytest.raises(ValueError, match="tokens_per_step > 1"):
+            policy.configure_model()
+
+    def test_cross_attention_policy_rejects_a_non_input_goal_delta(self):
+        """Exercises _validate_tokenizer directly: with PerObjectStateTokenizer, configure_model()
+        would trip the base class's own compatible_goal_deltas check first (it only allows
+        "input" for this tokenizer too), so this checks the subclass's own rule in isolation
+        rather than depending on which of the two checks happens to fire first."""
+        policy = self._make_cross_attention_policy(goal_delta="embedding")
+        with pytest.raises(ValueError, match="goal_delta='input'"):
+            policy._validate_tokenizer(policy.tokenizer)
+
+    def test_cross_attention_policy_cond_dims_report_a_context_entry(self):
+        policy = self._make_cross_attention_policy()
+        policy.configure_model()
+
+        # Unlike the flattening path (test_per_object_tokenizer_cond_dims_account_for_tokens_per_step),
+        # "task" lives under a top-level "context" key, and its width is NOT multiplied by
+        # tokens_per_step -- that's a sequence-length concern for the network's cross-attention,
+        # not a per-token width one.
+        assert policy._get_cond_dims() == {"obs": {"proprio": 18}, "context": 8}
+
+    def test_cross_attention_policy_builds_a_context_token_sequence(self):
+        policy = self._make_cross_attention_policy()
+        policy.configure_model()
+        embedder = SelfAttention(
+            input_dim=policy.tokenizer.output_dim, output_dim=8, obs_horizon=2, num_heads=2
+        )
+        embedder.eval()
+        policy.embedder = embedder
+
+        batch_size = 2
+        obs = {
+            "proprio": torch.randn(batch_size, 2, 18),
+            "a_pose": torch.randn(batch_size, 2, 7),
+            "b_pose": torch.randn(batch_size, 2, 7),
+            "tcp_pose": torch.randn(batch_size, 2, 7),
+        }
+        goal = {
+            "proprio": torch.randn(batch_size, 18),
+            "a_pose": torch.randn(batch_size, 7),
+            "b_pose": torch.randn(batch_size, 7),
+            "tcp_pose": torch.randn(batch_size, 7),
+        }
+        ext_cond = policy._build_external_cond(obs, goal)
+
+        assert set(ext_cond) == {"obs", "context"}
+        obs_cond = ext_cond["obs"]
+        assert isinstance(obs_cond, Mapping)
+        assert set(obs_cond) == {"proprio"}
+        assert torch.equal(obs_cond["proprio"], obs["proprio"])  # proprio bypasses the embedder
+
+        # 3 tokens per timestep (objA, objB, TCP) x 2 timesteps, t-major k-minor, kept as a
+        # sequence (not folded into a wider per-timestep vector).
+        context = ext_cond["context"]
+        assert isinstance(context, torch.Tensor)
+        assert context.shape == (batch_size, 2 * 3, 8)
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

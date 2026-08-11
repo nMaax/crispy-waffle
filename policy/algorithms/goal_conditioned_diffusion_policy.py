@@ -106,6 +106,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 f"{type(tokenizer).__name__} has no standalone tokenization of a single "
                 "state (supports_single_side=False), so it cannot be used with goal_horizon=0."
             )
+        self._validate_tokenizer(tokenizer)
 
         self.embedder = (
             hydra_zen.instantiate(self.embedder_config, input_dim=tokenizer.output_dim)
@@ -113,6 +114,16 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             else nn.Identity()
         )
         super().configure_model()
+
+    def _validate_tokenizer(self, tokenizer: StateTokenizer) -> None:
+        """Extension point for subclasses with additional tokenizer-compatibility requirements
+        (e.g. cross-attention needing ``tokens_per_step > 1``). No-op by default.
+
+        Takes the already-resolved ``tokenizer`` rather than re-resolving it, so subclasses don't
+        need to re-implement ``configure_model()``'s ``self.network is not None`` guard or call
+        ``_resolve_tokenizer()`` a second time -- that guard-and-resolve pattern exists exactly
+        once, here.
+        """
 
     def _resolve_tokenizer(self) -> StateTokenizer:
         """Lazily constructs the tokenizer, caching it into ``self.tokenizer`` on first call --
@@ -161,11 +172,21 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _obs_cond_dims(self) -> dict[str, DimSpec]:
         embed_dim = self._embedder_output_dim()
+        tokens_per_step = self._resolve_tokenizer().tokens_per_step
+        return self._package_task_dims(embed_dim, tokens_per_step)
+
+    def _package_task_dims(self, embed_dim: int, tokens_per_step: int) -> dict[str, DimSpec]:
+        """Reports where the task conditioning's width lives in the ``cond_dims`` tree; mirrors
+        :meth:`_package_task`, which does the analogous packaging for the conditioning tensors
+        themselves.
+
+        Overridden by subclasses that route the task conditioning elsewhere (e.g. a
+        ``"context"`` entry for cross-attention).
+        """
         if self._embedder_pools_time():
             # A pooling embedder collapses the time axis, so "task" no longer shares "obs"'s
             # per-timestep width and must live outside it (mirrors "goal", which never has one).
             return {"obs": {"proprio": self.proprio_dim}, "task": embed_dim}
-        tokens_per_step = self._resolve_tokenizer().tokens_per_step
         return {"obs": {"proprio": self.proprio_dim, "task": embed_dim * tokens_per_step}}
 
     def _goal_cond_dims(self) -> dict[str, DimSpec]:
@@ -328,9 +349,18 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
 
     def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
         proprio, task_embedded = self._embed_states(obs)
+        return self._package_task(proprio, task_embedded)
+
+    def _package_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
+        """Packages proprioception and the (embedded) task conditioning into the external-cond
+        tree; mirrors :meth:`_package_task_dims`.
+
+        Overridden by subclasses that route the task
+        conditioning elsewhere (e.g. a ``"context"`` entry for cross-attention).
+        """
         if self._embedder_pools_time():
-            return {"obs": {"proprio": proprio}, "task": task_embedded}
-        return {"obs": {"proprio": proprio, "task": task_embedded}}
+            return {"obs": {"proprio": proprio}, "task": task}
+        return {"obs": {"proprio": proprio, "task": task}}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
         proprio, goal_embedded = self._embed_states(goal, is_goal=True)
@@ -374,9 +404,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         else:
             proprio = goal_proprio - obs_proprio
 
-        if self._embedder_pools_time():
-            return {"obs": {"proprio": proprio}, "task": task_delta}
-        return {"obs": {"proprio": proprio, "task": task_delta}}
+        return self._package_task(proprio, task_delta)
 
     def _embed_states(
         self, states: TensorTree, *, is_goal: bool = False
@@ -437,12 +465,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         task_embedded = self.embedder(task)
 
         if tokens_per_step > 1 and not self._embedder_pools_time():
-            # Fold the K per-object embeddings for each real timestep back into one wider
-            # per-timestep vector, so downstream conditioning code (and ConditionalUnet1D, which
-            # only ever flattens per-timestep conditioning) keep seeing "one vector per timestep"
-            # without needing any changes of their own.
-            b, t, k, d = task_embedded.shape
-            task_embedded = task_embedded.reshape(b, t, k * d)
+            task_embedded = self._fold_multi_token_embedding(task_embedded)
 
         # A pooling embedder already drops the time axis it was given, so there's nothing left to
         # squeeze; squeeze(1) would then operate on output_dim, which generally is not size 1
@@ -451,3 +474,15 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             task_embedded = task_embedded.squeeze(1)
 
         return task_embedded
+
+    def _fold_multi_token_embedding(self, task_embedded: torch.Tensor) -> torch.Tensor:
+        """Folds the K per-object embeddings for each real timestep back into one wider per-
+        timestep vector, so downstream conditioning code (and ``ConditionalUnet1D``, which only
+        ever flattens per-timestep conditioning) keep seeing "one vector per timestep" without
+        needing any changes of their own.
+
+        Overridden by subclasses that instead keep ``K`` as a sequence axis (e.g. for
+        cross-attention, where the per-object tokens must survive as separate context entries).
+        """
+        b, t, k, d = task_embedded.shape
+        return task_embedded.reshape(b, t, k * d)
