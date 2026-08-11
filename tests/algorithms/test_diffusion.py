@@ -301,39 +301,6 @@ class TestDiffusionPolicyLogic:
             assert torch.equal(prepared_dict[:, :10], dict_goal["task_a"])
             assert torch.equal(prepared_dict[:, 10:], dict_goal["task_b"])
 
-    def test_prepare_goal_includes_proprioception_when_configured(self):
-        """exclude_proprio_from_goal=False keeps proprio in the goal's cond shape/output."""
-        with patch(
-            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
-            return_value=MagicMock(),
-        ):
-            policy = GoalConditionedDiffusionPolicy(
-                network={"_target_": "policy.algorithms.networks.unet1d.UNet1D"},
-                ema={},
-                noise_scheduler={},
-                optimizer={},
-                act_dim=4,
-                obs_dim=48,
-                proprio_dim=18,
-                pred_horizon=16,
-                obs_horizon=2,
-                exclude_proprio_from_goal=False,
-            )
-            policy.configure_model()
-            assert policy._get_cond_dims() == {
-                "obs": {"proprio": 18, "task": 30},
-                "goal": {"proprio": 18, "task": 30},
-            }
-
-            tensor_goal = torch.randn(2, 48)
-            prepared_goal = policy._build_goal_external_cond(tensor_goal)["goal"]
-            assert isinstance(prepared_goal, Mapping)
-            assert torch.equal(prepared_goal["proprio"], tensor_goal[:, :18])
-            assert torch.equal(prepared_goal["task"], tensor_goal[:, 18:])
-
-            embeddings = policy.extract_embeddings(torch.randn(2, 2, 48), goal=tensor_goal)
-            assert embeddings["goal_embedding"].shape == (2, 30)
-
     def test_goal_horizon_zero_unconditioned(self):
         """goal_horizon=0 sets goal_conditioned=False and omits 'goal' key from cond_dims and
         external_cond."""
@@ -449,7 +416,7 @@ class TestDiffusionPolicyLogic:
             assert set(ext_cond) == {"obs"}
             obs_cond = ext_cond["obs"]
             assert isinstance(obs_cond, Mapping)
-            # Proprio passes through raw (exclude_proprio_from_goal defaults to True).
+            # Proprio passes through raw: the goal's own proprioception never enters conditioning.
             assert torch.equal(obs_cond["proprio"], obs[:, :, :18])
             assert obs_cond["task"].shape == (2, 2, 30)
             expected = goal[:, 18:].unsqueeze(1) - obs[:, :, 18:]
@@ -475,24 +442,6 @@ class TestDiffusionPolicyLogic:
             assert torch.equal(dict_cond["proprio"], dict_obs["proprio"])
             expected_a = dict_goal["task_a"].unsqueeze(1) - dict_obs["task_a"]
             assert torch.equal(dict_cond["task"][:, :, :10], expected_a)
-
-    def test_goal_delta_differences_proprio_when_included(self):
-        """A delta mode with exclude_proprio_from_goal=False differences proprio as well."""
-        with patch(
-            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
-            return_value=MagicMock(),
-        ):
-            policy = self._make_goal_delta_policy(exclude_proprio_from_goal=False)
-            policy.configure_model()
-            assert policy._get_cond_dims() == {"obs": {"proprio": 18, "task": 30}}
-
-            obs = torch.randn(2, 2, 48)
-            goal = torch.randn(2, 48)
-            obs_cond = policy._build_external_cond(obs, goal)["obs"]
-            assert isinstance(obs_cond, Mapping)
-            assert torch.equal(
-                obs_cond["proprio"], goal[:, :18].unsqueeze(1) - obs[:, :, :18]
-            )
 
     @pytest.mark.parametrize("goal_delta", ["input", "embedding"])
     def test_goal_delta_is_taken_in_the_configured_space(self, goal_delta: str):

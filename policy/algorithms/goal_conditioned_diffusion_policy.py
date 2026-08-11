@@ -41,9 +41,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
       See :meth:`_build_delta_external_cond`.
 
     Proprioception never goes through the ``embedder``, which keeps embedders robot-agnostic; it is
-    concatenated raw alongside the embedder outputs. ``exclude_proprio_from_goal=False`` adds the
-    goal's proprioception to those outputs, next to the historical proprioception when concatenated
-    with the embeddings.
+    concatenated raw alongside the embedder outputs. The goal's own proprioception is never part of
+    conditioning: only the historical (observed) proprioception is concatenated with the embeddings.
 
     ``tokenizer`` selects how a state (or a goal) becomes the raw, pre-embedder tokens that
     ``embedder`` attends/pools over.
@@ -58,7 +57,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         task_dim: int | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
         tokenizer: HydraConfigFor[StateTokenizer] | None = None,
-        exclude_proprio_from_goal: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -77,7 +75,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self.proprio_dim = proprio_dim
         self.task_dim = task_dim
         self.goal_dim = task_dim
-        self.exclude_proprio_from_goal = exclude_proprio_from_goal
 
         self.embedder_config = embedder
         self.embedder: nn.Module | None = None
@@ -193,11 +190,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         # Only reachable when goal_delta is None (see _goal_conditioned_cond_dims), which every
         # tokenizer with tokens_per_step > 1 disallows via compatible_goal_deltas -- so embed_dim
         # here is never multiplied by a per-timestep token count in practice.
-        embed_dim = self._embedder_output_dim()
-        if self.exclude_proprio_from_goal:
-            return {"goal": embed_dim}
-        else:
-            return {"goal": {"proprio": self.proprio_dim, "task": embed_dim}}
+        return {"goal": self._embedder_output_dim()}
 
     def _delta_cond_dims(self) -> dict[str, DimSpec]:
         # The differences have the same width as the obs entries, so the goal adds none of its own.
@@ -363,11 +356,8 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return {"obs": {"proprio": proprio, "task": task}}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
-        proprio, goal_embedded = self._embed_states(goal, is_goal=True)
-        if self.exclude_proprio_from_goal:
-            return {"goal": goal_embedded}
-        else:
-            return {"goal": {"proprio": proprio, "task": goal_embedded}}
+        _, goal_embedded = self._embed_states(goal, is_goal=True)
+        return {"goal": goal_embedded}
 
     def _build_delta_external_cond(
         self, obs: TensorTree, goal: TensorTree
@@ -387,9 +377,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
             )
 
-        if goal_proprio.ndim == obs_proprio.ndim - 1:
-            goal_proprio = goal_proprio.unsqueeze(1)
-
         # goal_task's own missing time axis is inserted here, on every leaf, rather than left to
         # each tokenizer: a goal-relative ("input") tokenize() call sees both sides and can insert
         # it itself, but goal_delta="embedding" tokenizes each side separately -- a lone,
@@ -399,12 +386,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
 
         task_delta = self._tokenize_delta(obs_task, goal_task)
-        if self.exclude_proprio_from_goal:
-            proprio = obs_proprio
-        else:
-            proprio = goal_proprio - obs_proprio
-
-        return self._package_task(proprio, task_delta)
+        # The goal's own proprioception never enters conditioning: only the historical (observed)
+        # proprioception is passed through raw, same as the absolute-conditioning path.
+        return self._package_task(obs_proprio, task_delta)
 
     def _embed_states(
         self, states: TensorTree, *, is_goal: bool = False
