@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import torch
 import torch.nn as nn
 
@@ -9,7 +11,7 @@ class ConditionedMLP(nn.Module):
         output_dim: int,
         num_conditions: int,
         embed_dim: int = 16,
-        hidden_dims: list[int] = [256, 256],
+        hidden_dims: Sequence[int] = (256, 256),
         bias: bool = True,
     ):
         super().__init__()

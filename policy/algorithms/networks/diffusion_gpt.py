@@ -1,9 +1,7 @@
-import math
 from collections.abc import Mapping
 
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 
 from policy.utils import concat_leaf_tensors, get_total_dim, resolve_task_width, split_leaf_key
 from policy.utils.typing_utils import DimSpec, TensorTree
@@ -11,43 +9,35 @@ from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 
 
 class CausalSelfAttention(nn.Module):
-    """A vanilla multi-head masked self-attention layer, adapted from BESO."""
+    """A multi-head masked self-attention layer, adapted from BESO.
+
+    Thin wrapper over ``nn.MultiheadAttention``: the packed QKV projection, the softmax and the
+    attention-weight dropout all live there; only the causal mask and the post-projection
+    (residual) dropout stay here.
+    """
+
+    mask: torch.Tensor
 
     def __init__(
         self, n_embd: int, n_heads: int, attn_pdrop: float, resid_pdrop: float, block_size: int
     ):
         super().__init__()
         assert n_embd % n_heads == 0
-        self.key = nn.Linear(n_embd, n_embd)
-        self.query = nn.Linear(n_embd, n_embd)
-        self.value = nn.Linear(n_embd, n_embd)
-
-        self.attn_drop = nn.Dropout(attn_pdrop)
-        self.resid_drop = nn.Dropout(resid_pdrop)
-        self.proj = nn.Linear(n_embd, n_embd)
-
-        # Causal mask to ensure attention is only applied to the left in the sequence
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size),
+        self.attn = nn.MultiheadAttention(
+            embed_dim=n_embd, num_heads=n_heads, dropout=attn_pdrop, batch_first=True
         )
-        self.n_head = n_heads
+        self.resid_drop = nn.Dropout(resid_pdrop)
+
+        # nn.MultiheadAttention's attn_mask polarity: True == "may not attend" (opposite of the
+        # old 1=allowed/0=disallowed float buffer). 2D so it broadcasts across batch and heads.
+        self.register_buffer(
+            "mask", torch.ones(block_size, block_size, dtype=torch.bool).triu(diagonal=1)
+        )
 
     def forward(self, x):
-        B, T, C = x.size()
-        k = self.key(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        q = self.query(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        v = self.value(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
-        att = F.softmax(att, dim=-1)
-        att = self.attn_drop(att)
-        y = att @ v
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
-
-        y = self.resid_drop(self.proj(y))
-        return y
+        T = x.size(1)
+        y, _ = self.attn(x, x, x, attn_mask=self.mask[:T, :T], need_weights=False)
+        return self.resid_drop(y)
 
 
 class Block(nn.Module):
@@ -196,6 +186,13 @@ class DiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         elif isinstance(module, nn.LayerNorm):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
+        elif isinstance(module, nn.MultiheadAttention):
+            # out_proj is reached via the nn.Linear branch above; only the packed in-projection
+            # is owned directly by this module (add_bias_kv=False, embed_dim==kdim==vdim here,
+            # so bias_k/bias_v/q_proj_weight etc. stay None).
+            torch.nn.init.normal_(module.in_proj_weight, mean=0.0, std=0.02)
+            if module.in_proj_bias is not None:
+                torch.nn.init.zeros_(module.in_proj_bias)
         elif isinstance(module, DiffusionGPT):
             torch.nn.init.normal_(module.pos_emb, mean=0.0, std=0.02)
 

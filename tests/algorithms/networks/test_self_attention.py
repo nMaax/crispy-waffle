@@ -27,7 +27,7 @@ def _load_self_attention_cfg_with_pooling(pooling_config_name: str):
     return embedder_cfg
 
 
-def test_self_attention_embedder_instantiates_and_runs():
+def test_self_attention_instantiates_and_runs():
     embedder_cfg = _load_embedder_cfg("self_attention")
 
     batch_size = 8
@@ -55,7 +55,22 @@ def test_self_attention_embedder_instantiates_and_runs():
             assert torch.isfinite(p.grad).all()
 
 
-def test_self_attention_embedder_rejects_a_longer_window_than_configured():
+def test_self_attention_has_a_feed_forward_sublayer():
+    """Regression guard: this is a full (post-norm) transformer block -- attention then FFN --
+    not attention-only. Guards against the FFN sublayer silently disappearing later."""
+    embedder_cfg = _load_embedder_cfg("self_attention")
+    output_dim = 12
+    embedder_cfg.input_dim = 16
+    embedder_cfg.output_dim = output_dim
+    embedder_cfg.obs_horizon = 3
+    embedder = hydra_zen.instantiate(embedder_cfg)
+
+    assert isinstance(embedder.mlp[0], torch.nn.Linear)
+    assert embedder.mlp[0].out_features == 4 * output_dim
+    assert isinstance(embedder.norm2, torch.nn.LayerNorm)
+
+
+def test_self_attention_rejects_a_longer_window_than_configured():
     embedder_cfg = _load_embedder_cfg("self_attention")
     embedder_cfg.input_dim = 16
     embedder_cfg.output_dim = 8
@@ -66,7 +81,7 @@ def test_self_attention_embedder_rejects_a_longer_window_than_configured():
         embedder(torch.randn(4, 3, 16))
 
 
-def test_self_attention_embedder_mixes_across_timesteps():
+def test_self_attention_mixes_across_timesteps():
     """The whole point of this embedder over the per-token MLP/ResidualMLP ones: the embedding of
     one token can depend on other tokens in the window."""
     torch.manual_seed(0)
@@ -91,7 +106,7 @@ def test_self_attention_embedder_mixes_across_timesteps():
 
 
 @pytest.mark.parametrize("pooling_config_name", ["mlp", "attention"])
-def test_self_attention_embedder_with_pooling_collapses_the_time_axis(pooling_config_name):
+def test_self_attention_with_pooling_collapses_the_time_axis(pooling_config_name):
     embedder_cfg = _load_self_attention_cfg_with_pooling(pooling_config_name)
 
     batch_size = 8
@@ -118,7 +133,7 @@ def test_self_attention_embedder_with_pooling_collapses_the_time_axis(pooling_co
             assert torch.isfinite(p.grad).all()
 
 
-def test_self_attention_embedder_accepts_multiple_tokens_per_step():
+def test_self_attention_accepts_multiple_tokens_per_step():
     """A 4D input (K tokens per timestep, e.g. one per object) is embedded to the same leading
     shape, output_dim swapped in for input_dim."""
     embedder_cfg = _load_embedder_cfg("self_attention")
@@ -142,7 +157,7 @@ def test_self_attention_embedder_accepts_multiple_tokens_per_step():
             assert torch.isfinite(p.grad).all()
 
 
-def test_self_attention_embedder_with_tokens_per_step_one_matches_the_3d_call():
+def test_self_attention_with_tokens_per_step_one_matches_the_3d_call():
     """tokens_per_step=1, expressed as a 4D input with K=1, must reproduce the plain 3D call
     bit-for-bit -- the core backward-compatibility guarantee for this generalization."""
     embedder_cfg = _load_embedder_cfg("self_attention")
@@ -163,7 +178,7 @@ def test_self_attention_embedder_with_tokens_per_step_one_matches_the_3d_call():
     assert torch.equal(out_3d, out_4d.squeeze(2))
 
 
-def test_self_attention_embedder_mixes_across_objects_at_the_same_timestep():
+def test_self_attention_mixes_across_objects_at_the_same_timestep():
     """Tokens belonging to different objects at the same timestep attend to each other too, not
     just tokens across timesteps."""
     torch.manual_seed(0)
@@ -187,7 +202,7 @@ def test_self_attention_embedder_mixes_across_objects_at_the_same_timestep():
     assert not torch.allclose(out[:, 0, 1, :], out_perturbed[:, 0, 1, :])
 
 
-def test_self_attention_embedder_shares_the_positional_embedding_across_tokens_per_step():
+def test_self_attention_shares_the_positional_embedding_across_tokens_per_step():
     """All K tokens at a given timestep must be nudged by the identical positional term."""
     embedder_cfg = _load_embedder_cfg("self_attention")
     obs_horizon, input_dim, output_dim = 2, 16, 12
@@ -207,7 +222,7 @@ def test_self_attention_embedder_shares_the_positional_embedding_across_tokens_p
         assert torch.equal(pre_attn[:, 0, 0, :], pre_attn[:, 0, 1, :])
 
 
-def test_self_attention_embedder_rejects_a_rank_other_than_3_or_4():
+def test_self_attention_rejects_a_rank_other_than_3_or_4():
     embedder_cfg = _load_embedder_cfg("self_attention")
     embedder_cfg.input_dim = 16
     embedder_cfg.output_dim = 8

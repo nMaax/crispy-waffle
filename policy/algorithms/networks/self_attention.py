@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 
 
-class SelfAttentionEmbedder(nn.Module):
-    """Embeds a window of per-timestep tokens by self-attending across them."""
+class SelfAttention(nn.Module):
+    """Embeds a window of per-timestep tokens with one (post-norm) transformer block: self-
+    attention across the window, then a position-wise feed-forward network."""
 
     def __init__(
         self,
@@ -23,6 +24,16 @@ class SelfAttentionEmbedder(nn.Module):
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon, output_dim))
         self.attn = nn.MultiheadAttention(output_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(output_dim)
+        # Position-wise FFN sublayer, mirroring DiffusionGPT.Block's MLP shape. `dropout` is
+        # deliberately shared with the attention sublayer: this embedder has never exposed
+        # per-sublayer dropout granularity, and its config surface stays a single `dropout`.
+        self.mlp = nn.Sequential(
+            nn.Linear(output_dim, 4 * output_dim),
+            nn.GELU(),
+            nn.Linear(4 * output_dim, output_dim),
+            nn.Dropout(dropout),
+        )
+        self.norm2 = nn.LayerNorm(output_dim)
         self.pooling = pooling
 
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
@@ -55,6 +66,9 @@ class SelfAttentionEmbedder(nn.Module):
 
         attn_out, _ = self.attn(tokens, tokens, tokens, need_weights=False)
         out = self.norm(tokens + attn_out)
+
+        ffn_out = self.mlp(out)
+        out = self.norm2(out + ffn_out)
 
         if self.pooling is not None:
             return self.pooling(out)

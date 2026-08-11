@@ -8,7 +8,7 @@ from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.mlp import MLP
 from policy.algorithms.networks.pooling import AttentionPooling
-from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbedder
+from policy.algorithms.networks.self_attention import SelfAttention
 from policy.algorithms.tokenizers import FlattenStateTokenizer, PerObjectStateTokenizer
 from policy.utils import flatten_and_concat_leaf_tensors, get_total_dim
 from policy.utils.test_utils import get_gpu_arch_name
@@ -503,10 +503,7 @@ class TestDiffusionPolicyLogic:
         ):
             policy = self._make_goal_delta_policy(
                 embedder={
-                    "_target_": (
-                        "policy.algorithms.networks.self_attention_embedder."
-                        "SelfAttentionEmbedder"
-                    ),
+                    "_target_": "policy.algorithms.networks.self_attention.SelfAttention",
                     "output_dim": 8,
                     "obs_horizon": 2,
                     "num_heads": 2,
@@ -517,7 +514,7 @@ class TestDiffusionPolicyLogic:
 
             # configure_model() gets a mocked embedder (the patch above lands on the shared
             # hydra_zen module), so swap in the real thing this test is about.
-            embedder = SelfAttentionEmbedder(
+            embedder = SelfAttention(
                 input_dim=policy.task_dim, output_dim=8, obs_horizon=2, num_heads=2
             )
             embedder.eval()
@@ -553,10 +550,7 @@ class TestDiffusionPolicyLogic:
         ):
             policy = self._make_goal_delta_policy(
                 embedder={
-                    "_target_": (
-                        "policy.algorithms.networks.self_attention_embedder."
-                        "SelfAttentionEmbedder"
-                    ),
+                    "_target_": "policy.algorithms.networks.self_attention.SelfAttention",
                     "output_dim": 8,
                     "obs_horizon": 2,
                     "num_heads": 2,
@@ -574,7 +568,7 @@ class TestDiffusionPolicyLogic:
 
             # configure_model() gets a mocked embedder (the patch above lands on the shared
             # hydra_zen module), so swap in the real thing this test is about.
-            embedder = SelfAttentionEmbedder(
+            embedder = SelfAttention(
                 input_dim=policy.task_dim,
                 output_dim=8,
                 obs_horizon=2,
@@ -719,7 +713,7 @@ class TestDiffusionPolicyLogic:
         policy = self._make_per_object_policy(
             embedder={
                 "_target_": (
-                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                    "policy.algorithms.networks.self_attention.SelfAttention"
                 ),
                 "output_dim": 8,
                 "obs_horizon": 2,
@@ -738,7 +732,7 @@ class TestDiffusionPolicyLogic:
         policy = self._make_per_object_policy(
             embedder={
                 "_target_": (
-                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                    "policy.algorithms.networks.self_attention.SelfAttention"
                 ),
                 "output_dim": 8,
                 "obs_horizon": 2,
@@ -757,7 +751,7 @@ class TestDiffusionPolicyLogic:
 
         # configure_model() gets a mocked embedder (the class-level autouse fixture patches
         # hydra_zen.instantiate), so swap in the real thing this test is about.
-        embedder = SelfAttentionEmbedder(
+        embedder = SelfAttention(
             input_dim=policy.tokenizer.output_dim,
             output_dim=8,
             obs_horizon=2,
@@ -800,7 +794,7 @@ class TestDiffusionPolicyLogic:
         policy = self._make_per_object_policy(
             embedder={
                 "_target_": (
-                    "policy.algorithms.networks.self_attention_embedder.SelfAttentionEmbedder"
+                    "policy.algorithms.networks.self_attention.SelfAttention"
                 ),
                 "output_dim": 8,
                 "obs_horizon": 2,
@@ -808,7 +802,7 @@ class TestDiffusionPolicyLogic:
             },
         )
         policy.configure_model()
-        embedder = SelfAttentionEmbedder(
+        embedder = SelfAttention(
             input_dim=policy.tokenizer.output_dim, output_dim=8, obs_horizon=2, num_heads=2
         )
         embedder.eval()

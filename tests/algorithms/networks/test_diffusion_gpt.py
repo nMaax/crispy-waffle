@@ -85,6 +85,35 @@ class TestDiffusionGPT:
                 assert p.grad is not None
                 assert torch.isfinite(p.grad).all()
 
+    def test_attention_is_causal(self):
+        """Perturbing a later action token must not change earlier action outputs."""
+        net = _make_network(goal_horizon=0)
+        net.eval()
+        sample, timestep, obs = _sample_inputs()
+        perturbed_t = HORIZON - 2
+        with torch.no_grad():
+            out = net(sample, timestep, external_cond={"obs": obs})
+
+            sample_perturbed = sample.clone()
+            sample_perturbed[:, perturbed_t, :] += torch.randn(ACT_DIM)
+            out_perturbed = net(sample_perturbed, timestep, external_cond={"obs": obs})
+
+        # Earlier timesteps must be exactly unaffected by a later action token (causal mask).
+        assert torch.allclose(out[:, :perturbed_t], out_perturbed[:, :perturbed_t], atol=1e-6)
+        # The perturbed timestep itself must change (it attends to its own action token).
+        assert not torch.allclose(out[:, perturbed_t], out_perturbed[:, perturbed_t])
+
+    def test_init_weights_covers_the_attention_projections(self):
+        """Regression guard: nn.MultiheadAttention's packed in-projection must go through the
+        same _init_weights std=0.02 statistics as the rest of the network, not its own default
+        (xavier) init."""
+        net = _make_network(goal_horizon=0)
+        attn = net.blocks[0].attn.attn  # Block -> CausalSelfAttention -> nn.MultiheadAttention
+        assert torch.equal(attn.in_proj_bias, torch.zeros_like(attn.in_proj_bias))
+        assert torch.equal(attn.out_proj.bias, torch.zeros_like(attn.out_proj.bias))
+        std = attn.in_proj_weight.std().item()
+        assert 0.015 < std < 0.026
+
     # ------------------------------------------------------------------ #
     # Protocol conformance
     # ------------------------------------------------------------------ #

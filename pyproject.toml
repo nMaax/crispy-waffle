@@ -20,7 +20,6 @@ dependencies = [
   "hydra-colorlog>=1.2.0",
   "hydra-orion-sweeper>=1.6.4 ; python_full_version < '3.11'",
   "mani-skill",
-  "torch-geometric>=2.7.0",
   "diffusers==0.30.3",
   "accelerate>=0.34.0",
   "h5py>=3.16.0",

@@ -203,6 +203,36 @@ class TestBesoPolicyLogic:
         assert policy.network.call_count == 1
 
     # ------------------------------------------------------------------ #
+    # configure_optimizers (real DiffusionGPT network, incl. nn.MultiheadAttention)
+    # ------------------------------------------------------------------ #
+    def test_configure_optimizers_categorizes_every_parameter(self):
+        """Regression guard: nn.MultiheadAttention's packed in-projection must land in a
+        decay/no_decay group instead of silently tripping the "some parameters were not
+        categorized" assertion (it isn't an nn.Linear, so it needs its own whitelist entry)."""
+        kwargs = _basic_kwargs(
+            obs_horizon=2,
+            pred_horizon=2,
+            act_horizon=1,
+            network={
+                "_target_": "policy.algorithms.networks.diffusion_gpt.DiffusionGPT",
+                "act_dim": 4,
+                "obs_horizon": 2,
+                "pred_horizon": 2,
+                "embed_dim": 8,
+                "n_layers": 1,
+                "n_heads": 2,
+            },
+            optimizer={"_target_": "torch.optim.AdamW", "_partial_": True, "weight_decay": 1e-4},
+        )
+        policy = BesoPolicy(**kwargs)
+        policy.configure_model()
+
+        result = policy.configure_optimizers()
+        optimizer = result["optimizer"] if isinstance(result, dict) else result
+        categorized = sum(len(g["params"]) for g in optimizer.param_groups)
+        assert categorized == len(list(policy.network.parameters()))
+
+    # ------------------------------------------------------------------ #
     # num_parallel_samples
     # ------------------------------------------------------------------ #
     def test_num_parallel_samples_averaged(self, basic_kwargs):

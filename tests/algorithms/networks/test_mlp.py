@@ -120,7 +120,7 @@ def test_residual_mlp_instantiates_and_runs():
 @pytest.mark.parametrize("embedder_name", ["mlp", "residual_mlp"])
 def test_mlp_family_embedder_with_attention_pooling_collapses_the_time_axis(embedder_name):
     """The per-token ("siamese") MLP/ResidualMLP embedders can plug in the same pooling heads
-    SelfAttentionEmbedder uses, via `algorithm/embedder/pooling: attention`."""
+    SelfAttention uses, via `algorithm/embedder/pooling: attention`."""
     embedder_cfg = _load_embedder_cfg_with_pooling(embedder_name, "attention")
 
     batch_size, obs_horizon, input_dim, output_dim = 8, 3, 16, 12
@@ -145,8 +145,8 @@ def test_mlp_family_embedder_with_attention_pooling_collapses_the_time_axis(embe
 @pytest.mark.parametrize("embedder_cls", [MLP, ResidualMLP])
 def test_mlp_family_pooling_flattens_a_multi_token_per_step_axis_before_pooling(embedder_cls):
     """K tokens per timestep (e.g. per-object tokenization) must fold into the sequence axis a
-    pooling head expects, exactly like SelfAttentionEmbedder does before pooling (see `pool_tokens`
-    in policy/algorithms/networks/pooling.py)."""
+    pooling head expects, exactly like SelfAttention does before pooling (see `pool_tokens` in
+    policy/algorithms/networks/pooling.py)."""
     batch_size, obs_horizon, tokens_per_step, input_dim, output_dim = 4, 3, 2, 8, 12
     embedder = embedder_cls(
         input_dim=input_dim,

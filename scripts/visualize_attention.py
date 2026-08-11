@@ -3,7 +3,7 @@
 Two attention modules can be present in a `GoalConditionedDiffusionPolicy`'s embedder.
 Both are visualised when found:
 
-- `SelfAttentionEmbedder`'s self-attention across observation tokens
+- `SelfAttention`'s self-attention across observation tokens
 - `AttentionPooling`'s learned-query attention
 
 Frames come either from a recorded episode (`--source dataset`) or from a live rollout
@@ -28,7 +28,7 @@ from matplotlib.image import AxesImage
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.pooling import AttentionPooling
-from policy.algorithms.networks.self_attention_embedder import SelfAttentionEmbedder
+from policy.algorithms.networks.self_attention import SelfAttention
 from policy.algorithms.tokenizers import PerObjectStateTokenizer
 from policy.transforms import observation_pipeline
 from policy.utils import (
@@ -81,7 +81,7 @@ def detect_attention_modules(
 ) -> dict[str, nn.MultiheadAttention]:
     """Finds whichever attention modules the loaded embedder has; either, both, or neither."""
     modules: dict[str, nn.MultiheadAttention] = {}
-    if isinstance(model.embedder, SelfAttentionEmbedder):
+    if isinstance(model.embedder, SelfAttention):
         modules["self_attention"] = model.embedder.attn
     pooling = getattr(model.embedder, "pooling", None)
     if isinstance(pooling, AttentionPooling):
@@ -89,7 +89,7 @@ def detect_attention_modules(
 
     if not modules:
         raise RuntimeError(
-            f"{type(model.embedder).__name__} contains no SelfAttentionEmbedder or "
+            f"{type(model.embedder).__name__} contains no SelfAttention or "
             "AttentionPooling, so there is no attention to visualise."
         )
     return modules
@@ -175,7 +175,7 @@ def run_and_capture(
 
 
 def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) -> list[str]:
-    """Token names in `t * K + k` order, matching `SelfAttentionEmbedder`'s flattening."""
+    """Token names in `t * K + k` order, matching `SelfAttention`'s flattening."""
     if isinstance(model.tokenizer, PerObjectStateTokenizer):
         return [f"t{t}/{key}" for t in range(obs_horizon) for key in model.tokenizer.object_keys]
     return [f"t{t}" for t in range(obs_horizon)]
