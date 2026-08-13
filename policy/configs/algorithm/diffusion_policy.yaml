@@ -1,5 +1,6 @@
 defaults:
-  - network: unet1d
+  - decoder: film_decoder1d
+  - encoder: film
   - optimizer: AdamW
   - ema: default
   - noise_scheduler: ddpm
@@ -8,7 +9,7 @@ defaults:
   - normalizer@act_normalizer: null
 
 _target_: policy.algorithms.diffusion_policy.DiffusionPolicy
-_recursive_: false # Since we instantiate the network and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
+_recursive_: false # Since we instantiate the decoder and optimizer inside the algorithm, we prevent hydra from trying to instantiate them before
 
 obs_horizon: ${datamodule.obs_horizon}
 pred_horizon: ${datamodule.pred_horizon}
@@ -17,7 +18,7 @@ act_horizon: 8 # Can't do math in hydra, otherwise this would be ${datamodule.ac
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
 
-network:
+decoder:
   act_dim: ${..act_dim}
   obs_horizon: ${..obs_horizon}
 

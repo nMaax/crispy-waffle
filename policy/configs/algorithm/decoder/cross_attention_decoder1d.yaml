@@ -1,0 +1,8 @@
+_target_: policy.algorithms.networks.decoder.unet1d.CrossAttentionDecoder1D
+diffusion_step_embed_dim: 64
+down_dims: [64, 128, 256]
+kernel_size: 5
+n_groups: 8
+
+cross_attn_num_heads: 4
+cross_attn_dropout: 0.0

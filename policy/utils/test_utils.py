@@ -329,7 +329,7 @@ def run_for_all_configs_in_group(
     """Apply this marker to a test to make it run with all configs in a given group.
 
     This assumes that a "`group_name`_config" fixture is defined, for example, `algorithm_config`,
-    `datamodule_config`, `network_config`. This then does an indirect parametrization of that fixture, so that it
+    `datamodule_config`, `decoder_config`. This then does an indirect parametrization of that fixture, so that it
     receives the config name as a parameter and returns it.
 
 

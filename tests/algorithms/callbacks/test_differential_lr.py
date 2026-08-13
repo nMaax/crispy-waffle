@@ -8,7 +8,7 @@ from policy.algorithms.callbacks.differential_lr import DifferentialLRCallback
 class DummyModule(nn.Module):
     def __init__(self):
         super().__init__()
-        self.network = nn.Linear(4, 4)
+        self.decoder = nn.Linear(4, 4)
         self.planner = nn.Linear(4, 4)
 
 
@@ -25,7 +25,7 @@ def test_differential_lr_freezes_before_training():
 
     callback.freeze_before_training(module)
 
-    for p in module.network.parameters():
+    for p in module.decoder.parameters():
         assert not p.requires_grad
     for p in module.planner.parameters():
         assert p.requires_grad
@@ -41,7 +41,7 @@ def test_differential_lr_unfreezes_at_epoch_zero():
     # Epoch 0: unfreezes network and adds param group
     callback.finetune_function(module, current_epoch=0, optimizer=optimizer)
 
-    for p in module.network.parameters():
+    for p in module.decoder.parameters():
         assert p.requires_grad
     assert len(optimizer.param_groups) == 2
     assert optimizer.param_groups[1]["lr"] == 1e-5

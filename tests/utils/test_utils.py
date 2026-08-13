@@ -4,6 +4,7 @@ import torch
 from omegaconf import OmegaConf
 
 from policy.utils.utils import (
+    as_task_only,
     cat_dicts,
     concat_leaf_tensors,
     derive_task_dim,
@@ -11,12 +12,11 @@ from policy.utils.utils import (
     get_batch_size,
     get_device,
     get_total_dim,
+    pop_leaf_key,
     print_config,
     print_mapping_tree,
     recursive_index,
-    resolve_task_width,
     slice_by_schema,
-    split_leaf_key,
     stack_dicts,
     to_tensor,
     validate_proprio_dim,
@@ -171,37 +171,33 @@ def test_concat_leaf_tensors():
 
 
 def test_flatten_and_concat_leaf_tensors():
-    data = {
-        "a": torch.zeros((2, 3, 4)),
-        "b": torch.ones((2, 5)),
-    }
-    res = flatten_and_concat_leaf_tensors(data)
-    # 2 x (3*4 + 5) = 2 x 17
-    assert res.shape == (2, 17)
+    d = {"a": torch.zeros((2, 3, 4)), "b": torch.ones((2, 5))}
+    flat = flatten_and_concat_leaf_tensors(d)
+    assert flat.shape == (2, 17)
 
 
-def test_split_leaf_key_mapping():
+def test_pop_leaf_key_mapping():
     tree = {"proprio": torch.ones((2, 3)), "tcp": torch.zeros((2, 4)), "extras": torch.zeros((2, 5))}
-    popped, remainder = split_leaf_key(tree, "proprio", size=3)
+    popped, remainder = pop_leaf_key(tree, "proprio", size=3)
     assert torch.equal(popped, torch.ones((2, 3)))
     assert set(remainder.keys()) == {"tcp", "extras"}
 
 
-def test_split_leaf_key_mapping_missing_key():
+def test_pop_leaf_key_mapping_missing_key():
     tree = {"tcp": torch.zeros((2, 4))}
-    popped, remainder = split_leaf_key(tree, "proprio", size=3)
+    popped, remainder = pop_leaf_key(tree, "proprio", size=3)
     assert popped is None
     assert remainder is tree
 
 
-def test_split_leaf_key_mapping_non_tensor_leaf_raises():
+def test_pop_leaf_key_mapping_non_tensor_leaf_raises():
     with pytest.raises(TypeError, match="Expected leaf at key 'proprio' to be a Tensor"):
-        split_leaf_key({"proprio": {"nested": torch.zeros(2)}}, "proprio", size=3)
+        pop_leaf_key({"proprio": {"nested": torch.zeros(2)}}, "proprio", size=3)
 
 
-def test_split_leaf_key_flat_tensor():
+def test_pop_leaf_key_flat_tensor():
     x = torch.arange(10, dtype=torch.float32).view(2, 5)
-    popped, remainder = split_leaf_key(x, "proprio", size=2)
+    popped, remainder = pop_leaf_key(x, "proprio", size=2)
     assert torch.equal(popped, x[..., :2])
     assert torch.equal(remainder, x[..., 2:])
 
@@ -244,25 +240,19 @@ def test_derive_task_dim_int():
         derive_task_dim(48, 18, task_dim=31)
 
 
-def test_resolve_task_width_already_task_width():
+def test_as_task_only_already_task_width():
     tensor = torch.randn(2, 5)
-    resolved = resolve_task_width(tensor, proprio_dim=3, task_dim=5)
+    resolved = as_task_only(tensor, proprio_dim=3, task_dim=5)
     assert torch.equal(resolved, tensor)
 
 
-def test_resolve_task_width_strips_leading_proprio():
+def test_as_task_only_strips_leading_proprio():
     tensor = torch.arange(16, dtype=torch.float32).view(2, 8)
-    resolved = resolve_task_width(tensor, proprio_dim=3, task_dim=5)
+    resolved = as_task_only(tensor, proprio_dim=3, task_dim=5)
     assert torch.equal(resolved, tensor[..., 3:])
 
 
-def test_resolve_task_width_rejects_mismatched_width():
+def test_as_task_only_rejects_mismatched_width():
     tensor = torch.randn(2, 7)
     with pytest.raises(ValueError, match="Expected width 5"):
-        resolve_task_width(tensor, proprio_dim=3, task_dim=5)
-
-
-def test_resolve_task_width_custom_label():
-    tensor = torch.randn(2, 7)
-    with pytest.raises(ValueError, match="Expected goal width 5"):
-        resolve_task_width(tensor, proprio_dim=3, task_dim=5, label="goal width")
+        as_task_only(tensor, proprio_dim=3, task_dim=5)

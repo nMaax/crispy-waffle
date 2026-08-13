@@ -10,7 +10,7 @@ if typing.TYPE_CHECKING:
     from torch import nn
     from torch.utils.data import DataLoader
 
-    from policy.utils.typing_utils import GoalDelta, TensorTree
+    from policy.utils.typing_utils import TensorTree
 
 P = ParamSpec("P")
 OutT = TypeVar("OutT", covariant=True)
@@ -179,18 +179,20 @@ class DiffusionSchedulerProtocol(Protocol):
 
 
 @runtime_checkable
-class StateTokenizer(Protocol):
+class TokenizerProtocol(Protocol):
     """Protocol for turning a canonicalized, proprio-already-split-off obs/goal task tree into raw
-    (pre-embedder) tokens."""
+    (pre-embedder) tokens.
+
+    Named with a `Protocol` suffix to avoid colliding with the concrete
+    `StateTokenizer` class (`policy/algorithms/networks/conditioning/tokenizers.py`), one of
+    several implementations of this protocol.
+    """
 
     output_dim: int
     """Width ``D`` of one raw token; becomes the downstream embedder's ``input_dim``."""
 
     tokens_per_step: int
     """Number of tokens ``K`` produced per observed timestep."""
-
-    compatible_goal_deltas: ClassVar[frozenset[GoalDelta]]
-    """Which ``goal_delta`` values this tokenizer supports."""
 
     supports_single_side: ClassVar[bool]
     """Whether :meth:`tokenize` can be called with exactly one of ``obs_task`` and

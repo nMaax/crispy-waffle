@@ -1,5 +1,5 @@
 defaults:
-  - network: diffusion_gpt
+  - decoder: diffusion_gpt
   - optimizer: AdamW
   - ema: default
   - noise_scheduler: null
@@ -73,7 +73,7 @@ goal_horizon: 1
 pred_last_action_only: false
 num_parallel_samples: 1
 
-network:
+decoder:
   act_dim: ${..act_dim}
   obs_horizon: ${..obs_horizon}
   pred_horizon: ${..pred_horizon}

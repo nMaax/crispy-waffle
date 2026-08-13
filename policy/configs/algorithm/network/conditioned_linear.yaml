@@ -1,5 +1,0 @@
-defaults:
-  - conditioned_mlp
-
-hidden_dims: []
-bias: false

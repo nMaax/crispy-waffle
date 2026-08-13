@@ -94,16 +94,9 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences (embedding space)
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaEmbed__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
     # Goal-Conditioned Diffusion Policy Attention, per-object tokenization (one token per
     # objA/objB/TCP instead of one flattened token per timestep), conditioned on goal-state
-    # differences (input space, the only mode PerObjectStateTokenizer supports)
+    # differences (input space, the only mode ObjectTokenizer supports)
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
@@ -119,6 +112,11 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
     "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
+    # Same tokens as PerObjectAttentionDeltaInput, but cross-attended over by the UNet
+    # (use_cross_attention=true) instead of flattened into FiLM. No ZeroShot siblings exist for
+    # this one.
+    "experiment=GoalConditionedDiffusionPolicyCrossAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
+    "experiment=GoalConditionedDiffusionPolicyCrossAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 

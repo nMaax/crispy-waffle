@@ -5,5 +5,5 @@ defaults:
 
 name: ${hydra:runtime.choices.experiment}
 
-algorithm:
-  goal_delta: input # WARN: Important! Using embed is degenerate
+# relative_goal=true is already the only mode goal_conditioned_diffusion_policy_attention_attn_pool
+# supports (baked into its own config).

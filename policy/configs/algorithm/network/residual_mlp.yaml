@@ -1,4 +1,0 @@
-_target_: policy.algorithms.networks.residual_mlp.ResidualMLP
-input_dim: ???
-output_dim: ???
-use_linear_shortcut: true

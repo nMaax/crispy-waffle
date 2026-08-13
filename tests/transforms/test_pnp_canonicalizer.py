@@ -49,7 +49,7 @@ def _place_sphere_obs(batch=False):
     }
 
 
-EXPECTED_KEYS = {"proprio", "tcp_pose", "a_pose", "b_pose", "a_to_b", "tcp_to_a", "tcp_to_b"}
+EXPECTED_KEYS = {"proprio", "tcp_pose", "a_pose", "b_pose"}
 
 
 class TestCanonicalizer:
@@ -71,9 +71,6 @@ class TestCanonicalizer:
         assert out["tcp_pose"].shape[-1] == 7
         assert out["a_pose"].shape[-1] == 7
         assert out["b_pose"].shape[-1] == 7
-        assert out["a_to_b"].shape[-1] == 3
-        assert out["tcp_to_a"].shape[-1] == 3
-        assert out["tcp_to_b"].shape[-1] == 3
 
     @pytest.mark.parametrize(
         "env_id",
@@ -104,17 +101,6 @@ class TestCanonicalizer:
         assert torch.all(out["b_pose"][..., 3:] == torch.tensor([1.0, 0.0, 0.0, 0.0]))
         # a_pose is the sphere pose
         assert out["a_pose"].shape[-1] == 7
-
-    def test_relative_positions_correct(self):
-        canon = Canonicalizer("StackCube-v1")
-        obs = _stack_cube_obs()
-        out = canon(obs)
-        tcp = obs["extra"]["tcp_pose"][..., :3]
-        a = obs["extra"]["cubeA_pose"][..., :3]
-        b = obs["extra"]["cubeB_pose"][..., :3]
-        assert torch.allclose(out["a_to_b"], b - a)
-        assert torch.allclose(out["tcp_to_a"], a - tcp)
-        assert torch.allclose(out["tcp_to_b"], b - tcp)
 
     def test_batched_input(self):
         canon = Canonicalizer("StackCube-v1")

@@ -1,11 +1,12 @@
 defaults:
   - goal_conditioned_diffusion_policy
-  - override embedder: self_attention
+  - override embedder@encoder.embedder: self_attention
 
-# Only supported mode: the attention embedder mixes across the r_t = g - s_t token window, which
-# only exists in goal_delta="input" (goal_delta=None has no token window; goal_delta="embedding"
-# differences after the embedder, so it never gives the embedder the token window to attend over).
-goal_delta: input
-
-embedder:
-  obs_horizon: ${..obs_horizon}
+encoder:
+  # Only supported mode: the attention embedder mixes across the r_t = g - s_t token window,
+  # which only exists when relative_goal=true (relative_goal=false has no token window).
+  relative_goal: true
+  embedder:
+    # Three dots: jumps straight to algorithm.obs_horizon (ConditioningEncoder has no
+    # obs_horizon field of its own to relay through).
+    obs_horizon: ${...obs_horizon}

@@ -209,9 +209,9 @@ def embed(
 
     - Embedders that can encode a single state on their own give an *absolute* embedding, which is
       what `extract_embeddings` returns.
-    - Token-based embedders such as `PerObjectStateTokenizer` only ever see goal-relative deltas
-      (`supports_single_side=False`), so no standalone state embedding exists. There the comparable
-      quantity is the conditioning vector the network actually receives.
+    - Token-based embedders such as `ObjectTokenizer` only ever see goal-relative deltas
+      (`supports_single_side=False`), so no standalone state embedding exists. There the
+      comparable quantity is the conditioning vector the network actually receives.
 
     Also returns the pre-normalisation representation when the embedder has an output norm. That
     norm pins the magnitude of the returned embedding, so any distance computed from it is confined
@@ -223,7 +223,8 @@ def embed(
     )
     goal_batch = transform(broadcast_goal(goal, seq_len))
 
-    with torch.no_grad(), capture_pre_norm(model.embedder) as pre_norm:
+    encoder = model.encoder
+    with torch.no_grad(), capture_pre_norm(encoder.embedder) as pre_norm:
         try:
             embeddings = model.extract_embeddings(obs_batch)["obs_embeddings"]
             mode = "absolute"
@@ -231,7 +232,7 @@ def embed(
             external_cond = build_external_cond(model, obs_batch, goal_batch)
             task = (
                 get_tensor(external_cond, "task")
-                if model._embedder_pools_time()
+                if encoder.pools_time
                 else get_tensor(get_subtree(external_cond, "obs"), "task")
             )
             embeddings = task[:, -1] if task.ndim == 3 else task

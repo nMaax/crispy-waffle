@@ -8,7 +8,7 @@ class DifferentialLRCallback(BaseFinetuning):
     def __init__(
         self,
         backbone_lr: float = 1e-6,
-        backbone_attr: str = "network",
+        backbone_attr: str = "decoder",
         adapter_attr: str = "planner",
         *,
         unet_lr: float | None = None,

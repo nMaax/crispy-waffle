@@ -1,7 +1,4 @@
-defaults:
-  - pooling: null
-
-_target_: policy.algorithms.networks.self_attention.SelfAttention
+_target_: policy.algorithms.networks.encoder.embedders.self_attention.SelfAttention
 output_dim: 64
 num_heads: 4
 dropout: 0.0

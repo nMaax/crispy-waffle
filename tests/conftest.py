@@ -185,26 +185,26 @@ def datamodule_config(request: pytest.FixtureRequest) -> str | None:
 
 
 @pytest.fixture(scope="session")
-def algorithm_network_config(request: pytest.FixtureRequest) -> str | None:
-    """The network config to use in the experiment, as in `algorithm/network=<value>`."""
-    network_config_name = getattr(request, "param", None)
-    if network_config_name:
-        _add_default_marks_for_config_name(network_config_name, request)
-    return network_config_name
+def algorithm_decoder_config(request: pytest.FixtureRequest) -> str | None:
+    """The decoder config to use in the experiment, as in `algorithm/decoder=<value>`."""
+    decoder_config_name = getattr(request, "param", None)
+    if decoder_config_name:
+        _add_default_marks_for_config_name(decoder_config_name, request)
+    return decoder_config_name
 
 
 @pytest.fixture(scope="session")
 def command_line_arguments(
     algorithm_config: str | None,
     datamodule_config: str | None,
-    algorithm_network_config: str | None,
+    algorithm_decoder_config: str | None,
     command_line_overrides: tuple[str, ...],
     request: pytest.FixtureRequest,
 ):
     """Fixture that returns the command-line arguments that will be passed to Hydra to run the
     experiment.
 
-    The `algorithm_config`, `network_config` and `datamodule_config` values here are parametrized
+    The `algorithm_config`, `decoder_config` and `datamodule_config` values here are parametrized
     indirectly by most tests using the [`policy.utils.test_utils.run_for_all_configs_of_type`][]
     function so that the respective components are created in the same way as they
     would be by Hydra in a regular run.
@@ -218,7 +218,7 @@ def command_line_arguments(
         assert isinstance(param, list | tuple)
         return tuple(param)
 
-    combination = set([datamodule_config, algorithm_network_config, algorithm_config])
+    combination = set([datamodule_config, algorithm_decoder_config, algorithm_config])
     for configs, marks in default_marks_for_config_combinations.items():
         marks = [marks] if not isinstance(marks, list | tuple) else marks
         configs = set(configs)
@@ -240,8 +240,8 @@ def command_line_arguments(
     ]
     if algorithm_config:
         default_overrides.append(f"algorithm={algorithm_config}")
-    if algorithm_network_config:
-        default_overrides.append(f"algorithm/network={algorithm_network_config}")
+    if algorithm_decoder_config:
+        default_overrides.append(f"algorithm/decoder={algorithm_decoder_config}")
     if datamodule_config:
         default_overrides.append(f"datamodule={datamodule_config}")
 

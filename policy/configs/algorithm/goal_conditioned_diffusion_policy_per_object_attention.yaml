@@ -1,12 +1,13 @@
 defaults:
   - goal_conditioned_diffusion_policy
-  - override tokenizer: per_object
-  - override embedder: self_attention
+  - override tokenizer@encoder.tokenizer: object
+  - override embedder@encoder.embedder: self_attention
 
-# PerObjectStateTokenizer's only compatible value (validated in configure_model): its tokens are
-# goal-relative by construction, so there is no absolute ("null") or post-embedder-diff
-# ("embedding") equivalent for it.
-goal_delta: input
-
-embedder:
-  obs_horizon: ${..obs_horizon}
+encoder:
+  # ObjectTokenizer's only compatible value (validated by ConditioningEncoder): its tokens are
+  # goal-relative by construction, so there is no absolute (relative_goal=false) equivalent for it.
+  relative_goal: true
+  embedder:
+    # Three dots: jumps straight to algorithm.obs_horizon (ConditioningEncoder has no
+    # obs_horizon field of its own to relay through).
+    obs_horizon: ${...obs_horizon}

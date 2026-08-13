@@ -9,7 +9,7 @@ class Canonicalizer:
     """Standardizes different pick-and-place tasks into a unified dictionary format.
 
     Standardized dict format:
-    [proprio, tcp_pose, a_pose, b_pose, tcp_to_a, tcp_to_b, a_to_b]
+    [proprio, tcp_pose, a_pose, b_pose]
     """
 
     DIM_SPEC: dict[str, int] = {
@@ -17,9 +17,6 @@ class Canonicalizer:
         "tcp_pose": 7,
         "a_pose": 7,
         "b_pose": 7,
-        "tcp_to_a": 3,
-        "tcp_to_b": 3,
-        "a_to_b": 3,
     }
 
     def __init__(self, env_id: str):
@@ -99,18 +96,11 @@ class Canonicalizer:
         cube_a_pose = get_tensor(extra, "cubeA_pose")
         cube_b_pose = get_tensor(extra, "cubeB_pose")
 
-        tcp_to_a = get_tensor(extra, "tcp_to_cubeA_pos")
-        tcp_to_b = get_tensor(extra, "tcp_to_cubeB_pos")
-        a_to_b = get_tensor(extra, "cubeA_to_cubeB_pos")
-
         return {
             "proprio": proprio,
             "tcp_pose": tcp_pose,
             "a_pose": cube_a_pose,
             "b_pose": cube_b_pose,
-            "tcp_to_a": tcp_to_a,
-            "tcp_to_b": tcp_to_b,
-            "a_to_b": a_to_b,
         }
 
     def _parse_place_sphere_restricted_spawn_dict(
@@ -129,7 +119,6 @@ class Canonicalizer:
 
         # Sphere pose is directly extra["obj_pose"]
         sphere_pose = get_tensor(extra, "obj_pose")
-        sphere_pos = sphere_pose[..., :3]
         bin_pos = get_tensor(extra, "bin_pos")
 
         fake_quat = torch.tensor(
@@ -138,16 +127,9 @@ class Canonicalizer:
         fake_quat_B = fake_quat.expand(*bin_pos.shape[:-1], 4)
         bin_pose = torch.cat([bin_pos, fake_quat_B], dim=-1)
 
-        tcp_to_a = get_tensor(extra, "tcp_to_obj_pos")
-        tcp_to_b = bin_pos - tcp_pose[..., :3]
-        a_to_b = bin_pos - sphere_pos
-
         return {
             "proprio": proprio,
             "tcp_pose": tcp_pose,
             "a_pose": sphere_pose,
             "b_pose": bin_pose,
-            "tcp_to_a": tcp_to_a,
-            "tcp_to_b": tcp_to_b,
-            "a_to_b": a_to_b,
         }

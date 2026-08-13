@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, NewType, TypeAlias, TypeGuard
+from typing import Any, NewType, TypeAlias, TypeGuard
 
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ from .protocols import (
     GoalConditionedEnvProtocol,
     GoalConditionedPolicyProtocol,
     PolicyProtocol,
-    StateTokenizer,
+    TokenizerProtocol,
 )
 
 # These are used to show which dim is which in image data
@@ -64,10 +64,6 @@ IndexRange: TypeAlias = tuple[int, int]
 
 StateSchema: TypeAlias = NestedMapping[str, IndexRange]
 """A nested mapping schema of string keys to index range tuples."""
-
-GoalDelta: TypeAlias = Literal["input", "embedding"] | None
-"""Possible values for ``GoalConditionedDiffusionPolicy.goal_delta``: ``None`` (absolute),
-``"input"`` (difference before the embedder), or ``"embedding"`` (difference after it)."""
 
 
 def is_sequence_of(
@@ -115,7 +111,7 @@ __all__ = [
     "DiffusionNetworkProtocol",
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
-    "StateTokenizer",
+    "TokenizerProtocol",
     "HydraConfigFor",
     "NestedMapping",
     "Tree",
@@ -125,7 +121,6 @@ __all__ = [
     "DimSpec",
     "IndexRange",
     "StateSchema",
-    "GoalDelta",
     "is_sequence_of",
     "is_mapping_of",
     "get_tensor",

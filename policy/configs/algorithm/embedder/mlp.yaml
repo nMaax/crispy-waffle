@@ -1,6 +1,3 @@
-defaults:
-  - pooling: null
-
-_target_: policy.algorithms.networks.mlp.MLP
+_target_: policy.algorithms.networks.encoder.embedders.mlp.MLP
 output_dim: 64
 hidden_dims: [128, 128, 128]

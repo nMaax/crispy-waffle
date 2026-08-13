@@ -1,5 +1,0 @@
-_target_: policy.algorithms.networks.pooling.MLPPooling
-dim: ${..output_dim}
-obs_horizon: ${..obs_horizon}
-hidden_dim: null
-tokens_per_step: 1

@@ -35,8 +35,9 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def __init__(
         self,
-        network: HydraConfigFor[nn.Module],
+        decoder: HydraConfigFor[nn.Module],
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
+        encoder: HydraConfigFor[nn.Module] | None = None,
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         ema: HydraConfigFor[EMAModel] | None = None,
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol] | None = None,
@@ -52,8 +53,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         self.save_hyperparameters()
 
-        self.network_config = network
-        self.network: torch.nn.Module | None = None
+        self.decoder_config = decoder
+        self.decoder: torch.nn.Module | None = None
+
+        self.encoder_config = encoder
+        self.encoder: torch.nn.Module | None = None
 
         self.optimizer_config = optimizer
         self.optimizer: Optimizer | None = None
@@ -180,27 +184,51 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 self.act_normalizer.fit(cat_dicts(all_act))
 
     def configure_model(self) -> None:
-        if self.network is not None:
+        if self.decoder is not None:
             return
 
-        cond_dims = self._get_cond_dims()
-        self.network = hydra_zen.instantiate(
-            self.network_config, cond_dims=cond_dims, **self._network_extra_kwargs()
+        self.encoder = (
+            hydra_zen.instantiate(self.encoder_config, **self._encoder_extra_kwargs())
+            if self.encoder_config is not None
+            else None
         )
+        self.decoder = hydra_zen.instantiate(self.decoder_config, **self._decoder_extra_kwargs())
 
         if self.ema_config is not None:
-            self.ema = hydra_zen.instantiate(self.ema_config, parameters=self.network.parameters())
+            self.ema = hydra_zen.instantiate(self.ema_config, parameters=self._ema_parameters())
 
         if self.noise_scheduler_config is not None:
             self.noise_scheduler = hydra_zen.instantiate(self.noise_scheduler_config)
 
-    def _network_extra_kwargs(self) -> dict[str, Any]:
-        """Extra kwargs threaded to network instantiation on top of ``cond_dims``."""
+    def _encoder_extra_kwargs(self) -> dict[str, Any]:
+        """Extra kwargs threaded to encoder instantiation."""
         return {}
 
+    def _decoder_extra_kwargs(self) -> dict[str, Any]:
+        """Extra kwargs threaded to decoder instantiation."""
+        return {"cond_dims": self._get_cond_dims()}
+
     def _get_cond_dims(self) -> DimSpec:
-        """Reports the per-timestep conditioning dimensionality passed to the network."""
+        """Reports the per-timestep conditioning dimensionality passed to the decoder."""
+        if self.encoder is not None:
+            return self.encoder.cond_dims
         return {"obs": get_total_dim(self.obs_dim)}
+
+    def _encode(self, external_cond: Mapping[str, TensorTree]) -> Mapping[str, TensorTree]:
+        if self.encoder is None:
+            return external_cond
+
+        if "obs" not in external_cond:
+            raise ValueError("external_cond must contain an 'obs' entry.")
+        return self.encoder(external_cond["obs"], external_cond.get("goal"))
+
+    def _ema_parameters(self) -> list[torch.nn.Parameter]:
+        """Parameters tracked by EMA: whatever training actually updates."""
+        if self.decoder is None:
+            raise ValueError("Decoder not initialized. Call configure_model() first.")
+
+        modules = [self.decoder] if self.encoder is None else [self.encoder, self.decoder]
+        return [p for m in modules for p in m.parameters() if p.requires_grad]
 
     def configure_optimizers(self) -> Optimizer | dict:
         optimizer_partial = hydra_zen.instantiate(self.optimizer_config)
@@ -233,14 +261,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self, outputs: torch.Tensor, batch: dict[str, Any], batch_idx: int
     ) -> None:
         """Automatically step the EMA model after every training batch iteration."""
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before on_train_batch_end."
+                "Decoder not initialized. Call configure_model() before on_train_batch_end."
             )
 
         if self.ema is not None:
             self.ema.to(self.device)
-            self.ema.step(self.network.parameters())
+            self.ema.step(self._ema_parameters())
 
     def validation_step(self, batch: dict[str, Any], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "val")
@@ -324,7 +352,9 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """
         return {"obs": obs}
 
-    def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
+    def _compute_loss(
+        self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor
+    ) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
@@ -336,7 +366,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _run_diffusion_loop(
         self,
-        external_cond: TensorTree,
+        external_cond: Mapping[str, TensorTree],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:

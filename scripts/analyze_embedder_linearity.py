@@ -53,9 +53,10 @@ class EmbedderCapture:
     """Collects what the embedder sees and produces, via forward hooks."""
 
     def __init__(self, model) -> None:
-        if model.embedder is None:
+        if model.encoder is None:
             raise RuntimeError("configure_model() must run before the embedder can be captured.")
         self.model = model
+        self.embedder = model.encoder.embedder
         self.inputs: list[torch.Tensor] = []
         self.outputs: list[torch.Tensor] = []
         self.pre_norm_outputs: list[torch.Tensor] = []
@@ -67,8 +68,8 @@ class EmbedderCapture:
             self.inputs.append(inputs[0].detach().cpu())
             self.outputs.append(output.detach().cpu())
 
-        self._handle = self.model.embedder.register_forward_hook(hook)
-        self._pre_norm_ctx = capture_pre_norm(self.model.embedder)
+        self._handle = self.embedder.register_forward_hook(hook)
+        self._pre_norm_ctx = capture_pre_norm(self.embedder)
         self._captured_pre_norm = self._pre_norm_ctx.__enter__()
         return self
 
@@ -125,7 +126,10 @@ def capture_from_dataset(model, cfg, split: str, num_batches: int | None, seed: 
                 obs = model.obs_normalizer.normalize(obs)
                 if goal is not None:
                     goal = model.obs_normalizer.normalize(goal)
-            model._build_external_cond(obs, goal)
+            # Goes through the algorithm's ConditioningEncoder directly (not
+            # model._build_external_cond, which just passes obs/goal through raw now) so the
+            # embedder's forward hook actually fires.
+            model.encoder(obs, goal)
 
     return capture.stacked()
 
@@ -349,7 +353,9 @@ def main() -> None:
             add(env_kwargs["env_id"], x, y, pre)
             extra_report_rows.append([env_kwargs["env_id"], f"{successes}/{args.num_episodes}"])
 
-    norm = embedder_output_norm(model.embedder)
+    if model.encoder is None:
+        raise RuntimeError("configure_model() must run before the embedder is available.")
+    norm = embedder_output_norm(model.encoder.embedder)
     fields = describe_model_config(
         model,
         cfg,

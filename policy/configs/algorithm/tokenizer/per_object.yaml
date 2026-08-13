@@ -1,5 +1,0 @@
-_target_: policy.algorithms.tokenizers.PerObjectStateTokenizer
-object_keys: [a_pose, b_pose, tcp_pose]
-tcp_key: tcp_pose
-include_tcp_relative: false
-include_position_norm: false

@@ -142,10 +142,16 @@ def describe_model_config(
     cfg: DictConfig | None = None,
     extra: list[tuple[str, str]] | None = None,
 ) -> list[tuple[str, str]]:
-    """Summarises the parts of a model that distinguish one experiment from another."""
-    pooling = getattr(getattr(model, "embedder", None), "pooling", None)
-    tokenizer = getattr(model, "tokenizer", None)
-    embedder = getattr(model, "embedder", None)
+    """Summarises the parts of a model that distinguish one experiment from another.
+
+    Tokenizer/embedder/relative_goal live on the algorithm's ``ConditioningEncoder`` now (see
+    ``policy.algorithms.networks.encoder.encoder``) -- ``getattr``-chained so this stays a no-op
+    ("none"/"n/a") for models with no such encoder (e.g. ``BesoPolicy``) instead of crashing.
+    """
+    encoder = getattr(model, "encoder", None)
+    tokenizer = getattr(encoder, "tokenizer", None)
+    embedder = getattr(encoder, "embedder", None)
+    pooling = getattr(embedder, "pooling", None)
 
     fields: list[tuple[str, str]] = list(extra or [])
     fields.extend(
@@ -153,7 +159,7 @@ def describe_model_config(
             ("tokenizer", type(tokenizer).__name__ if tokenizer is not None else "none"),
             ("embedder", type(embedder).__name__ if embedder is not None else "none"),
             ("pooling", type(pooling).__name__ if pooling is not None else "none"),
-            ("goal_delta", str(getattr(model, "goal_delta", "n/a"))),
+            ("relative_goal", str(getattr(encoder, "relative_goal", "n/a"))),
         ]
     )
 
@@ -167,7 +173,7 @@ def describe_model_config(
 
 def metadata_slug(model: Any, cfg: DictConfig | None = None) -> str:
     """Condenses the distinguishing config into a filename fragment."""
-    abbreviations = {"goal_delta": "gd", "her_ratio": "her"}
+    abbreviations = {"relative_goal": "rg", "her_ratio": "her"}
     parts = []
     for key, value in describe_model_config(model, cfg):
         if key in abbreviations:
@@ -203,29 +209,14 @@ def build_external_cond(model: Any, obs: TensorTree, goal: TensorTree) -> Mappin
 
 
 def load_goal_conditioned_diffusion_policy(ckpt_path: Path) -> GoalConditionedDiffusionPolicy:
-    """Rebuilds a `GoalConditionedDiffusionPolicy` from a checkpoint's own hyperparameters."""
-    checkpoint_data: dict[str, Any] = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    hparams = checkpoint_data.get("hyper_parameters", {})
+    """Rebuilds a `GoalConditionedDiffusionPolicy` from a checkpoint's own hyperparameters.
 
-    act_dim = hparams.get("act_dim")
-    network_config = dict(hparams.get("network", {}))
-    if act_dim is not None:
-        network_config["act_dim"] = act_dim
-
-    embedder_config = hparams.get("embedder")
-    if embedder_config is None and "state_embedding_dim" in hparams:
-        print("Checkpoint predates the embedder config; reconstructing its MLP embedder.")
-        embedder_config = {
-            "_target_": "policy.algorithms.networks.mlp.MLP",
-            "input_dim": hparams.get("task_dim"),
-            "output_dim": hparams["state_embedding_dim"],
-            "hidden_dims": hparams.get("hidden_dims", [128, 128, 128]),
-        }
-
-    model = GoalConditionedDiffusionPolicy.load_from_checkpoint(
-        ckpt_path,
-        network=network_config,
-        embedder=embedder_config,
-    )
+    Tokenizer/embedder/relative_goal are ``network`` config fields now (owned by the network's
+    ``ConditioningEncoder`, see ``policy.algorithms.networks.encoder.encoder``), so they come
+    back for free as part of the checkpoint's saved ``network`` hparam -- no separate
+    reconstruction needed. Checkpoints saved before this move are not expected to load here;
+    fetch them from the commit they were trained under.
+    """
+    model = GoalConditionedDiffusionPolicy.load_from_checkpoint(ckpt_path)
     model.eval()
     return model

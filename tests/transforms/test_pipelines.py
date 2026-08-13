@@ -20,8 +20,8 @@ class TestObservationPipeline:
         )
         out = pipeline(torch.randn(48))
         assert isinstance(out, torch.Tensor)
-        # Canonical dim: proprio(18)+tcp(7)+a(7)+b(7)+a_to_b(3)+tcp_to_a(3)+tcp_to_b(3) = 48
-        assert out.shape[-1] == 48
+        # Canonical dim: proprio(18)+tcp(7)+a(7)+b(7) = 39
+        assert out.shape[-1] == 39
 
     def test_flat_no_proprio_vel_to_flat(self):
         """Flat tensor → deflatten → remove qvel → flatten → tensor (39 dims)."""

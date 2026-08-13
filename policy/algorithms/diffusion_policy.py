@@ -1,4 +1,5 @@
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 import torch
 import torch.nn.functional as F
@@ -30,7 +31,10 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 "DiffusionPolicy requires a noise scheduler. Pass a valid `noise_scheduler` config."
             )
 
-    def _compute_loss(self, external_cond: TensorTree, act_seq: torch.Tensor) -> torch.Tensor:
+    def _encoder_extra_kwargs(self) -> dict[str, Any]:
+        return {"obs_dim": self.obs_dim, "goal_conditioned": False}
+
+    def _compute_loss(self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:
@@ -38,9 +42,9 @@ class DiffusionPolicy(BaseDiffusionAgent):
             act_seq: [B, pred_horizon, act_dim] (target action chunk)
             returns: scalar loss tensor []
         """
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before computing loss."
+                "Decoder not initialized. Call configure_model() before computing loss."
             )
 
         if self.noise_scheduler is None:
@@ -62,7 +66,8 @@ class DiffusionPolicy(BaseDiffusionAgent):
         timesteps = cast(torch.IntTensor, timesteps)
 
         noisy_act_seq = self.noise_scheduler.add_noise(act_seq, noise, timesteps)
-        prediction = self.network(noisy_act_seq, timesteps, external_cond=external_cond)
+        encoded_cond = self._encode(external_cond)
+        prediction = self.decoder(noisy_act_seq, timesteps, external_cond=encoded_cond)
 
         pred_type = self.noise_scheduler.config.get("prediction_type", "epsilon")
 
@@ -80,14 +85,14 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
     def _run_diffusion_loop(
         self,
-        external_cond: TensorTree,
+        external_cond: Mapping[str, TensorTree],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
         """Generic helper containing the actual reverse diffusion process loop."""
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before getting action."
+                "Decoder not initialized. Call configure_model() before getting action."
             )
 
         if self.noise_scheduler is None:
@@ -102,13 +107,17 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
         B = get_batch_size(external_cond)
 
-        self.ema.store(self.network.parameters())
-        self.ema.copy_to(self.network.parameters())
+        self.ema.store(self._ema_parameters())
+        self.ema.copy_to(self._ema_parameters())
 
         if num_inference_steps is None:
             num_inference_steps = int(self.noise_scheduler.config["num_train_timesteps"])
 
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
+
+        # Encoded once, outside the loop: obs/goal don't change across denoising steps, unlike
+        # `sample`/`timestep`, so re-encoding on every step would be pure waste.
+        encoded_cond = self._encode(external_cond)
 
         with torch.no_grad():
             noisy_act_seq = torch.randn((B, self.pred_horizon, self.act_dim), device=self.device)
@@ -118,10 +127,10 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
                 latent_model_input = self.noise_scheduler.scale_model_input(noisy_act_seq, t)
 
-                model_output = self.network(
+                model_output = self.decoder(
                     sample=latent_model_input,
                     timestep=t,
-                    external_cond=external_cond,
+                    external_cond=encoded_cond,
                 )
 
                 output = self.noise_scheduler.step(
@@ -133,7 +142,7 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
                 noisy_act_seq = output[0]
 
-        self.ema.restore(self.network.parameters())
+        self.ema.restore(self._ema_parameters())
 
         start = self.obs_horizon - 1
         end = start + self.act_horizon

@@ -9,20 +9,23 @@ import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.utils import (
+    as_task_only,
     concat_leaf_tensors,
+    derive_task_dim,
     get_batch_size,
     get_total_dim,
     map_leaves,
     merge_dicts,
+    pack_obs_goal,
+    pop_leaf_key,
+    resolve_proprio_dim,
+    subtract_leaves,
 )
-from policy.utils.typing_utils import DimSpec, GoalConditionedPolicyProtocol, TensorTree
-
-
-def _pack_cond(obs: TensorTree, goal: TensorTree | None) -> dict[str, TensorTree]:
-    """Packs `obs`/`goal` pair into the dict passed to a `self.network(...)` call."""
-    if goal is None:
-        return {"obs": obs}
-    return merge_dicts([{"obs": obs}, {"goal": goal}])
+from policy.utils.typing_utils import (
+    DimSpec,
+    GoalConditionedPolicyProtocol,
+    TensorTree,
+)
 
 
 class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
@@ -53,14 +56,18 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         num_parallel_samples: int = 1,
         goal_drop_prob: float = 0.1,
         cfg_lambda: float | None = None,
+        relative_goal: bool = False,
+        use_proprio_token: bool = False,
+        proprio_dim: int | None = None,
+        task_dim: int | None = None,
         **kwargs,
     ):
 
         super().__init__(*args, **kwargs)
 
-        if "DiffusionGPT" not in self.network_config.get("_target_", None):
+        if "DiffusionGPT" not in self.decoder_config.get("_target_", None):
             raise ValueError(
-                f"BesoPolicy requires a DiffusionGPT network to run. Found: {type(self.network)}"
+                f"BesoPolicy requires a DiffusionGPT decoder to run. Found: {type(self.decoder)}"
             )
 
         if self.noise_scheduler_config is not None:
@@ -71,6 +78,12 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         self.goal_horizon = goal_horizon
         self.goal_conditioned = goal_horizon > 0
+
+        # For BESO++
+        self.relative_goal = relative_goal
+        self.use_proprio_token = use_proprio_token
+        if use_proprio_token or relative_goal:
+            self.proprio_dim, self.task_dim = self._validate_obs_dim(proprio_dim, task_dim)
 
         # Training
         self.alpha = alpha
@@ -85,16 +98,44 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # Training and Inference
         self.sigma_data = sigma_data
 
+        self._validate_goal_parameters()
+
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         self.num_parallel_samples = num_parallel_samples
 
+    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
+        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
+        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
+        return proprio_dim, task_dim
+
+    def _validate_goal_parameters(self):
+        if self.relative_goal and not self.goal_conditioned:
+            raise ValueError(
+                "relative_goal=True requires goal_horizon > 0: there is no goal to "
+                "difference the observations against when goal-conditioning is disabled."
+            )
+        if self.relative_goal:
+            if self.goal_horizon != 1:
+                raise ValueError(
+                    f"relative_goal=True requires goal_horizon=1 (got goal_horizon={self.goal_horizon}): "
+                    "a single goal frame is differenced against every obs timestep; multi-frame "
+                    "goals would need an explicit broadcasting rule that isn't defined here."
+                )
+            if self.goal_drop_prob > 0.0 or self.cfg_lambda is not None:
+                raise ValueError(
+                    f"relative_goal=True is mutually exclusive with classifier-free guidance "
+                    f"(goal_drop_prob={self.goal_drop_prob}, cfg_lambda={self.cfg_lambda}): CFG's "
+                    "'unconditional' goal-zeroing has no well-defined meaning once there's no "
+                    "standalone goal tensor to zero. Leave goal_drop_prob=0.0 and cfg_lambda=None."
+                )
+
     def configure_optimizers(self):
         """BESO custom optimizer configuration with weight decay handling for DiffusionGPT."""
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before configure_optimizers."
+                "Decoder not initialized. Call configure_model() before configure_optimizers."
             )
 
         # Separate parameters into decay/no_decay sets
@@ -106,8 +147,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         whitelist_weight_modules = (torch.nn.Linear, torch.nn.MultiheadAttention)
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
 
-        # Iterate over the DiffusionGPT network
-        for mn, m in self.network.named_modules():
+        # Iterate over the DiffusionGPT decoder
+        for mn, m in self.decoder.named_modules():
             for pn, p in m.named_parameters():
                 if not p.requires_grad:
                     continue
@@ -122,11 +163,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                     no_decay.add(fpn)
 
         # Positional embedding in DiffusionGPT
-        if hasattr(self.network, "pos_emb"):
+        if hasattr(self.decoder, "pos_emb"):
             no_decay.add("pos_emb")
 
         # Validate that we categorized every parameter
-        param_dict = {pn: p for pn, p in self.network.named_parameters() if p.requires_grad}
+        param_dict = {pn: p for pn, p in self.decoder.named_parameters() if p.requires_grad}
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, f"Parameters {inter_params} made it into both sets!"
@@ -175,9 +216,21 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     def _get_cond_dims(self) -> DimSpec:
         """Reports the per-timestep conditioning dimensionality passed to the network."""
         cond_dims = cast(Mapping[str, DimSpec], super()._get_cond_dims())
-        if self.goal_horizon > 0:
+
+        # No "goal" key when relative_goal=True, the goal is folded into obs
+        if self.goal_horizon > 0 and not self.relative_goal:
             cond_dims = {**cond_dims, "goal": get_total_dim(cond_dims["obs"])}
         return cond_dims
+
+    def _decoder_extra_kwargs(self) -> dict[str, Any]:
+        kwargs = super()._decoder_extra_kwargs()  # {"cond_dims": self._get_cond_dims()}
+        if self.use_proprio_token:
+            kwargs["proprio_dim"] = self.proprio_dim
+            kwargs["use_proprio_token"] = True
+        if self.relative_goal:
+            # No "goal" key when relative_goal=True, the goal is folded into obs
+            kwargs["goal_horizon"] = 0
+        return kwargs
 
     def get_action(
         self,
@@ -225,9 +278,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         """BESO Loss formulation using Karras preconditioning and sampling from a continuous
         distribution of noise levels (i.e., do not use Diffusers)."""
 
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before getting action."
+                "Decoder not initialized. Call configure_model() before getting action."
             )
 
         B = get_batch_size(external_cond)
@@ -252,7 +305,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # Get Karras scalings
         c_skip, c_out, c_in = self._get_karras_scalings(sigma_bd)
 
-        # Predict raw model output (Network is now just DiffusionGPT)
+        # Predict raw model output (decoder is just DiffusionGPT)
         scaled_noisy_act = noisy_act_seq * c_in
 
         # Goal dropout for Classifier-Free Guidance
@@ -267,8 +320,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
             )
 
         # Repack data back into the external_cond dictionary and predict.
-        external_cond = _pack_cond(obs_seq, goal)
-        model_output = self.network(
+        external_cond = pack_obs_goal(obs_seq, goal)
+        model_output = self.decoder(
             sample=scaled_noisy_act, timestep=sigmas, external_cond=external_cond
         )
 
@@ -286,23 +339,65 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     def _build_external_cond(
         self, obs: TensorTree, goal: TensorTree | None
     ) -> dict[str, TensorTree]:
-        external_cond = self._build_obs_external_cond(obs)
-        if self.goal_horizon > 0:
-            if goal is None:
-                raise ValueError(
-                    f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
-                    "but received goal=None."
-                )
-            goal_external_cond = self._build_goal_external_cond(goal)
-            external_cond = merge_dicts([external_cond, goal_external_cond])
+        if self.goal_conditioned and goal is None:
+            raise ValueError(
+                f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
+                "but received goal=None."
+            )
+        if not self.goal_conditioned and goal is not None:
+            raise ValueError(
+                f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} "
+                "(not goal-conditioned), but received a non-None goal. Pass goal=None, or "
+                "construct this policy with goal_horizon > 0."
+            )
 
-        return external_cond
+        if self.relative_goal:
+            assert goal is not None
+            return self._build_delta_external_cond(obs, goal)
+        else:
+            return self._build_abs_external_cond(obs, goal)
+
+    def _build_abs_external_cond(
+        self, obs: TensorTree, goal: TensorTree | None
+    ) -> dict[str, TensorTree]:
+        """Build the external condition dictionary for the absolute goal variant (original
+        BESO)."""
+        obs_cond = self._build_obs_external_cond(obs)
+        goal_cond = self._build_goal_external_cond(goal) if goal is not None else {}
+
+        return merge_dicts([obs_cond, goal_cond])
 
     def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
         return {"obs": obs}
 
     def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
         return {"goal": goal}
+
+    def _build_delta_external_cond(
+        self, obs: TensorTree, goal: TensorTree
+    ) -> dict[str, TensorTree]:
+        """Builds the external condition dictionary for the goal-delta variant."""
+        obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
+        if obs_proprio is None:
+            raise ValueError(
+                f"{type(self).__name__} requires external_cond['obs'] to carry a 'proprio' key."
+            )
+
+        goal_task = self._extract_goal_task(goal)
+        task_delta = subtract_leaves(goal_task, obs_task)
+
+        if isinstance(task_delta, Mapping):
+            return {"obs": {"proprio": obs_proprio, **task_delta}}
+
+        return {"obs": {"proprio": obs_proprio, "task": task_delta}}
+
+    def _extract_goal_task(self, goal: TensorTree) -> TensorTree:
+        """Extracts the task-only portion of `goal`."""
+        if isinstance(goal, Mapping):
+            _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
+            return goal_task
+        elif isinstance(goal, torch.Tensor):
+            return as_task_only(goal, self.proprio_dim, self.task_dim)
 
     def _run_diffusion_loop(
         self,
@@ -316,9 +411,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         et al. (2023).
         """
 
-        if self.network is None:
+        if self.decoder is None:
             raise ValueError(
-                "Network not initialized. Call configure_model() before getting action."
+                "Decoder not initialized. Call configure_model() before getting action."
             )
 
         if num_inference_steps is None:
@@ -371,8 +466,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         else:
             B_expanded = B
 
-        self.ema.store(self.network.parameters())
-        self.ema.copy_to(self.network.parameters())
+        self.ema.store(self._ema_parameters())
+        self.ema.copy_to(self._ema_parameters())
 
         sigmas = self._get_sigmas_exponential(num_inference_steps, self.sigma_min, self.sigma_max)
 
@@ -401,11 +496,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 # Scale input and predict
                 scaled_sample = running_seq * c_in
 
-                # Repack and send it to the network
-                cond_pred = self.network(
+                # Repack and send it to the decoder
+                cond_pred = self.decoder(
                     sample=scaled_sample,
                     timestep=sigma_t,
-                    external_cond=_pack_cond(sliced_obs_cond, goal_cond),
+                    external_cond=pack_obs_goal(sliced_obs_cond, goal_cond),
                 )
 
                 # Unconditional Prediction (goal zeroed out)
@@ -425,10 +520,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 #   instability at higher values in higher-dimensional action spaces.
                 if self.cfg_lambda is not None and goal_cond is not None:
                     uncond_goal = map_leaves(torch.zeros_like, goal_cond)
-                    uncond_pred = self.network(
+                    uncond_pred = self.decoder(
                         sample=scaled_sample,
                         timestep=sigma_t,
-                        external_cond=_pack_cond(sliced_obs_cond, uncond_goal),
+                        external_cond=pack_obs_goal(sliced_obs_cond, uncond_goal),
                     )
 
                     model_pred = uncond_pred + self.cfg_lambda * (cond_pred - uncond_pred)
@@ -461,7 +556,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 else:
                     running_seq = updated_action
 
-        self.ema.restore(self.network.parameters())
+        self.ema.restore(self._ema_parameters())
 
         # Extract the actions to execute
         denoised_action = running_seq[:, -1:, :]

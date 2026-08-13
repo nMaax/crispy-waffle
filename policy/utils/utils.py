@@ -307,13 +307,46 @@ def map_leaves(
     return {k: map_leaves(fn, v) for k, v in tree.items()}
 
 
-def split_leaf_key(
-    tree: TensorTree, key: str, size: int
-) -> tuple[torch.Tensor | None, TensorTree]:
+def subtract_leaves(minuend: TensorTree, subtrahend: TensorTree) -> TensorTree:
+    """Per-leaf ``minuend - subtrahend``, preserving tree structure."""
+    if isinstance(subtrahend, Mapping) or isinstance(minuend, Mapping):
+        if not (isinstance(subtrahend, Mapping) and isinstance(minuend, Mapping)):
+            raise TypeError(
+                f"minuend ({type(minuend).__name__}) and subtrahend ({type(subtrahend).__name__}) "
+                "must both be Mappings, or both be tensors, at every level."
+            )
+        if subtrahend.keys() != minuend.keys():
+            raise KeyError(
+                f"subtrahend keys {sorted(subtrahend.keys())} and minuend keys "
+                f"{sorted(minuend.keys())} must match exactly."
+            )
+        return {k: subtract_leaves(minuend[k], subtrahend[k]) for k in subtrahend}
+
+    if minuend.ndim == subtrahend.ndim - 1:
+        minuend = minuend.unsqueeze(1)
+    if minuend.ndim != subtrahend.ndim:
+        raise ValueError(
+            f"Cannot align minuend of shape {tuple(minuend.shape)} with subtrahend of shape "
+            f"{tuple(subtrahend.shape)}: expected the same rank, or one fewer (no time axis) on "
+            "the minuend."
+        )
+    return minuend - subtrahend
+
+
+def pack_obs_goal(obs: TensorTree, goal: TensorTree | None) -> dict[str, TensorTree]:
+    """Packs an `obs`/`goal` pair into the conditioning dict a diffusion network expects."""
+    if goal is None:
+        return {"obs": obs}
+    return merge_dicts([{"obs": obs}, {"goal": goal}])
+
+
+def pop_leaf_key(tree: TensorTree, key: str, size: int) -> tuple[torch.Tensor | None, TensorTree]:
     """Pops a named leaf out of a tree.
 
     A Mapping pops `key` and returns the remaining Mapping (unchanged if
-    `key` isn't present). A flat Tensor instead slices the first `size` features off the last
+    `key` isn't present).
+
+    A flat Tensor instead slices the first `size` features off the last
     dim, assuming the popped leaf occupies the leading `size` features by convention.
     """
     if isinstance(tree, Mapping):
@@ -391,8 +424,8 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
     return calc_task_dim
 
 
-def resolve_task_width(
-    tensor: torch.Tensor, proprio_dim: int, task_dim: int, *, label: str = "width"
+def as_task_only(
+    tensor: torch.Tensor, proprio_dim: int, task_dim: int
 ) -> torch.Tensor:
     """Resolves a flat tensor at ambiguous width to task-only form."""
     width = tensor.shape[-1]
@@ -401,6 +434,6 @@ def resolve_task_width(
     if width == proprio_dim + task_dim:
         return tensor[..., proprio_dim:]
     raise ValueError(
-        f"Expected {label} {task_dim} (task-only) or {proprio_dim + task_dim} (proprio+task), "
+        f"Expected width {task_dim} (task-only) or {proprio_dim + task_dim} (proprio+task), "
         f"but got {width}."
     )

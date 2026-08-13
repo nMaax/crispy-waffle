@@ -10,7 +10,7 @@ from policy.algorithms.callbacks.finetune_planner import FinetunePlannerCallback
 class DummyModule(nn.Module):
     def __init__(self):
         super().__init__()
-        self.network = nn.Linear(4, 4)
+        self.decoder = nn.Linear(4, 4)
         self.planner = nn.Linear(4, 4)
 
 
@@ -27,7 +27,7 @@ def test_finetune_planner_freezes_network_makes_planner_trainable():
 
     callback.freeze_before_training(module)
 
-    for p in module.network.parameters():
+    for p in module.decoder.parameters():
         assert not p.requires_grad
     for p in module.planner.parameters():
         assert p.requires_grad
@@ -45,14 +45,14 @@ def test_finetune_planner_unfreezes_at_step():
     # Before step: network is frozen
     trainer.global_step = 50
     callback.on_train_batch_start(trainer, module, {}, 0)
-    for p in module.network.parameters():
+    for p in module.decoder.parameters():
         assert not p.requires_grad
     assert len(optimizer.param_groups) == 1
 
     # At unfreeze step: network is unfrozen and added to optimizer
     trainer.global_step = 100
     callback.on_train_batch_start(trainer, module, {}, 0)
-    for p in module.network.parameters():
+    for p in module.decoder.parameters():
         assert p.requires_grad
     assert len(optimizer.param_groups) == 2
     assert optimizer.param_groups[1]["lr"] == 1e-5

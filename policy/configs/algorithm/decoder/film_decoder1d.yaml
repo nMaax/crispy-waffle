@@ -1,0 +1,5 @@
+_target_: policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D
+diffusion_step_embed_dim: 64
+down_dims: [64, 128, 256]
+kernel_size: 5
+n_groups: 8

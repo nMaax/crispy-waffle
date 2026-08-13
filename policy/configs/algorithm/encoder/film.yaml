@@ -1,0 +1,20 @@
+_target_: policy.algorithms.networks.encoder.encoder.ConditioningEncoder
+# tokenizer/embedder need obs/task-shape kwargs (input_dim, task_dim) injected at instantiate
+# time by ConditioningEncoder itself -- without _recursive_: false, Hydra would try to build them
+# straight from their static YAML fields alone and fail on the missing kwarg.
+_recursive_: false
+
+# relative_goal -- false: condition on the observation embeddings and the goal embedding
+# separately (s_1..s_T, g). true: condition on the per-timestep goal-state differences instead
+# (g - s_1, ..., g - s_T), differenced before the embedder, i.e. embed(g - s_t).
+relative_goal: false
+# Explicit default (not null): tokenization is never actually optional -- something must always
+# turn a task tree into tokens, so this names the default strategy instead of hiding it behind a
+# Python-side fallback. Same target as policy/configs/algorithm/tokenizer/state.yaml; override
+# with `override tokenizer@encoder.tokenizer: object` etc. to pick a different one.
+tokenizer:
+  _target_: policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer
+embedder: null
+pooling: null
+proprio_dim: null
+task_dim: null

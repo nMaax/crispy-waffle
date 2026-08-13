@@ -8,7 +8,7 @@ from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.utils import get_batch_size
 from policy.utils.typing_utils import TensorTree
 
-UNET_TARGET = "policy.algorithms.networks.unet1d.UNet1D"
+DECODER_TARGET = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
 
 
 class _MinimalDiffusionAgent(BaseDiffusionAgent):
@@ -30,7 +30,7 @@ class _MinimalDiffusionAgent(BaseDiffusionAgent):
 
 def _basic_kwargs(**overrides):
     kw = dict(
-        network={"_target_": UNET_TARGET},
+        decoder={"_target_": DECODER_TARGET},
         optimizer={},
         obs_dim=3,
         act_dim=4,
@@ -105,19 +105,19 @@ class TestBaseDiffusionAgentLogic:
 
     def test_on_train_batch_end_skips_when_ema_none(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        agent.network = MagicMock()
+        agent.decoder = MagicMock()
         agent.ema = None
         # Should not raise even though EMA is absent.
         agent.on_train_batch_end(torch.tensor(0.0), {}, 0)
 
-    def test_on_train_batch_end_raises_when_network_none(self):
+    def test_on_train_batch_end_raises_when_decoder_none(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        with pytest.raises(ValueError, match="Network not initialized"):
+        with pytest.raises(ValueError, match="Decoder not initialized"):
             agent.on_train_batch_end(torch.tensor(0.0), {}, 0)
 
     def test_on_train_batch_end_steps_ema_when_present(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        agent.network = MagicMock()
+        agent.decoder = MagicMock()
         agent.ema = MagicMock()
         agent.on_train_batch_end(torch.tensor(0.0), {}, 0)
         agent.ema.step.assert_called_once()
@@ -151,3 +151,45 @@ class TestBaseDiffusionAgentLogic:
         out = agent.get_action(obs_seq)
         assert out.shape == (2, agent.act_horizon, agent.act_dim)
         assert torch.isfinite(out).all()
+
+    # ------------------------------------------------------------------ #
+    # Encoder scaffolding: _encode / _ema_parameters / _get_cond_dims
+    # ------------------------------------------------------------------ #
+    def test_encode_passes_through_unchanged_when_no_encoder(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        assert agent.encoder is None
+        external_cond = {"obs": torch.randn(2, 2, 3)}
+        assert agent._encode(external_cond) is external_cond
+
+    def test_encode_requires_an_obs_entry_when_encoder_present(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.encoder = MagicMock()
+        with pytest.raises(ValueError, match="must contain an 'obs' entry"):
+            agent._encode({})
+
+    def test_encode_calls_encoder_with_obs_and_goal(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.encoder = MagicMock()
+        obs, goal = torch.randn(2, 2, 3), torch.randn(2, 3)
+        agent._encode({"obs": obs, "goal": goal})
+        agent.encoder.assert_called_once_with(obs, goal)
+
+    def test_get_cond_dims_uses_encoder_cond_dims_when_present(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.encoder = MagicMock()
+        agent.encoder.cond_dims = {"obs": 99}
+        assert agent._get_cond_dims() == {"obs": 99}
+
+    def test_ema_parameters_combines_encoder_and_decoder_when_encoder_present(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.decoder = torch.nn.Linear(3, 3)
+        agent.encoder = torch.nn.Linear(2, 2)
+        ema_params = agent._ema_parameters()
+        expected = list(agent.encoder.parameters()) + list(agent.decoder.parameters())
+        assert ema_params == expected
+
+    def test_ema_parameters_is_decoder_only_when_no_encoder(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.decoder = torch.nn.Linear(3, 3)
+        assert agent.encoder is None
+        assert agent._ema_parameters() == list(agent.decoder.parameters())

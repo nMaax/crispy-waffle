@@ -1,7 +1,7 @@
 """Shows what a policy's embedder attends to.
 
-Two attention modules can be present in a `GoalConditionedDiffusionPolicy`'s embedder.
-Both are visualised when found:
+Two attention modules can be present in a `GoalConditionedDiffusionPolicy`'s
+`ConditioningEncoder`'s embedder. Both are visualised when found:
 
 - `SelfAttention`'s self-attention across observation tokens
 - `AttentionPooling`'s learned-query attention
@@ -17,6 +17,7 @@ import contextlib
 import warnings
 from collections.abc import Generator
 from pathlib import Path
+from typing import cast
 
 import h5py
 import matplotlib.pyplot as plt
@@ -27,9 +28,9 @@ from matplotlib.image import AxesImage
 
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.algorithms.networks.pooling import AttentionPooling
-from policy.algorithms.networks.self_attention import SelfAttention
-from policy.algorithms.tokenizers import PerObjectStateTokenizer
+from policy.algorithms.networks.encoder import ConditioningEncoder, ObjectTokenizer
+from policy.algorithms.networks.encoder.embedders import SelfAttention
+from policy.algorithms.networks.encoder.pooling import AttentionPooling
 from policy.transforms import observation_pipeline
 from policy.utils import (
     get_batch_size,
@@ -76,20 +77,29 @@ ANNOTATE_MAX_CELLS = 40
 # --- Capturing attention ----------------------------------------------------------------------
 
 
+def require_encoder(model: GoalConditionedDiffusionPolicy) -> ConditioningEncoder:
+    """The tokenizer/embedder now live on the algorithm's ConditioningEncoder, built by
+    configure_model() -- which load_from_checkpoint() already ran."""
+    if model.encoder is None:
+        raise RuntimeError("configure_model() must run before the encoder is available.")
+    return cast(ConditioningEncoder, model.encoder)
+
+
 def detect_attention_modules(
     model: GoalConditionedDiffusionPolicy,
 ) -> dict[str, nn.MultiheadAttention]:
     """Finds whichever attention modules the loaded embedder has; either, both, or neither."""
+    embedder = require_encoder(model).embedder
     modules: dict[str, nn.MultiheadAttention] = {}
-    if isinstance(model.embedder, SelfAttention):
-        modules["self_attention"] = model.embedder.attn
-    pooling = getattr(model.embedder, "pooling", None)
+    if isinstance(embedder, SelfAttention):
+        modules["self_attention"] = embedder.attn
+    pooling = getattr(embedder, "pooling", None)
     if isinstance(pooling, AttentionPooling):
         modules["pooling"] = pooling.attn
 
     if not modules:
         raise RuntimeError(
-            f"{type(model.embedder).__name__} contains no SelfAttention or "
+            f"{type(embedder).__name__} contains no SelfAttention or "
             "AttentionPooling, so there is no attention to visualise."
         )
     return modules
@@ -147,7 +157,7 @@ def run_and_capture(
 ) -> dict[str, torch.Tensor]:
     """Runs the tokenizer/embedder pipeline over a batch of frames and returns the attention.
 
-    Goes only through `_build_external_cond`, so the diffusion loop is never invoked.
+    Goes only through the network's `ConditioningEncoder`, so the diffusion loop is never invoked.
     """
     if model.obs_normalizer is not None:
         obs_batch = model.obs_normalizer.normalize(obs_batch)
@@ -162,7 +172,7 @@ def run_and_capture(
             for name, module in target_modules.items()
         }
         with torch.no_grad():
-            model._build_external_cond(obs_batch, goal_batch)
+            require_encoder(model)(obs_batch, goal_batch)
 
     return {
         name: select_obs_capture(capture, expected_batch, expected_seq_len)
@@ -176,8 +186,9 @@ def run_and_capture(
 
 def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) -> list[str]:
     """Token names in `t * K + k` order, matching `SelfAttention`'s flattening."""
-    if isinstance(model.tokenizer, PerObjectStateTokenizer):
-        return [f"t{t}/{key}" for t in range(obs_horizon) for key in model.tokenizer.object_keys]
+    tokenizer = require_encoder(model).tokenizer
+    if isinstance(tokenizer, ObjectTokenizer):
+        return [f"t{t}/{key}" for t in range(obs_horizon) for key in tokenizer.object_keys]
     return [f"t{t}" for t in range(obs_horizon)]
 
 
@@ -646,9 +657,9 @@ def main() -> None:
     target_modules = detect_attention_modules(model)
     print(f"Detected attention module(s): {sorted(target_modules)}")
 
-    if model.tokenizer is None:
+    if model.encoder is None:
         raise RuntimeError("configure_model() must run before tokens_per_step is known.")
-    tokens_per_step = model.tokenizer.tokens_per_step
+    tokens_per_step = model.encoder.tokenizer.tokens_per_step
     token_labels = build_token_labels(model, model.obs_horizon)
 
     if args.source == "rollout":

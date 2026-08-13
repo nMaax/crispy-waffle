@@ -1,0 +1,3 @@
+_target_: policy.algorithms.networks.encoder.pooling.attention.AttentionPooling
+num_heads: 4
+dropout: 0.0

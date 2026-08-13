@@ -1,0 +1,43 @@
+from collections.abc import Sequence
+
+import torch
+import torch.nn as nn
+
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dims: Sequence[int] = (256, 256),
+        bias: bool = True,
+    ):
+        super().__init__()
+
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dims = hidden_dims
+        self.bias = bias
+
+        layers = []
+        current_dim = input_dim
+
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(current_dim, hidden_dim, bias=bias))
+            layers.append(nn.ReLU())
+            current_dim = hidden_dim
+
+        layers.append(nn.Linear(current_dim, output_dim, bias=bias))
+
+        self.net = nn.Sequential(*layers)
+
+        if not hidden_dims and not bias:
+            nn.init.zeros_(self.net[0].weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Shapes:
+
+        x: [B, T, input_dim] or [B, T, K, input_dim] (K tokens per timestep).
+        returns: same leading shape as ``x`` with ``input_dim`` -> ``output_dim``.
+        """
+        return self.net(x)

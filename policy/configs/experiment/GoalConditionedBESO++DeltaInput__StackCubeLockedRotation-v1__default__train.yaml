@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /algorithm: beso_pp_policy
+  - override /algorithm: beso_policy_delta_input
   - override /datamodule: goal_conditioned_trajectory_datamodule
   - override /trainer: default
 

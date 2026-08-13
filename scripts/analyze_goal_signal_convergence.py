@@ -18,6 +18,7 @@ import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,6 +27,7 @@ from matplotlib.lines import Line2D
 
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
+from policy.algorithms.networks.encoder import ConditioningEncoder
 from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
@@ -52,6 +54,14 @@ from scripts.utils.taps import (
 )
 
 SCRIPT_NAME = Path(__file__).stem
+
+
+def require_encoder(model: GoalConditionedDiffusionPolicy) -> ConditioningEncoder:
+    """The tokenizer/embedder/relative_goal now live on the algorithm's ConditioningEncoder, built
+    by configure_model() -- which load_from_checkpoint() already ran."""
+    if model.encoder is None:
+        raise RuntimeError("configure_model() must run before the encoder is available.")
+    return cast(ConditioningEncoder, model.encoder)
 
 
 @dataclass
@@ -85,15 +95,15 @@ def compute_z(
 
     # The generated tensor can get structured in quite diifferent ways depending on the embedder and pooling,
     # so we need to do extra work to fetch the correct tensor.
-    pools_time = model._embedder_pools_time()
+    encoder = require_encoder(model)
     task = (
         get_tensor(external_cond, "task")
-        if pools_time
+        if encoder.pools_time
         else get_tensor(get_subtree(external_cond, "obs"), "task")
     )
     current = task[:, -1] if task.ndim == 3 else task  # most recently observed frame
 
-    if model.goal_delta is None:
+    if not encoder.relative_goal:
         goal_value = external_cond["goal"]
         goal_task = (
             goal_value if isinstance(goal_value, torch.Tensor) else get_tensor(goal_value, "task")
@@ -136,7 +146,7 @@ def collect_episodes(
     results: list[EpisodeResult] = []
     try:
         for episode in range(args.num_episodes):
-            with capture_pre_norm(model.embedder) as pre_norm:
+            with capture_pre_norm(require_encoder(model).embedder) as pre_norm:
 
                 def record(step, pre_norm=pre_norm) -> StepRecord:
                     h = float(torch.linalg.norm(pre_norm[0].flatten())) if pre_norm else None
@@ -462,12 +472,13 @@ def main() -> None:
     model = load_goal_conditioned_diffusion_policy(args.ckpt_path)
     cfg = require_run_config(args.ckpt_path)
     slug = args.run_label or run_slug(args.ckpt_path, model, cfg, args.seed)
+    encoder = require_encoder(model)
     print(
-        f"Loaded {type(model).__name__}: goal_delta={model.goal_delta!r} "
+        f"Loaded {type(model).__name__}: relative_goal={encoder.relative_goal!r} "
         f"obs_horizon={model.obs_horizon} act_horizon={model.act_horizon}"
     )
 
-    norm = embedder_output_norm(model.embedder)
+    norm = embedder_output_norm(encoder.embedder)
     band = magnitude_band(norm) if norm is not None else None
     norm_name = type(norm).__name__ if norm is not None else "none"
     if norm is None:
