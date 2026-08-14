@@ -1,4 +1,0 @@
-_target_: policy.algorithms.networks.encoder.embedders.residual_mlp.ResidualMLP
-output_dim: 64
-hidden_dims: [128, 128, 128]
-use_linear_shortcut: true

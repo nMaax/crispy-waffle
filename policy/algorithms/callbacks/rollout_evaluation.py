@@ -63,7 +63,6 @@ class RolloutEvaluationCallback(L.Callback):
         physx_backend: str | None = None,
         canonicalize: bool | None = None,
         as_dict: bool | None = None,
-        no_proprio_vel: bool | None = None,
         name: str | None = None,
     ):
         super().__init__()
@@ -82,7 +81,6 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.canonicalize = canonicalize
         self.as_dict = as_dict
-        self.no_proprio_vel = no_proprio_vel
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -143,9 +141,6 @@ class RolloutEvaluationCallback(L.Callback):
             self.canonicalize, "canonicalize", strict=False, default=True
         )
         self.as_dict = _resolve_param(self.as_dict, "as_dict", strict=False, default=True)
-        self.no_proprio_vel = _resolve_param(
-            self.no_proprio_vel, "no_proprio_vel", strict=False, default=False
-        )
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -194,7 +189,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tnum_episodes: {self.num_episodes}\n"
             f"\tcanonicalize: {self.canonicalize}\n"
             f"\tas_dict: {self.as_dict}\n"
-            f"\tno_proprio_vel: {self.no_proprio_vel}\n"
         )
 
         make_kwargs = {}
@@ -330,7 +324,6 @@ class RolloutEvaluationCallback(L.Callback):
             is_flat=is_flat,
             canonicalize=bool(self.canonicalize),
             as_dict=bool(self.as_dict),
-            no_proprio_vel=bool(self.no_proprio_vel),
         )
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)

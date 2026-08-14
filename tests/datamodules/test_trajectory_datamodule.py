@@ -298,13 +298,3 @@ class TestManiSkillDataModuleHFFetch:
         with pytest.raises(ValueError, match="outside") as error:
             dm.prepare_data()
         assert str(outside_file) in str(error.value)
-
-    def test_no_proprio_vel_adjusts_obs_dim(self, datamodule_factory):
-        dm_dict = datamodule_factory(
-            no_proprio_vel=True,
-            obs_dim={"proprio": 18, "tcp_pose": 7, "a_pose": 7, "b_pose": 7},
-        )
-        assert dm_dict.obs_dim == {"proprio": 9, "tcp_pose": 7, "a_pose": 7, "b_pose": 7}
-
-        dm_flat = datamodule_factory(no_proprio_vel=True, obs_dim=48)
-        assert dm_flat.obs_dim == 39

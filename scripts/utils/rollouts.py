@@ -93,7 +93,6 @@ def resolve_env_kwargs(cfg: DictConfig, env_id_override: str | None = None) -> d
         "obs_mode": dm.obs_mode,
         "control_mode": dm.control_mode,
         "robot_uids": dm.robot_uids,
-        "no_proprio_vel": bool(dm.no_proprio_vel),
         "physx_backend": physx_backend,
     }
 
@@ -222,7 +221,6 @@ def build_obs_transform(
         is_flat=not isinstance(env.observation_space, gym.spaces.Dict),
         canonicalize=bool(datamodule_cfg.get("canonicalize", True)),
         as_dict=bool(datamodule_cfg.get("as_dict", True)),
-        no_proprio_vel=bool(env_kwargs["no_proprio_vel"]),
     )
 
 

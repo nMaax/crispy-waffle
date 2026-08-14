@@ -1,6 +1,5 @@
 from policy.algorithms.networks.encoder.embedders import (
     MLP,
-    ResidualMLP,
     SelfAttention,
 )
 from policy.algorithms.networks.encoder.encoder import ConditioningEncoder
@@ -16,7 +15,6 @@ __all__ = [
     "ObjectTokenizer",
     "StateTokenizer",
     "MLP",
-    "ResidualMLP",
     "SelfAttention",
     "AttentionPooling",
     "MLPPooling",

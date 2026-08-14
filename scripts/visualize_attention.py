@@ -707,7 +707,6 @@ def main() -> None:
         is_flat=peek_trajectory_is_dataset(dataset_path, dimension_key="obs"),
         canonicalize=bool(cfg.get("datamodule", {}).get("canonicalize", True)),
         as_dict=bool(cfg.get("datamodule", {}).get("as_dict", True)),
-        no_proprio_vel=bool(cfg.get("datamodule", {}).get("no_proprio_vel", False)),
     )
 
     episode_key, obs_tree, seq_len = load_episode_obs(dataset_path, args.episode_idx)

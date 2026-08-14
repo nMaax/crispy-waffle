@@ -68,24 +68,3 @@ def test_linear_config_zeroes_weights():
     out = network(torch.randn(8, input_dim))
     assert out.shape == (8, output_dim)
     assert torch.all(out == 0.0)
-
-
-def test_residual_mlp_instantiates_and_runs():
-    embedder_cfg = _load_embedder_cfg("residual_mlp")
-
-    input_dim = 16
-    embedder_cfg.input_dim = input_dim
-    embedder = hydra_zen.instantiate(embedder_cfg)
-
-    sample = torch.randn(32, input_dim)
-    output = embedder(sample)
-
-    assert isinstance(output, torch.Tensor)
-    assert output.shape == (32, 64)
-
-    # Test auto output_dim matching input_dim when output_dim is None
-    embedder_cfg.output_dim = None
-    embedder_auto = hydra_zen.instantiate(embedder_cfg)
-    output_auto = embedder_auto(sample)
-    assert output_auto.shape == (32, input_dim)
-    assert isinstance(embedder_auto.shortcut, torch.nn.Identity)

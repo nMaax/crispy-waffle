@@ -4,7 +4,7 @@ import torch
 from hydra import compose, initialize_config_module
 from omegaconf import OmegaConf
 
-from policy.algorithms.networks.encoder.embedders import MLP, ResidualMLP
+from policy.algorithms.networks.encoder.embedders import MLP
 
 
 def _load_embedder_cfg(config_name: str):
@@ -71,7 +71,7 @@ def test_self_attention_rejects_a_longer_window_than_configured():
 
 
 def test_self_attention_mixes_across_timesteps():
-    """The whole point of this embedder over the per-token MLP/ResidualMLP ones: the embedding of
+    """The whole point of this embedder over the per-token MLP ones: the embedding of
     one token can depend on other tokens in the window."""
     torch.manual_seed(0)
     input_dim, output_dim, obs_horizon = 16, 12, 2
@@ -195,12 +195,11 @@ def test_self_attention_rejects_a_rank_other_than_3_or_4():
 
 
 def test_per_token_embedders_do_not_mix_across_timesteps():
-    """Contrast with the per-token ("siamese") MLP/ResidualMLP embedders: perturbing one timestep
-    never affects another's embedding, since each row is embedded independently."""
+    """Contrast with the per-token ("siamese") MLP embedder: perturbing one timestep never affects
+    another's embedding, since each row is embedded independently."""
     input_dim, output_dim = 16, 12
     for embedder in (
         MLP(input_dim=input_dim, output_dim=output_dim, hidden_dims=[32]),
-        ResidualMLP(input_dim=input_dim, output_dim=output_dim, hidden_dims=[32]),
     ):
         x = torch.randn(4, 2, input_dim)
         x_perturbed = x.clone()

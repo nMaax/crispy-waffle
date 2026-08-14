@@ -7,7 +7,7 @@ class TestObservationPipeline:
     def test_noop_all_flags_false(self):
         """is_flat=True, all flags False → empty compose → identity."""
         pipeline = observation_pipeline(
-            "StackCube-v1", is_flat=True, canonicalize=False, as_dict=False, no_proprio_vel=False
+            "StackCube-v1", is_flat=True, canonicalize=False, as_dict=False
         )
         t = torch.randn(48)
         out = pipeline(t)
@@ -21,20 +21,6 @@ class TestObservationPipeline:
         out = pipeline(torch.randn(48))
         assert isinstance(out, torch.Tensor)
         # Canonical dim: proprio(18)+tcp(7)+a(7)+b(7) = 39
-        assert out.shape[-1] == 39
-
-    def test_flat_no_proprio_vel_to_flat(self):
-        """Flat tensor → deflatten → remove qvel → flatten → tensor (39 dims)."""
-        pipeline = observation_pipeline(
-            "StackCube-v1",
-            is_flat=True,
-            canonicalize=False,
-            as_dict=False,
-            no_proprio_vel=True,
-        )
-        out = pipeline(torch.randn(48))
-        assert isinstance(out, torch.Tensor)
-        # 48 - 9 (qvel) = 39
         assert out.shape[-1] == 39
 
     def test_flat_as_dict(self):

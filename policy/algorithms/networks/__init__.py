@@ -9,7 +9,6 @@ from policy.algorithms.networks.encoder import (
 )
 from policy.algorithms.networks.encoder.embedders import (
     MLP,
-    ResidualMLP,
     SelfAttention,
 )
 from policy.algorithms.networks.encoder.pooling import AttentionPooling, MLPPooling
@@ -19,7 +18,6 @@ __all__ = [
     "FiLMDecoder1D",
     "CrossAttentionDecoder1D",
     "MLP",
-    "ResidualMLP",
     "SelfAttention",
     "AttentionPooling",
     "MLPPooling",

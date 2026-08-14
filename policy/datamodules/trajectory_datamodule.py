@@ -1,6 +1,5 @@
 import json
 import random
-from collections.abc import Mapping
 from pathlib import Path
 
 import lightning as L
@@ -40,7 +39,6 @@ class TrajectoryDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
         canonicalize: bool = True,
-        no_proprio_vel: bool = False,
         as_dict: bool = True,
     ):
         super().__init__()
@@ -54,9 +52,6 @@ class TrajectoryDataModule(L.LightningDataModule):
 
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
-
-        if no_proprio_vel:
-            obs_dim = self._adjust_obs_dim_for_no_proprio_vel(obs_dim)
 
         self.obs_dim = obs_dim
         self.act_dim = act_dim
@@ -74,7 +69,6 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.seed = seed
 
         self.canonicalize = canonicalize
-        self.no_proprio_vel = no_proprio_vel
         self.as_dict = as_dict
 
         if self.hf_dataset_repo is None:
@@ -83,16 +77,6 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.train_set: Dataset | None = None
         self.val_set: Dataset | None = None
         self.test_set: Dataset | None = None
-
-    def _adjust_obs_dim_for_no_proprio_vel(self, obs_dim: DimSpec) -> DimSpec:
-        if isinstance(obs_dim, Mapping):
-            updated = dict(obs_dim)
-            if "proprio" in updated and updated["proprio"] == 18:
-                updated["proprio"] = 9
-            return updated
-        if isinstance(obs_dim, int) and obs_dim > 9:
-            return obs_dim - 9
-        return obs_dim
 
     def prepare_data(self) -> None:
         if self.hf_dataset_repo is None:
@@ -152,7 +136,6 @@ class TrajectoryDataModule(L.LightningDataModule):
                 is_flat=is_flat,
                 canonicalize=self.canonicalize,
                 as_dict=self.as_dict,
-                no_proprio_vel=self.no_proprio_vel,
             )
 
         if stage == "fit" or stage is None:

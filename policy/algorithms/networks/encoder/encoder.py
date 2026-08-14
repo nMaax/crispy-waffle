@@ -144,7 +144,7 @@ class ConditioningEncoder(nn.Module):
                 "context": CondEntry(width=self.output_dim, kind="sequence"),
             }
         if self.pools_time:
-            # A pooling embedder collapses the time axis, so "task" no longer shares "obs"'s
+            # Pooling collapses the time axis, so "task" no longer shares "obs"'s
             # per-timestep width and must live outside it (mirrors "goal", which never has one).
             return {
                 "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
