@@ -5,7 +5,6 @@ import hydra_zen
 import torch
 import torch.nn as nn
 
-from policy.algorithms.networks.encoder.pooling.utils import pool_tokens
 from policy.algorithms.networks.encoder.spec import CondEntry, ConditioningSpec
 from policy.algorithms.networks.encoder.tokenizers import StateTokenizer
 from policy.utils import (
@@ -19,6 +18,7 @@ from policy.utils import (
 from policy.utils.typing_utils import (
     DimSpec,
     HydraConfigFor,
+    PoolingProtocol,
     TensorTree,
     TokenizerProtocol,
 )
@@ -41,7 +41,7 @@ class ConditioningEncoder(nn.Module):
         decoder_type: Literal["film", "cross_attention"] = "film",
         tokenizer: HydraConfigFor[TokenizerProtocol] | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
-        pooling: HydraConfigFor[nn.Module] | None = None,
+        pooling: HydraConfigFor[PoolingProtocol] | None = None,
     ):
         super().__init__()
 
@@ -88,18 +88,32 @@ class ConditioningEncoder(nn.Module):
         self.output_dim: int = getattr(self.embedder, "output_dim", tokenizer_output_dim)
 
         # Pooling: genuinely optional -- None means "don't collapse the time/token axis".
-        if isinstance(pooling, nn.Module):
-            self.pooling: nn.Module | None = pooling
+        if isinstance(pooling, nn.Module | PoolingProtocol):
+            self.pooling: PoolingProtocol | nn.Module | None = pooling
         elif pooling is not None:
             self.pooling = hydra_zen.instantiate(pooling, dim=self.output_dim)
         else:
             self.pooling = None
 
-        self.pools_time: bool = self.pooling is not None
-
         # Validation
         self._validate_config()
         self.cond_dims: ConditioningSpec = self._compute_cond_dims()
+
+    @property
+    def pooling_mode(self) -> Literal["all", "objects", "time"] | None:
+        return getattr(self.pooling, "mode", None) if self.pooling is not None else None
+
+    @property
+    def pools_time(self) -> bool:
+        if self.pooling is None:
+            return False
+        return getattr(self.pooling, "pools_time", self.pooling_mode in ("all", "time"))
+
+    @property
+    def pools_objects(self) -> bool:
+        if self.pooling is None:
+            return False
+        return getattr(self.pooling, "pools_objects", self.pooling_mode in ("all", "objects"))
 
     def _validate_config(self) -> None:
         if self.relative_goal and not self.goal_conditioned:
@@ -132,7 +146,9 @@ class ConditioningEncoder(nn.Module):
         entries = dict(self._task_cond_entries())
         if self.goal_conditioned and not self.relative_goal:
             goal_width = (
-                self.output_dim if self.pools_time else self.output_dim * self.tokens_per_step
+                self.output_dim
+                if (self.pools_time or self.pools_objects)
+                else self.output_dim * self.tokens_per_step
             )
             entries["goal"] = CondEntry(width=goal_width, kind="global")
         return ConditioningSpec(entries)
@@ -143,6 +159,11 @@ class ConditioningEncoder(nn.Module):
                 "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
                 "context": CondEntry(width=self.output_dim, kind="sequence"),
             }
+        if self.pooling_mode == "time":
+            return {
+                "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
+                "task": CondEntry(width=self.output_dim, kind="sequence"),
+            }
         if self.pools_time:
             # Pooling collapses the time axis, so "task" no longer shares "obs"'s
             # per-timestep width and must live outside it (mirrors "goal", which never has one).
@@ -150,9 +171,12 @@ class ConditioningEncoder(nn.Module):
                 "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
                 "task": CondEntry(width=self.output_dim, kind="global"),
             }
+        task_width = (
+            self.output_dim if self.pools_objects else self.output_dim * self.tokens_per_step
+        )
         return {
             "obs": CondEntry(
-                width=self.proprio_dim + self.output_dim * self.tokens_per_step,
+                width=self.proprio_dim + task_width,
                 kind="per_timestep",
             )
         }
@@ -252,7 +276,7 @@ class ConditioningEncoder(nn.Module):
         task_embedded = self.embedder(task) if self.embedder is not None else task
 
         if self.pooling is not None:
-            task_embedded = pool_tokens(task_embedded, self.pooling)
+            task_embedded = self.pooling(task_embedded)
         elif tokens_per_step > 1:
             b, t, k, d = task_embedded.shape
             # Cross-attention keeps K as a sequence axis (t-major, k-minor) for the network to

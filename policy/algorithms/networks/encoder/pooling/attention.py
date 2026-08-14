@@ -3,21 +3,29 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from policy.algorithms.networks.encoder.pooling.base import BasePooling, PoolingMode
 
-class AttentionPooling(nn.Module):
+
+class AttentionPooling(BasePooling):
     """Pools a token sequence into a fixed-size vector via a learned query attending over it."""
 
-    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.0):
-        super().__init__()
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int = 4,
+        dropout: float = 0.0,
+        mode: PoolingMode = "all",
+    ):
+        super().__init__(mode=mode)
         self.query = nn.Parameter(torch.zeros(1, 1, dim))
         self.attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
 
         nn.init.normal_(self.query, mean=0.0, std=0.02)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _pool(self, x: torch.Tensor) -> torch.Tensor:
         """
         Shapes:
-            x: [B, T, dim]
+            x: [B, L, dim]
             returns: [B, dim]
         """
         query = self.query.expand(x.shape[0], -1, -1)

@@ -1,7 +1,10 @@
 import pytest
 import torch
 
-from policy.algorithms.networks.encoder.pooling import AttentionPooling, MLPPooling
+from policy.algorithms.networks.encoder.pooling import (
+    AttentionPooling,
+    MLPPooling,
+)
 
 
 @pytest.mark.parametrize(
@@ -91,3 +94,75 @@ def test_mlp_pooling_accepts_hidden_dims_and_output_dim():
     x = torch.randn(4, 3, 12)
     out = pooling(x)
     assert out.shape == (4, 16)
+
+
+@pytest.mark.parametrize(
+    "mode, expected_shape",
+    [
+        ("all", (8, 12)),
+        ("objects", (8, 4, 12)),
+        ("time", (8, 3, 12)),
+    ],
+)
+def test_attention_pooling_modes_4d(mode, expected_shape):
+    batch_size, obs_horizon, tokens_per_step, dim = 8, 4, 3, 12
+    x = torch.randn(batch_size, obs_horizon, tokens_per_step, dim)
+
+    pooling = AttentionPooling(dim=dim, mode=mode)
+    out = pooling(x)
+    assert out.shape == expected_shape
+
+    loss = out.sum()
+    loss.backward()
+    for p in pooling.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()
+
+
+@pytest.mark.parametrize(
+    "mode, expected_shape",
+    [
+        ("all", (8, 12)),
+        ("objects", (8, 4, 12)),
+        ("time", (8, 3, 12)),
+    ],
+)
+def test_mlp_pooling_modes_4d(mode, expected_shape):
+    batch_size, obs_horizon, tokens_per_step, dim = 8, 4, 3, 12
+    x = torch.randn(batch_size, obs_horizon, tokens_per_step, dim)
+
+    pooling = MLPPooling(
+        dim=dim,
+        obs_horizon=obs_horizon,
+        tokens_per_step=tokens_per_step,
+        mode=mode,
+    )
+    out = pooling(x)
+    assert out.shape == expected_shape
+
+    loss = out.sum()
+    loss.backward()
+    for p in pooling.parameters():
+        if p.requires_grad:
+            assert p.grad is not None
+            assert torch.isfinite(p.grad).all()
+
+
+def test_base_pooling_properties():
+    all_pool = AttentionPooling(dim=12, mode="all")
+    assert all_pool.pools_time is True
+    assert all_pool.pools_objects is True
+
+    obj_pool = AttentionPooling(dim=12, mode="objects")
+    assert obj_pool.pools_time is False
+    assert obj_pool.pools_objects is True
+
+    time_pool = AttentionPooling(dim=12, mode="time")
+    assert time_pool.pools_time is True
+    assert time_pool.pools_objects is False
+
+
+def test_pooling_invalid_mode():
+    with pytest.raises(ValueError, match="Unknown pooling mode"):
+        AttentionPooling(dim=12, mode="invalid")  # type: ignore[arg-type]

@@ -1,7 +1,18 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 
+import hydra.utils
 import torch
 import torch.nn as nn
+
+
+def _resolve_activation(activation: type[nn.Module] | str) -> type[nn.Module]:
+    if isinstance(activation, str):
+        if hasattr(nn, activation):
+            return getattr(nn, activation)
+        return hydra.utils.get_class(activation)
+    return activation
 
 
 class MLP(nn.Module):
@@ -10,6 +21,7 @@ class MLP(nn.Module):
         input_dim: int,
         output_dim: int,
         hidden_dims: Sequence[int] = (256, 256),
+        activation: type[nn.Module] | str = nn.ReLU,
         bias: bool = True,
     ):
         super().__init__()
@@ -19,12 +31,14 @@ class MLP(nn.Module):
         self.hidden_dims = hidden_dims
         self.bias = bias
 
-        layers = []
+        act_cls = _resolve_activation(activation)
+
+        layers: list[nn.Module] = []
         current_dim = input_dim
 
         for hidden_dim in hidden_dims:
             layers.append(nn.Linear(current_dim, hidden_dim, bias=bias))
-            layers.append(nn.ReLU())
+            layers.append(act_cls())
             current_dim = hidden_dim
 
         layers.append(nn.Linear(current_dim, output_dim, bias=bias))

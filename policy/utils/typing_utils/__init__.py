@@ -18,6 +18,7 @@ from .protocols import (
     GoalConditionedEnvProtocol,
     GoalConditionedPolicyProtocol,
     PolicyProtocol,
+    PoolingProtocol,
     TokenizerProtocol,
 )
 
@@ -111,6 +112,7 @@ __all__ = [
     "DiffusionNetworkProtocol",
     "GoalConditionedEnvProtocol",
     "EnvProtocol",
+    "PoolingProtocol",
     "TokenizerProtocol",
     "HydraConfigFor",
     "NestedMapping",

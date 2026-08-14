@@ -1,3 +1,4 @@
 _target_: policy.algorithms.networks.encoder.embedders.mlp.MLP
 output_dim: 64
 hidden_dims: [128, 128, 128]
+activation: ReLU

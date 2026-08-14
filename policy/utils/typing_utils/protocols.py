@@ -219,6 +219,21 @@ class TokenizerProtocol(Protocol):
 
 
 @runtime_checkable
+class PoolingProtocol(Protocol):
+    """Protocol for pooling a token sequence into a fixed-size representation."""
+
+    mode: Literal["all", "objects", "time"]
+
+    @property
+    def pools_time(self) -> bool: ...
+
+    @property
+    def pools_objects(self) -> bool: ...
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor: ...
+
+
+@runtime_checkable
 class EnvProtocol(Protocol):
     """Protocol representing a standard environment (e.g., gym.Env)."""
 

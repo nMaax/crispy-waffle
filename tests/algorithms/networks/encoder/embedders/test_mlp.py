@@ -1,7 +1,10 @@
 import hydra_zen
 import torch
+import torch.nn as nn
 from hydra import compose, initialize_config_module
 from omegaconf import OmegaConf
+
+from policy.algorithms.networks.encoder.embedders import MLP
 
 
 def _load_embedder_cfg(config_name: str):
@@ -25,6 +28,8 @@ def test_mlp_instantiates_and_runs():
     net_cfg.hidden_dims = hidden_dims
     network = hydra_zen.instantiate(net_cfg)
 
+    assert isinstance(network.net[1], nn.ReLU)
+
     sample = torch.randn(batch_size, input_dim)
     output = network(sample)
 
@@ -43,6 +48,18 @@ def test_mlp_instantiates_and_runs():
         if p.requires_grad:
             assert p.grad is not None
             assert torch.isfinite(p.grad).all()
+
+
+def test_mlp_accepts_custom_activation():
+    mlp = MLP(input_dim=16, output_dim=4, hidden_dims=[32, 32], activation=nn.Mish)
+    assert isinstance(mlp.net[1], nn.Mish)
+    assert isinstance(mlp.net[3], nn.Mish)
+
+    out = mlp(torch.randn(4, 16))
+    assert out.shape == (4, 4)
+
+    mlp_str = MLP(input_dim=16, output_dim=4, hidden_dims=[32, 32], activation="GELU")
+    assert isinstance(mlp_str.net[1], nn.GELU)
 
 
 def test_linear_config_zeroes_weights():
