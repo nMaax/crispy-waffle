@@ -125,6 +125,9 @@ uv run python -m mani_skill.examples.motionplanning.panda.run -e "StackCubeLocke
 
 # (Optional) Visualize the motion planning solve live
 uv run python -m mani_skill.examples.motionplanning.panda.run -e "StackCubeLockedRotation-v1" --vis
+
+# (Optional) Render the motion planning solve in a mp4
+uv run python -m mani_skill.examples.motionplanning.panda.run -e "StackCubeLockedRotation-v1" --save-video
 ```
 
 Keep this patched ManiSkill clone strictly for data generation. Once your trajectories are generated in the `demos/` folder, simply copy the `.h5` and `.json` files to your main project. Your main project can then use the latest versions of NumPy and ManiSkill without `mplib` installed, as the motion planning logic is only required during the initial offline data collection phase.
