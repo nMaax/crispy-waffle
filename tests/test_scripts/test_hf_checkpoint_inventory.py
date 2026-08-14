@@ -6,7 +6,7 @@ their date, `superseded` could never fire, and every legacy run was proposed for
 
 import pytest
 
-from scripts.hf_checkpoint_inventory import (
+from scripts.demos.hf_checkpoint_inventory import (
     RunEntry,
     build_report,
     observations,

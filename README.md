@@ -228,7 +228,7 @@ To see what's actually in the checkpoint repo — which runs completed, which lo
 which are safe to prune (superseded by a later, more complete run of the same experiment) — run:
 
 ```bash
-uv run python scripts/hf_checkpoint_inventory.py
+uv run python scripts/demos/hf_checkpoint_inventory.py
 ```
 
 It's read-only: it only prints candidate `delete_folder(...)` calls for you to review and run
