@@ -107,3 +107,38 @@ class TestCanonicalizer:
         out = canon(_stack_cube_obs(batch=True))
         for key in EXPECTED_KEYS:
             assert out[key].shape[0] == 2
+
+    def test_parse_stack_cube_clutter(self):
+        obs = _stack_cube_obs()
+        obs["extra"]["obj_0_pose"] = torch.randn(7)
+        obs["extra"]["obj_1_pose"] = torch.randn(7)
+
+        canon = Canonicalizer("StackCubeClutter-v1")
+        out = canon(obs)
+        assert EXPECTED_KEYS.issubset(out.keys())
+        assert "clutter_0_pose" in out
+        assert "clutter_1_pose" in out
+        assert out["a_pose"].shape == (7,)
+        assert out["b_pose"].shape == (7,)
+
+    def test_parse_stack_cube_clutter_random_pick(self):
+        obs = {
+            "agent": {
+                "qpos": torch.randn(9),
+                "qvel": torch.randn(9),
+            },
+            "extra": {
+                "tcp_pose": torch.randn(7),
+            },
+        }
+        for i in range(8):
+            obs["extra"][f"obj_{i}_pose"] = torch.randn(7)
+            obs["extra"][f"obj_{i}_is_pick"] = torch.tensor(i == 3)
+            obs["extra"][f"obj_{i}_is_target"] = torch.tensor(i == 6)
+
+        canon = Canonicalizer("StackCubeClutterRandomPick-v1")
+        out = canon(obs)
+        assert EXPECTED_KEYS.issubset(out.keys())
+        assert torch.equal(out["a_pose"], obs["extra"]["obj_3_pose"])
+        assert torch.equal(out["b_pose"], obs["extra"]["obj_6_pose"])
+        assert "clutter_0_pose" in out

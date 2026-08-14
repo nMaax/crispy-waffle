@@ -39,7 +39,7 @@ from policy.utils import (
     stack_dicts,
     to_tensor,
 )
-from policy.utils.h5_utils import load_h5_data, peek_trajectory_is_dataset
+from policy.utils.h5_utils import load_h5_data
 from policy.utils.typing_utils import RawTree, TensorTree
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
@@ -704,9 +704,7 @@ def main() -> None:
 
     transform = observation_pipeline(
         env_id=env_id,
-        is_flat=peek_trajectory_is_dataset(dataset_path, dimension_key="obs"),
         canonicalize=bool(cfg.get("datamodule", {}).get("canonicalize", True)),
-        as_dict=bool(cfg.get("datamodule", {}).get("as_dict", True)),
     )
 
     episode_key, obs_tree, seq_len = load_episode_obs(dataset_path, args.episode_idx)

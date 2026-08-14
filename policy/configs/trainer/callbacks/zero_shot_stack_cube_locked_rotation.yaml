@@ -22,7 +22,7 @@ rollout_evaluation_place_left:
   env_id: "PlaceCubeLeftLockedRotation-v1"
   name: "PlaceCubeLeftLockedRotation-v1"
   robot_uids: null
-  obs_mode: "state"
+  obs_mode: "state_dict"
   control_mode: "pd_ee_delta_pos"
   physx_backend: "physx_cuda"
   canonicalize: true
@@ -40,7 +40,7 @@ rollout_evaluation_place_right:
   env_id: "PlaceCubeRightLockedRotation-v1"
   name: "PlaceCubeRightLockedRotation-v1"
   robot_uids: null
-  obs_mode: "state"
+  obs_mode: "state_dict"
   control_mode: "pd_ee_delta_pos"
   physx_backend: "physx_cuda"
   canonicalize: true
@@ -58,7 +58,7 @@ rollout_evaluation_stack_swapped:
   env_id: "StackCubeSwappedLockedRotation-v1"
   name: "StackCubeSwappedLockedRotation-v1"
   robot_uids: null
-  obs_mode: "state"
+  obs_mode: "state_dict"
   control_mode: "pd_ee_delta_pos"
   physx_backend: "physx_cuda"
   canonicalize: true

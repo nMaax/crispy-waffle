@@ -81,7 +81,7 @@ uv sync                 # install that commit into .venv (uv lock alone does not
 grep -n 'nMaax/ManiSkill?branch=dev#' uv.lock
 ```
 
-If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced. Every fork env also needs a thin mirror in `policy/environments/` declaring its `STATE_SCHEMA` and `generate_heuristic_goal`, plus an entry in `Canonicalizer._parsers`.
+If you plan to implement some custom code for environments/motionplanning that is not trivial, then **do it the fork** (`mani_skill/envs/tasks/tabletop/`), not here, and re-sync with the new code introduced. Every fork env also needs a thin mirror in `policy/environments/` declaring its `generate_heuristic_goal`, plus an entry in `Canonicalizer._parsers`.
 
 ### Offline Data Generation & Motion Planning (`mplib`) Setup
 
@@ -138,7 +138,7 @@ Alternatively, if ManiSkill already provides such trajectories you can directly 
 uv run python -m mani_skill.utils.download_demo "StackCube-v1"
 ```
 
-By design, ManiSkill will reproduce the trajectories with **no observations** and in **pd_joint_pose** control_mode. If you want to convert these to different control mode, include observations (e.g. `state`), or run them on CUDA. You can do something like:
+By design, ManiSkill will reproduce the trajectories with **no observations** and in **pd_joint_pos** control_mode. If you want to convert these to different control mode, include observations (e.g. `state_dict`), or run them on CUDA. You can do something like:
 
 ```bash
 # Run with a specific control mode and observation mode (must be done on CPU)
@@ -146,14 +146,14 @@ uv run python -m mani_skill.trajectory.replay_trajectory \
   --traj-path ~/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.h5 \
   -b "physx_cpu" \
   -c pd_ee_delta_pos \
-  -o state \
+  -o state_dict \
   --save-traj
 ```
 
 ```bash
 # Convert the above result in CUDA
 uv run python -m mani_skill.trajectory.replay_trajectory \
-  --traj-path ~/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state.pd_ee_delta_pos.physx_cpu.h5 \
+  --traj-path ~/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state_dict.pd_ee_delta_pos.physx_cpu.h5 \
   --use-first-env-state \
   -b "physx_cuda" \
   --save-traj

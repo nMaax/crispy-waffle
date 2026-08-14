@@ -11,7 +11,6 @@ from policy.utils.h5_utils import (
     h5_group_to_dict_of_tensors,
     load_h5_data,
     peek_trajectory_dimension,
-    peek_trajectory_is_dataset,
 )
 
 
@@ -67,25 +66,6 @@ def test_peek_trajectory_dimension(temp_h5_file: Path):
 
     with pytest.raises(KeyError, match="Key 'non_existent' not found"):
         peek_trajectory_dimension(temp_h5_file, "traj_0", "non_existent")
-
-
-def test_peek_trajectory_is_dataset(tmp_path: Path):
-    h5_path = tmp_path / "only_groups.h5"
-    with h5py.File(h5_path, "w") as f:
-        g = f.create_group("traj_0")
-        g.create_dataset("obs", data=np.ones((5, 2)))
-        g.create_group("nested")
-
-    assert peek_trajectory_is_dataset(h5_path, dimension_key="obs") is True
-    assert peek_trajectory_is_dataset(h5_path, dimension_key="nested", episode_key="traj_0") is False
-
-    with pytest.raises(TypeError, match="Expected an h5py.Group"):
-        with h5py.File(h5_path, "a") as f:
-            f.create_dataset("flat_ds", data=np.zeros(2))
-        peek_trajectory_is_dataset(h5_path, dimension_key="obs", episode_key="flat_ds")
-
-    with pytest.raises(KeyError, match="Key 'missing' not found"):
-        peek_trajectory_is_dataset(h5_path, dimension_key="missing", episode_key="traj_0")
 
 
 def test_extract_h5_shapes_invalid_entry():

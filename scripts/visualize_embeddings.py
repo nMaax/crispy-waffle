@@ -26,7 +26,6 @@ from matplotlib.lines import Line2D
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.transforms import observation_pipeline
 from policy.utils import map_leaves, stack_dicts, to_tensor
-from policy.utils.h5_utils import peek_trajectory_is_dataset
 from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
@@ -706,9 +705,7 @@ def main() -> None:
 
     transform = observation_pipeline(
         env_id=env_id,
-        is_flat=peek_trajectory_is_dataset(dataset_path, dimension_key="obs"),
         canonicalize=bool(cfg.get("datamodule", {}).get("canonicalize", True)),
-        as_dict=bool(cfg.get("datamodule", {}).get("as_dict", True)),
     )
 
     def goal_from_episode(episode: np.ndarray):

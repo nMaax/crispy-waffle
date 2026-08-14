@@ -1,8 +1,7 @@
 """Summarises episodes statistics over a recorded demonstration dataset.
 
-Reads a ManiSkill HDF5 trajectory file, slices each observation using the environment's own
-`STATE_SCHEMA`, and reports the spread of initial object poses, the typical grasp and place
-offsets, and per-dimension observation/action statistics.
+Reads a ManiSkill HDF5 trajectory file with dictionary observations, and reports the spread of
+initial object poses, the typical grasp and place offsets, and per-dimension statistics.
 
 Pass several `--env-id` values to compare datasets across tasks; each gets its own figure and
 report.
@@ -11,7 +10,6 @@ report.
 from __future__ import annotations
 
 import argparse
-import importlib
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +17,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
+from policy.utils.h5_utils import load_h5_data
 from scripts.utils import cli, theme
 from scripts.utils.episodes import default_demo_path, ensure_local_dataset, trajectory_keys
 from scripts.utils.figures import figure_path, save_figure
@@ -33,95 +32,34 @@ LIFT_THRESHOLD: float = 0.025
 MAX_DIMS_REPORTED = 60
 
 
-def fetch_env_schema(env_id: str) -> dict[str, Any]:
-    """Looks up an environment's `STATE_SCHEMA` through the Gymnasium registry."""
-    from gymnasium.envs.registration import registry
-
-    import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
-
-    if env_id not in registry:
-        raise KeyError(
-            f"Environment {env_id!r} is not registered. Check the spelling, or make sure it is "
-            "exported from policy.environments."
-        )
-
-    entry_point = registry[env_id].entry_point
-    cls: Any = None
-    if callable(entry_point):
-        cls = entry_point()
-    elif isinstance(entry_point, str):
-        module_name, class_name = entry_point.split(":")
-        cls = getattr(importlib.import_module(module_name), class_name, None)
-
-    if cls is None:
-        raise ValueError(f"Could not resolve the environment class for {env_id!r}.")
-    if not hasattr(cls, "STATE_SCHEMA"):
-        raise AttributeError(
-            f"{getattr(cls, '__name__', cls)} ({env_id}) does not define a STATE_SCHEMA, so its "
-            "observations cannot be sliced into named features."
-        )
-    return cls.STATE_SCHEMA
-
-
-def flatten_state_schema(schema: dict[str, Any]) -> dict[str, slice]:
-    """Flattens a nested `STATE_SCHEMA` into `feature_name -> slice`."""
-    flat: dict[str, slice] = {}
-
-    def recurse(node: dict[str, Any], prefix: str = "") -> None:
-        for key, value in node.items():
-            name = f"{prefix}{key}" if prefix else key
-            if (
-                isinstance(value, tuple)
-                and len(value) == 2
-                and all(isinstance(bound, int) for bound in value)
-            ):
-                start, end = value
-                if end - start == 7 and "pose" in name.lower():
-                    base = name.replace("_pose", "").replace("Pose", "")
-                    flat[f"{base}_pos"] = slice(start, start + 3)
-                    flat[f"{base}_quat"] = slice(start + 3, end)
-                else:
-                    flat[name] = slice(start, end)
-            elif isinstance(value, dict):
-                # `agent`/`extra` are grouping levels in the schema, not part of the feature name.
-                recurse(value, "" if key in ("agent", "extra") else f"{name}_")
-
-    recurse(schema)
-    if not flat:
-        raise ValueError("The flattened STATE_SCHEMA is empty.")
+def flatten_obs_dict(obs: dict[str, Any], prefix: str = "") -> dict[str, np.ndarray]:
+    """Flattens a nested observation dict into leaf arrays with split pos/quat for 7D poses."""
+    flat: dict[str, np.ndarray] = {}
+    for key, value in obs.items():
+        name = f"{prefix}{key}" if prefix else key
+        if isinstance(value, dict):
+            # agent/extra are grouping keys
+            flat.update(
+                flatten_obs_dict(value, prefix="" if key in ("agent", "extra") else f"{name}_")
+            )
+        elif isinstance(value, np.ndarray):
+            if value.shape[-1] == 7 and "pose" in name.lower():
+                base = name.replace("_pose", "").replace("Pose", "")
+                flat[f"{base}_pos"] = value[..., :3]
+                flat[f"{base}_quat"] = value[..., 3:7]
+            else:
+                flat[name] = value
     return flat
 
 
-def find_offset_keys(schema: dict[str, slice]) -> tuple[int | None, str | None, str | None]:
-    """Identifies the object height index and the two relative-offset features."""
-    object_z_index = next(
-        (
-            slc.start + 2
-            for key, slc in schema.items()
-            if ("cube_a" in key.lower() or "obj" in key.lower()) and "pos" in key.lower()
-        ),
-        None,
-    )
-    tcp_relative = next((key for key in schema if "tcp_to" in key.lower()), None)
-    target_relative = next(
-        (key for key in schema if "to_" in key.lower() and key != tcp_relative), None
-    )
-    return object_z_index, tcp_relative, target_relative
-
-
-def load_dataset(h5_path: Path, env_id: str) -> tuple[dict[str, np.ndarray], dict[str, slice]]:
+def load_dataset(h5_path: Path, env_id: str) -> tuple[dict[str, np.ndarray], list[str]]:
     """Reads every trajectory once, collecting initial features, offsets and full step data."""
     if not h5_path.exists():
         raise FileNotFoundError(f"Dataset not found at {h5_path}")
 
-    schema = flatten_state_schema(fetch_env_schema(env_id))
-    required_dim = max(slc.stop for slc in schema.values())
-    object_z_index, tcp_relative, target_relative = find_offset_keys(schema)
-
-    initial: dict[str, list[np.ndarray]] = {key: [] for key in schema}
+    initial: dict[str, list[np.ndarray]] = {}
     grasp_offsets: list[np.ndarray] = []
     place_offsets: list[np.ndarray] = []
-    observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
 
     with h5py.File(h5_path, "r") as handle:
@@ -129,52 +67,61 @@ def load_dataset(h5_path: Path, env_id: str) -> tuple[dict[str, np.ndarray], dic
         if not keys:
             raise ValueError(f"No `traj_*` groups found in {h5_path}")
 
-        first = handle[keys[0]]
-        assert isinstance(first, h5py.Group)
-        obs_dim = np.asarray(first["obs"]).shape[-1]
-        if obs_dim < required_dim:
-            raise ValueError(
-                f"Observations in this dataset are {obs_dim}-dimensional, but {env_id}'s schema "
-                f"needs at least {required_dim}. The dataset was probably recorded with a "
-                "different obs_mode or a different env."
-            )
-
         for key in keys:
             group = handle[key]
             if not isinstance(group, h5py.Group):
                 continue
 
-            obs = np.asarray(group["obs"])
-            observations.append(obs)
+            obs_group = group["obs"]
+            if not isinstance(obs_group, h5py.Group):
+                raise TypeError(f"Expected 'obs' in {key} to be an HDF5 group, got {type(obs_group)}")
+
+            obs_tree = load_h5_data(obs_group)
+            if not isinstance(obs_tree, dict):
+                raise TypeError(f"Expected observation group to load as dict, got {type(obs_tree)}")
+
+            flat_obs = flatten_obs_dict(obs_tree)
             actions.append(np.asarray(group["actions"]))
 
-            for name, slc in schema.items():
-                initial[name].append(obs[0, slc])
+            for name, arr in flat_obs.items():
+                if name not in initial:
+                    initial[name] = []
+                initial[name].append(arr[0])
 
-            if object_z_index is not None and tcp_relative is not None:
-                lifted = obs[obs[:, object_z_index] > LIFT_THRESHOLD]
-                if lifted.size:
-                    grasp_offsets.append(np.mean(lifted[:, schema[tcp_relative]], axis=0))
+            # Detect pick object and grasp offset
+            tcp_pos = flat_obs.get("tcp_pos")
+            obj_pos = next((v for k, v in flat_obs.items() if ("cubeA_pos" in k or "obj_0_pos" in k or "obj_pos" in k)), None)
+            if tcp_pos is not None and obj_pos is not None:
+                lifted_mask = obj_pos[:, 2] > (obj_pos[0, 2] + LIFT_THRESHOLD)
+                if np.any(lifted_mask):
+                    grasp_offsets.append(np.mean(obj_pos[lifted_mask] - tcp_pos[lifted_mask], axis=0))
 
-            if target_relative is not None:
-                place_offsets.append(obs[-1, schema[target_relative]])
+            target_pos = next((v for k, v in flat_obs.items() if "cubeB_pos" in k or "bin_pos" in k), None)
+            if obj_pos is not None and target_pos is not None:
+                place_offsets.append(obj_pos[-1] - target_pos[-1])
 
     data = {name: np.array(values) for name, values in initial.items()}
     data["actions"] = np.concatenate(actions, axis=0) if actions else np.empty((0,))
-    data["observations"] = np.concatenate(observations, axis=0) if observations else np.empty((0,))
+    # Flatten all numeric observation leaves across all timesteps for general stats
+    all_obs_flat = []
+    for k, v in flat_obs.items():
+        if np.issubdtype(v.dtype, np.number) and v.ndim > 1:
+            all_obs_flat.append(v.reshape(len(v), -1))
+    data["observations"] = np.concatenate(all_obs_flat, axis=-1) if all_obs_flat else np.empty((0,))
     if grasp_offsets:
         data["grasp_offsets"] = np.array(grasp_offsets)
     if place_offsets:
         data["place_offsets"] = np.array(place_offsets)
     data["_num_episodes"] = np.array(len(keys))
-    return data, schema
+    schema_names = list(initial.keys())
+    return data, schema_names
 
 
-def report_feature_spread(report: Report, schema: dict[str, slice], data: dict) -> None:
+def report_feature_spread(report: Report, schema_names: list[str], data: dict) -> None:
     """Per-feature mean/std of the initial state, i.e. how varied the task setup is."""
     report.section("Initial-state spread (across episodes)")
     rows = []
-    for name in schema:
+    for name in schema_names:
         values = data.get(name)
         if values is None or values.size == 0:
             continue
@@ -226,7 +173,7 @@ def report_dimension_stats(report: Report, name: str, values: np.ndarray) -> Non
 
 def plot_distributions(
     data: dict[str, np.ndarray],
-    schema: dict[str, slice],
+    schema_names: list[str],
     env_id: str,
     save_path: Path,
     *,
@@ -238,7 +185,7 @@ def plot_distributions(
     def panels(suffix: str, width: int) -> list[tuple[str, np.ndarray]]:
         return [
             (name, data[name])
-            for name in schema
+            for name in schema_names
             if suffix in name.lower()
             and name in data
             and data[name].ndim > 1
@@ -298,7 +245,7 @@ def plot_distributions(
 def analyse_env(env_id: str, args: argparse.Namespace) -> None:
     """Runs the whole analysis for one environment's dataset."""
     dataset_path = ensure_local_dataset(args.dataset_path or default_demo_path(env_id))
-    data, schema = load_dataset(dataset_path, env_id)
+    data, schema_names = load_dataset(dataset_path, env_id)
 
     report = Report(
         "Dataset bias summary",
@@ -309,7 +256,7 @@ def analyse_env(env_id: str, args: argparse.Namespace) -> None:
         ],
     )
 
-    report_feature_spread(report, schema, data)
+    report_feature_spread(report, schema_names, data)
 
     report.section("Mean offsets")
     if "grasp_offsets" in data and data["grasp_offsets"].size:
@@ -329,7 +276,7 @@ def analyse_env(env_id: str, args: argparse.Namespace) -> None:
     save_path = figure_path(
         SCRIPT_NAME, "initial-distributions", env_id=env_id, out_dir=args.out_dir
     )
-    plotted = plot_distributions(data, schema, env_id, save_path, show=args.show, dpi=args.dpi)
+    plotted = plot_distributions(data, schema_names, env_id, save_path, show=args.show, dpi=args.dpi)
     report.emit(plotted or save_path, save=not args.no_report)
 
 

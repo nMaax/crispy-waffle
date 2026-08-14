@@ -13,7 +13,6 @@ from policy.transforms import (
     Canonicalizer,
     observation_pipeline,
 )
-from policy.utils.h5_utils import peek_trajectory_is_dataset
 from policy.utils.typing_utils import DimSpec
 
 
@@ -39,7 +38,6 @@ class TrajectoryDataModule(L.LightningDataModule):
         lazy: bool = False,
         seed: int | None = None,
         canonicalize: bool = True,
-        as_dict: bool = True,
     ):
         super().__init__()
 
@@ -69,7 +67,6 @@ class TrajectoryDataModule(L.LightningDataModule):
         self.seed = seed
 
         self.canonicalize = canonicalize
-        self.as_dict = as_dict
 
         if self.hf_dataset_repo is None:
             self._prepare_local_dataset()
@@ -130,12 +127,9 @@ class TrajectoryDataModule(L.LightningDataModule):
             train_episodes, val_episodes = self._split_episodes()
             left_mask, right_mask = self._infer_padding_masks()
 
-            is_flat = self._is_raw_obs_flat()
             obs_transform = observation_pipeline(
                 env_id=self.env_id,
-                is_flat=is_flat,
                 canonicalize=self.canonicalize,
-                as_dict=self.as_dict,
             )
 
         if stage == "fit" or stage is None:
@@ -209,7 +203,7 @@ class TrajectoryDataModule(L.LightningDataModule):
         env_kwargs = env_info.get("env_kwargs", {})
 
         env_id = env_info.get("env_id", "StackCube-v1")
-        obs_mode = env_kwargs.get("obs_mode", "state")
+        obs_mode = env_kwargs.get("obs_mode", "state_dict")
         control_mode = env_kwargs.get("control_mode", "pd_joint_pos")
         physx_backend = env_kwargs.get("sim_backend", "physx_cpu")
         robot_uids = env_kwargs.get("robot_uids", None)
@@ -320,8 +314,3 @@ class TrajectoryDataModule(L.LightningDataModule):
             lazy=self.lazy,
             obs_transform=obs_transform,
         )
-
-    def _is_raw_obs_flat(self) -> bool:
-        """Peeks at the HDF5 file structure to determine if raw observations are flat tensors or
-        dictionaries."""
-        return peek_trajectory_is_dataset(self.dataset_file, dimension_key="obs")

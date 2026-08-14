@@ -60,12 +60,6 @@ RawTree: TypeAlias = Tree[RawLeaf]
 DimSpec: TypeAlias = int | torch.Tensor | Sequence[int] | Mapping[str, "DimSpec"]
 """A dimension specification: an integer, tensor, shape sequence, or nested mapping of dimensions."""
 
-IndexRange: TypeAlias = tuple[int, int]
-"""An index range tuple (start, end) defining a slice along an axis."""
-
-StateSchema: TypeAlias = NestedMapping[str, IndexRange]
-"""A nested mapping schema of string keys to index range tuples."""
-
 
 def is_sequence_of(
     object: Any, item_type: type[T] | tuple[type[T], ...]
@@ -121,8 +115,6 @@ __all__ = [
     "RawLeaf",
     "RawTree",
     "DimSpec",
-    "IndexRange",
-    "StateSchema",
     "is_sequence_of",
     "is_mapping_of",
     "get_tensor",

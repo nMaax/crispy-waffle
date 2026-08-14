@@ -6,13 +6,9 @@ from mani_skill.envs.tasks.tabletop.stack_cube_swapped import (
 )
 from mani_skill.utils.registration import register_env
 
-from policy.environments.stack_cube_env import StackCubeEnv
-
 
 @register_env("StackCubeSwapped-v1", max_episode_steps=250, override=True)
 class StackCubeSwappedEnv(ManiSkillStackCubeSwappedEnv):
-    STATE_SCHEMA = StackCubeEnv.STATE_SCHEMA
-
     def generate_heuristic_goal(self) -> dict[str, Any]:
         """Generates a heuristic goal state based on the current observation.
 

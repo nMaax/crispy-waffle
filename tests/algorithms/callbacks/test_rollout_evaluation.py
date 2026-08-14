@@ -20,11 +20,10 @@ ActType = TypeVar("ActType")
 @dataclass
 class FakeRolloutDataModule(L.LightningDataModule):
     env_id: str = "FakeManiSkill-v0"
-    obs_mode: str = "state"
+    obs_mode: str = "state_dict"
     control_mode: str = "pd_joint_pos"
     physx_backend: str | None = None  # set to "cuda" to trigger batched mode
     use_physx_env_states: bool = False
-    as_dict: bool = False
     canonicalize: bool = False
 
     def __post_init__(self):
@@ -336,7 +335,7 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     _patch_gym(monkeypatch)
     datamodule = FakeRolloutDataModule(
         env_id="FakeManiSkill-v0",
-        obs_mode="state",
+        obs_mode="state_dict",
         control_mode="pd_joint_pos",
         physx_backend="physx_cpu",
     )
@@ -372,7 +371,7 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     # Test unregistered env raises RuntimeError
     cb_unreg = RolloutEvaluationCallback(
         env_id="Unknown-v0",
-        obs_mode="state",
+        obs_mode="state_dict",
         control_mode="pd",
         physx_backend="physx_cpu",
         num_episodes=5,
@@ -384,7 +383,7 @@ def test_setup_parameter_resolution_and_validation(monkeypatch):
     # Test CUDA backend requirement raises error when CUDA is unavailable
     cb_cuda_fail = RolloutEvaluationCallback(
         env_id="FakeManiSkill-v0",
-        obs_mode="state",
+        obs_mode="state_dict",
         control_mode="pd",
         physx_backend="physx_cuda",
         num_episodes=5,

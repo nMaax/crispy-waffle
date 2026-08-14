@@ -7,7 +7,7 @@ defaults:
 rollout_evaluation:
   num_episodes: 100
   env_id: "StackCubeLockedRotation-v1"
-  obs_mode: "state"
+  obs_mode: "state_dict"
   control_mode: "pd_ee_delta_pos"
   physx_backend: "physx_cuda"
   canonicalize: true

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from logging import getLogger as get_logger
-from typing import Any, overload
+from typing import Any
 
-import numpy as np
 import rich
 import rich.syntax
 import rich.tree
@@ -12,7 +11,7 @@ import torch
 from lightning_utilities.core.rank_zero import rank_zero_info
 from omegaconf import DictConfig, OmegaConf
 
-from policy.utils.typing_utils import DimSpec, RawTree, StateSchema, TensorTree
+from policy.utils.typing_utils import DimSpec, RawTree, TensorTree
 
 logger = get_logger(__name__)
 
@@ -120,31 +119,6 @@ def recursive_index(data: Any, idx: Any) -> Any:
     elif hasattr(data, "__getitem__") or isinstance(data, torch.Tensor):
         return data[idx]
     return data
-
-
-@overload
-def slice_by_schema(state: torch.Tensor, schema: StateSchema) -> TensorTree: ...
-
-
-@overload
-def slice_by_schema(state: np.ndarray, schema: StateSchema) -> RawTree: ...
-
-
-def slice_by_schema(
-    state: torch.Tensor | np.ndarray,
-    schema: StateSchema,
-) -> TensorTree | RawTree:
-    """Recursively slices a state array or tensor according to a nested schema of index tuples."""
-    result: dict[str, Any] = {}
-    for key, val in schema.items():
-        if isinstance(val, Mapping):
-            result[key] = slice_by_schema(state, val)
-        elif isinstance(val, tuple) and len(val) == 2:
-            start, end = val
-            result[key] = state[..., start:end]
-        else:
-            raise ValueError(f"Invalid schema entry for key '{key}': {val}")
-    return result
 
 
 def get_batch_size(data: TensorTree) -> int:

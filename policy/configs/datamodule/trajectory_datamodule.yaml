@@ -5,7 +5,6 @@ hf_dataset_repo: ${oc.env:HF_DATASET_REPO,null}
 obs_horizon: 2
 pred_horizon: 16
 
-as_dict: true
 canonicalize: true
 
 obs_dim:

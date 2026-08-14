@@ -62,7 +62,6 @@ class RolloutEvaluationCallback(L.Callback):
         control_mode: str | None = None,
         physx_backend: str | None = None,
         canonicalize: bool | None = None,
-        as_dict: bool | None = None,
         name: str | None = None,
     ):
         super().__init__()
@@ -80,7 +79,6 @@ class RolloutEvaluationCallback(L.Callback):
         self.max_episode_steps = max_episode_steps
 
         self.canonicalize = canonicalize
-        self.as_dict = as_dict
 
         self.clamp_action = clamp_action
         self.video_dir = video_dir
@@ -134,13 +132,12 @@ class RolloutEvaluationCallback(L.Callback):
 
         self.env_id = _resolve_param(self.env_id, "env_id")
         self.robot_uids = _resolve_param(self.robot_uids, "robot_uids", strict=False, default=None)
-        self.obs_mode = _resolve_param(self.obs_mode, "obs_mode")
+        self.obs_mode = _resolve_param(self.obs_mode, "obs_mode", strict=False, default="state_dict")
         self.control_mode = _resolve_param(self.control_mode, "control_mode")
         self.physx_backend = _resolve_param(self.physx_backend, "physx_backend")
         self.canonicalize = _resolve_param(
             self.canonicalize, "canonicalize", strict=False, default=True
         )
-        self.as_dict = _resolve_param(self.as_dict, "as_dict", strict=False, default=True)
 
         if self.env_id not in gym.envs.registry:
             raise RuntimeError(
@@ -188,7 +185,6 @@ class RolloutEvaluationCallback(L.Callback):
             f"\tnum_envs: {self.num_envs}\n"
             f"\tnum_episodes: {self.num_episodes}\n"
             f"\tcanonicalize: {self.canonicalize}\n"
-            f"\tas_dict: {self.as_dict}\n"
         )
 
         make_kwargs = {}
@@ -318,12 +314,9 @@ class RolloutEvaluationCallback(L.Callback):
         if hasattr(pl_module, "reset"):
             pl_module.reset()
 
-        is_flat = not isinstance(env.observation_space, gym.spaces.Dict)
         apply_transforms = observation_pipeline(
             env_id=self.env_id,
-            is_flat=is_flat,
             canonicalize=bool(self.canonicalize),
-            as_dict=bool(self.as_dict),
         )
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)

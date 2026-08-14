@@ -218,9 +218,7 @@ def build_obs_transform(
 
     return observation_pipeline(
         env_id=env_kwargs["env_id"],
-        is_flat=not isinstance(env.observation_space, gym.spaces.Dict),
         canonicalize=bool(datamodule_cfg.get("canonicalize", True)),
-        as_dict=bool(datamodule_cfg.get("as_dict", True)),
     )
 
 

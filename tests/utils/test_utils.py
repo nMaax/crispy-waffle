@@ -16,7 +16,6 @@ from policy.utils.utils import (
     print_config,
     print_mapping_tree,
     recursive_index,
-    slice_by_schema,
     stack_dicts,
     to_tensor,
     validate_proprio_dim,
@@ -76,21 +75,6 @@ def test_recursive_index():
     assert indexed["a"].shape == (3,)
     assert indexed["b"][0].shape == (3,)
     assert recursive_index(42, 0) == 42
-
-
-def test_slice_by_schema():
-    state_tensor = torch.arange(10, dtype=torch.float32)
-    schema = {"obs": (0, 4), "act": {"sub": (4, 10)}}
-    res = slice_by_schema(state_tensor, schema)
-    assert torch.equal(res["obs"], torch.tensor([0.0, 1.0, 2.0, 3.0]))
-    assert torch.equal(res["act"]["sub"], torch.tensor([4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
-
-    state_np = np.arange(10)
-    res_np = slice_by_schema(state_np, schema)
-    assert np.array_equal(res_np["obs"], np.array([0, 1, 2, 3]))
-
-    with pytest.raises(ValueError, match="Invalid schema entry"):
-        slice_by_schema(state_tensor, {"invalid": 123})
 
 
 def test_get_batch_size():
