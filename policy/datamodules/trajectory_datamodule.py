@@ -9,10 +9,7 @@ from lightning_utilities.core.rank_zero import rank_zero_info
 from torch.utils.data import DataLoader, Dataset
 
 from policy.datasets import DummyDataset, TrajectoryDataset
-from policy.transforms import (
-    Canonicalizer,
-    observation_pipeline,
-)
+from policy.transforms import observation_pipeline
 from policy.utils.typing_utils import DimSpec
 
 
@@ -23,10 +20,10 @@ class TrajectoryDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_file: str | Path,
+        obs_dim: DimSpec,
         hf_dataset_repo: str | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
-        obs_dim: DimSpec = Canonicalizer.DIM_SPEC,
         act_dim: int = 4,
         batch_size: int = 256,
         num_workers: int = 4,

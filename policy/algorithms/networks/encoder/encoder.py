@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from logging import getLogger as get_logger
 from typing import Literal
 
@@ -47,6 +48,11 @@ class ConditioningEncoder(nn.Module):
 
         self.proprio_dim = resolve_proprio_dim(obs_dim, proprio_dim)
         self.task_dim = derive_task_dim(obs_dim, self.proprio_dim, task_dim)
+        task_dim_spec: DimSpec = (
+            {k: v for k, v in obs_dim.items() if k != "proprio"}
+            if isinstance(obs_dim, Mapping)
+            else self.task_dim
+        )
 
         self.goal_conditioned = goal_conditioned
         self.relative_goal = relative_goal
@@ -59,7 +65,7 @@ class ConditioningEncoder(nn.Module):
             self.tokenizer: TokenizerProtocol = tokenizer
         elif tokenizer is not None:
             self.tokenizer = hydra_zen.instantiate(
-                tokenizer, task_dim=self.task_dim, relative_goal=self.relative_goal
+                tokenizer, task_dim=task_dim_spec, relative_goal=self.relative_goal
             )
         else:
             logger.warning(
@@ -69,7 +75,7 @@ class ConditioningEncoder(nn.Module):
                 "instead of hidden behind this fallback."
             )
             self.tokenizer = StateTokenizer(
-                task_dim=self.task_dim, relative_goal=self.relative_goal
+                task_dim=task_dim_spec, relative_goal=self.relative_goal
             )
         self.tokens_per_step = self.tokenizer.tokens_per_step
 

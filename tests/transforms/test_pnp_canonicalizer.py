@@ -40,8 +40,15 @@ EXPECTED_KEYS = {
 
 
 class TestCanonicalizerDimSpec:
-    def test_dim_spec_default_matches_class_constant(self):
-        assert Canonicalizer.dim_spec(2) == Canonicalizer.DIM_SPEC
+    def test_dim_spec_default_covers_two_objects(self):
+        spec = Canonicalizer.dim_spec(2)
+        assert spec["proprio"] == 18
+        assert spec["tcp_pose"] == 7
+        assert spec["obj_0_pose"] == 7
+        assert spec["obj_0_role"] == 3
+        assert spec["obj_1_pose"] == 7
+        assert spec["obj_1_role"] == 3
+        assert "obj_2_pose" not in spec
 
     def test_dim_spec_generalizes_to_object_count(self):
         spec = Canonicalizer.dim_spec(8)
@@ -54,6 +61,7 @@ class TestCanonicalizerDimSpec:
 
 
 class TestCanonicalizer:
+
     def test_call_non_mapping_raises(self):
         canon = Canonicalizer("StackCube-v1")
         with pytest.raises(TypeError, match="expects a mapping"):

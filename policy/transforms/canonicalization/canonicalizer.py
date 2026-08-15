@@ -2,16 +2,20 @@ from collections.abc import Mapping
 
 import torch
 
+from policy.transforms.canonicalization.spec import (
+    ROLE_CLUTTER,
+    ROLE_DIM,
+    ROLE_PICK,
+    ROLE_TARGET,
+    canonical_dim_spec,
+)
 from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
-
-# TCP has no role vector at all, mathematically equivalent to [0, 0, 0]
-ROLE_PICK: tuple[float, float, float] = (1.0, 0.0, 0.0)
-ROLE_TARGET: tuple[float, float, float] = (0.0, 1.0, 0.0)
-ROLE_CLUTTER: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
 
 def _role_tensor(role: tuple[float, float, float], like: torch.Tensor) -> torch.Tensor:
-    return torch.tensor(role, dtype=like.dtype, device=like.device).expand(*like.shape[:-1], 3)
+    return torch.tensor(role, dtype=like.dtype, device=like.device).expand(
+        *like.shape[:-1], ROLE_DIM
+    )
 
 
 def _match_shape(t: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
@@ -25,25 +29,10 @@ def _match_shape(t: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
     return t
 
 
-def _dim_spec(num_objects: int) -> dict[str, int]:
-    spec: dict[str, int] = {"proprio": 18, "tcp_pose": 7}
-    for i in range(num_objects):
-        spec[f"obj_{i}_pose"] = 7
-        spec[f"obj_{i}_role"] = 3
-    return spec
-
-
 class Canonicalizer:
-    """Standardizes different pick-and-place tasks into a unified dictionary format.
+    """Standardizes different pick-and-place tasks into a unified dictionary format."""
 
-    Standardized dict format: ``{proprio, tcp_pose, obj_0_pose, obj_0_role, obj_1_pose,
-    obj_1_role, ...}`` — one ``obj_i_pose``/``obj_i_role`` pair per object present in the episode
-    (2 for the plain stack_cube family, up to 8 for the clutter family), role a one-hot
-    ``[is_pick, is_target, is_clutter]``.
-    """
-
-    DIM_SPEC: dict[str, int] = _dim_spec(2)
-    dim_spec = staticmethod(_dim_spec)
+    dim_spec = staticmethod(canonical_dim_spec)
 
     def __init__(self, env_id: str):
         self.task_id = env_id
@@ -92,17 +81,7 @@ class Canonicalizer:
         target_key: str = "cubeB",
         is_random_pick: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """Parses any stack_cube-family task into the standardized object-pool format.
-
-        Two independent, coexisting sources of objects, handled by two separate blocks below:
-        - a fixed pick/target pair at ``{pick_key}_pose``/``{target_key}_pose``, a task-level
-          constant rather than data (e.g. StackCube always picks cubeA/targets cubeB) -- built
-          whenever ``is_random_pick`` is ``False`` (the plain stack_cube family, StackCubeClutter);
-        - a dynamic ``obj_i_pose`` pool -- decorative clutter when ``is_random_pick`` is ``False``
-          (StackCubeClutter), or the actual pick/target objects -- possibly excluding cubeA/cubeB
-          entirely -- read directly off each object's own per-episode ``obj_i_is_pick``/
-          ``obj_i_is_target`` flags when ``is_random_pick`` is ``True`` (StackCubeClutterRandomPick).
-        """
+        """Parses any stack_cube-family task into the standardized object-pool format."""
         agent = get_subtree(obs, "agent")
         extra = get_subtree(obs, "extra")
 

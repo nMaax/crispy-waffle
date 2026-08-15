@@ -19,7 +19,10 @@ class TestObjectTokenizer:
 
     def test_tokens_per_step_matches_object_keys_length(self):
         assert ObjectTokenizer().tokens_per_step is None
-        assert ObjectTokenizer(object_keys=("a_pose", "tcp_pose")).tokens_per_step == 2
+        assert ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose")).tokens_per_step == 2
+
+
+
 
     def _obs_goal(self):
         obs = {
@@ -141,6 +144,26 @@ class TestObjectTokenizer:
         # Slot 3 (target): role [0, 1, 0], goal delta 0
         assert torch.allclose(tokens[0, 0, 3, 12:15], torch.tensor([0.0, 1.0, 0.0]))
         assert torch.allclose(tokens[0, 0, 3, 6:12], torch.zeros(6), atol=1e-6)
+
+    def test_missing_tcp_pose_raises_keyerror(self):
+        tokenizer = ObjectTokenizer()
+        obs, goal = self._obs_goal()
+        del obs["tcp_pose"]
+        del goal["tcp_pose"]
+        with pytest.raises(KeyError, match="tcp_pose"):
+            tokenizer.tokenize(obs, goal)
+
+    def test_missing_role_tensor_raises_keyerror(self):
+        tokenizer = ObjectTokenizer()
+        obs, goal = self._obs_goal()
+        del obs["obj_0_role"]
+        with pytest.raises(KeyError, match="obj_0_role"):
+            tokenizer.tokenize(obs, goal)
+
+    def test_missing_canonical_keys_raises_keyerror(self):
+        tokenizer = ObjectTokenizer()
+        with pytest.raises(KeyError, match="No canonical object pose keys"):
+            tokenizer.tokenize({"random_key": torch.randn(1, 7)}, None)
 
     def test_single_side_support(self):
         assert ObjectTokenizer.supports_single_side is True

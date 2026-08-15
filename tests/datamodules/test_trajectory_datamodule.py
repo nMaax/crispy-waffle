@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 
 from policy.datamodules.trajectory_datamodule import TrajectoryDataModule
 from policy.datasets import DummyDataset, TrajectoryDataset
+from policy.transforms.canonicalization.canonicalizer import Canonicalizer
 from tests.datamodules.test_datamodule import DataModuleTests
 
 
@@ -68,6 +69,7 @@ def datamodule_factory(tmp_path: Path):
                 )
 
         kwargs.setdefault("canonicalize", False)
+        kwargs.setdefault("obs_dim", obs_dim)
         return TrajectoryDataModule(
             dataset_file=h5_path,
             val_split=val_split,
@@ -230,7 +232,7 @@ class TestManiSkillDataModuleHFFetch:
             json.dumps({"env_info": {}, "episodes": []})
         )
 
-        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1)
+        dm = TrajectoryDataModule(dataset_file=dataset_file, obs_dim=Canonicalizer.dim_spec(2), seed=1)
         with patch("huggingface_hub.hf_hub_download") as mock_download:
             dm.prepare_data()
         mock_download.assert_not_called()
@@ -238,7 +240,9 @@ class TestManiSkillDataModuleHFFetch:
     def test_construction_defers_validation_when_hf_dataset_repo_set(self, tmp_path, monkeypatch):
         """With hf_dataset_repo set, missing local files must not raise at construction time."""
         dataset_file = self._make_dataset_file(tmp_path, monkeypatch)  # files don't exist yet
-        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        dm = TrajectoryDataModule(
+            dataset_file=dataset_file, obs_dim=Canonicalizer.dim_spec(2), seed=1, hf_dataset_repo="org/demos"
+        )
         assert not hasattr(dm, "env_id")
 
     def test_prepare_data_downloads_and_validates(self, tmp_path, monkeypatch):
@@ -266,7 +270,9 @@ class TestManiSkillDataModuleHFFetch:
             else:
                 target.write_bytes(b"")
 
-        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        dm = TrajectoryDataModule(
+            dataset_file=dataset_file, obs_dim=Canonicalizer.dim_spec(2), seed=1, hf_dataset_repo="org/demos"
+        )
         with patch(
             "huggingface_hub.hf_hub_download", side_effect=fake_download
         ) as mock_download:
@@ -279,7 +285,9 @@ class TestManiSkillDataModuleHFFetch:
 
     def test_prepare_data_raises_when_download_leaves_files_missing(self, tmp_path, monkeypatch):
         dataset_file = self._make_dataset_file(tmp_path, monkeypatch)
-        dm = TrajectoryDataModule(dataset_file=dataset_file, seed=1, hf_dataset_repo="org/demos")
+        dm = TrajectoryDataModule(
+            dataset_file=dataset_file, obs_dim=Canonicalizer.dim_spec(2), seed=1, hf_dataset_repo="org/demos"
+        )
         with patch("huggingface_hub.hf_hub_download"):  # no-op: doesn't materialize files
             with pytest.raises(FileNotFoundError):
                 dm.prepare_data()
@@ -290,7 +298,9 @@ class TestManiSkillDataModuleHFFetch:
         self._make_dataset_file(tmp_path, monkeypatch)  # only to patch Path.home
         outside_file = tmp_path / "elsewhere" / "trajectory.h5"
         outside_file.parent.mkdir(parents=True)
-        dm = TrajectoryDataModule(dataset_file=outside_file, seed=1, hf_dataset_repo="org/demos")
+        dm = TrajectoryDataModule(
+            dataset_file=outside_file, obs_dim=Canonicalizer.dim_spec(2), seed=1, hf_dataset_repo="org/demos"
+        )
         # Since the fetch moved onto the shared helper, this now names both paths instead of being a
         # bare relative_to() failure.
         with pytest.raises(ValueError, match="outside") as error:

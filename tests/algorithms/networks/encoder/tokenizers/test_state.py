@@ -44,22 +44,23 @@ class TestStateTokenizer:
         assert tokenizer.output_dim == 18
 
         obs = {
-            "a_pose": _pose((0, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "b_pose": _pose((1, 0, 0)).unsqueeze(0).unsqueeze(0),
+            "obj_0_pose": _pose((0, 0, 0)).unsqueeze(0).unsqueeze(0),
+            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0).unsqueeze(0),
             "tcp_pose": _pose((0, 1, 0)).unsqueeze(0).unsqueeze(0),
         }
         goal = {
-            "a_pose": _pose((1, 2, 3), axis_angle=(0, 0, torch.pi / 2)).unsqueeze(0),
-            "b_pose": _pose((1, 0, 0)).unsqueeze(0),
+            "obj_0_pose": _pose((1, 2, 3), axis_angle=(0, 0, torch.pi / 2)).unsqueeze(0),
+            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0),
             "tcp_pose": _pose((0, 1, 0)).unsqueeze(0),
         }
         tokens = tokenizer.tokenize(obs, goal)
         assert tokens.shape == (1, 1, 18)
 
-        # a_pose (first 6 dims): position delta (1,2,3), rotation delta pi/2 about z
-        r_a = tokens[0, 0, :6]
-        assert torch.allclose(r_a[:3], torch.tensor([1.0, 2.0, 3.0]))
-        assert torch.allclose(r_a[3:6].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
+        # obj_0_pose (first 6 dims): position delta (1,2,3), rotation delta pi/2 about z
+        r_0 = tokens[0, 0, :6]
+        assert torch.allclose(r_0[:3], torch.tensor([1.0, 2.0, 3.0]))
+        assert torch.allclose(r_0[3:6].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
+
 
     def test_tokenize_raises_if_both_none(self):
         tokenizer = StateTokenizer(task_dim=5)

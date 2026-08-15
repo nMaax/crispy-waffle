@@ -121,10 +121,12 @@ def ground_truth_distance(
     obs_canonical: Mapping[str, TensorTree], goal_canonical: Mapping[str, TensorTree]
 ) -> float:
     """Straight-line distance from the manipulated object to its goal position."""
-    obs_pose = get_tensor(obs_canonical, "a_pose")
+    key = "obj_0_pose" if "obj_0_pose" in obs_canonical else "a_pose"
+    obs_pose = get_tensor(obs_canonical, key)
     obs_position = obs_pose[:, -1, :3] if obs_pose.ndim == 3 else obs_pose[..., :3]
-    goal_position = get_tensor(goal_canonical, "a_pose")[..., :3]
+    goal_position = get_tensor(goal_canonical, key)[..., :3]
     return float(torch.linalg.norm(goal_position - obs_position, dim=-1).item())
+
 
 
 def collect_episodes(

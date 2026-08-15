@@ -8,6 +8,7 @@ from policy.algorithms.networks.encoder import (
     ConditioningEncoder,
     StateTokenizer,
 )
+from policy.transforms.canonicalization import Canonicalizer
 from policy.utils import flatten_and_concat_leaf_tensors
 
 
@@ -206,7 +207,7 @@ class TestConditioningEncoderLogic:
     # ------------------------------------------------------------------ #
     def _per_object_encoder(self, **overrides) -> ConditioningEncoder:
         kwargs = dict(
-            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
+            obs_dim=Canonicalizer.dim_spec(3),
             goal_conditioned=True,
             relative_goal=True,
             tokenizer={
@@ -227,18 +228,25 @@ class TestConditioningEncoderLogic:
         obs = {
             "proprio": torch.randn(batch_size, 2, 18),
             "obj_0_pose": torch.randn(batch_size, 2, 7),
+            "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, 2, 3),
             "obj_1_pose": torch.randn(batch_size, 2, 7),
+            "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, 2, 3),
             "obj_2_pose": torch.randn(batch_size, 2, 7),
+            "obj_2_role": torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 2, 3),
             "tcp_pose": torch.randn(batch_size, 2, 7),
         }
         goal = {
             "proprio": torch.randn(batch_size, 18),
             "obj_0_pose": torch.randn(batch_size, 7),
+            "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, 3),
             "obj_1_pose": torch.randn(batch_size, 7),
+            "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, 3),
             "obj_2_pose": torch.randn(batch_size, 7),
+            "obj_2_role": torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3),
             "tcp_pose": torch.randn(batch_size, 7),
         }
         return obs, goal
+
     def test_per_object_tokenizer_folds_tokens_without_cross_attention(self):
         encoder = self._per_object_encoder()
         assert encoder.cond_dims == ConditioningContract(step_dim=18 + 8 * 3)
@@ -327,7 +335,7 @@ class TestConditioningEncoderLogic:
 
         tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
+            obs_dim=Canonicalizer.dim_spec(3),
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
@@ -351,7 +359,7 @@ class TestConditioningEncoderLogic:
 
         tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
+            obs_dim=Canonicalizer.dim_spec(3),
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
@@ -374,7 +382,7 @@ class TestConditioningEncoderLogic:
 
         tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
+            obs_dim=Canonicalizer.dim_spec(3),
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
@@ -386,6 +394,7 @@ class TestConditioningEncoderLogic:
             step_dim=18,
             global_dim=15,
         )
+
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs", "task"}

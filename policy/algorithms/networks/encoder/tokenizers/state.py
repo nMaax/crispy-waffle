@@ -6,8 +6,9 @@ from typing import ClassVar
 import torch
 
 from policy.algorithms.networks.encoder.tokenizers.utils import relative_se3_pose
-from policy.utils import concat_leaf_tensors
-from policy.utils.typing_utils import TensorTree, get_tensor
+from policy.transforms.canonicalization.spec import POSE_DIM, RELATIVE_SE3_DIM
+from policy.utils import concat_leaf_tensors, get_total_dim
+from policy.utils.typing_utils import DimSpec, TensorTree, get_tensor
 
 
 class StateTokenizer:
@@ -22,13 +23,21 @@ class StateTokenizer:
 
     tokens_per_step = 1
 
-    def __init__(self, task_dim: int, relative_goal: bool = True):
-        self.task_dim = task_dim
+    def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
+        self.task_dim = get_total_dim(task_dim)
         self.relative_goal = relative_goal
-        if relative_goal and task_dim % 7 == 0:
-            self.output_dim = (task_dim // 7) * 6
+        if relative_goal:
+            if isinstance(task_dim, Mapping):
+                self.output_dim = sum(
+                    RELATIVE_SE3_DIM if key.endswith("_pose") else get_total_dim(dim)
+                    for key, dim in task_dim.items()
+                )
+            elif self.task_dim % POSE_DIM == 0:
+                self.output_dim = (self.task_dim // POSE_DIM) * RELATIVE_SE3_DIM
+            else:
+                self.output_dim = self.task_dim
         else:
-            self.output_dim = task_dim
+            self.output_dim = self.task_dim
 
     def tokenize(self, obs_task: TensorTree | None, goal_task: TensorTree | None) -> torch.Tensor:
         if obs_task is not None and goal_task is not None:
@@ -48,7 +57,14 @@ class StateTokenizer:
                     g = get_tensor(goal_task, key)
                     if g.ndim == o.ndim - 1:
                         g = g.unsqueeze(1)
-                    deltas.append(relative_se3_pose(g, o))
+                    if key.endswith("_pose"):
+                        deltas.append(relative_se3_pose(g, o))
+                    elif key.endswith("_role"):
+                        deltas.append(o)
+                    else:
+                        raise ValueError(
+                            f"Unexpected key {key} in task dicts. Expected keys ending with '_pose' or '_role'."
+                        )
             return torch.cat(deltas, dim=-1)
 
         obs_flat = (
@@ -60,12 +76,12 @@ class StateTokenizer:
         if goal_flat.ndim == obs_flat.ndim - 1:
             goal_flat = goal_flat.unsqueeze(1)
 
-        if obs_flat.shape[-1] % 7 == 0 and goal_flat.shape[-1] % 7 == 0:
-            num_poses = obs_flat.shape[-1] // 7
+        if obs_flat.shape[-1] % POSE_DIM == 0 and goal_flat.shape[-1] % POSE_DIM == 0:
+            num_poses = obs_flat.shape[-1] // POSE_DIM
             deltas = []
             for i in range(num_poses):
-                o_i = obs_flat[..., i * 7 : (i + 1) * 7]
-                g_i = goal_flat[..., i * 7 : (i + 1) * 7]
+                o_i = obs_flat[..., i * POSE_DIM : (i + 1) * POSE_DIM]
+                g_i = goal_flat[..., i * POSE_DIM : (i + 1) * POSE_DIM]
                 deltas.append(relative_se3_pose(g_i, o_i))
             return torch.cat(deltas, dim=-1)
 
