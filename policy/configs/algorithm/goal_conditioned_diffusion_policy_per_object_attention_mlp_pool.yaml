@@ -4,6 +4,5 @@ defaults:
 
 encoder:
   pooling:
-    # Must equal len(tokenizer.object_keys) (3 by default): the number of tokens per timestep
-    # that MLPPooling's internal Linear must be sized for.
     tokens_per_step: 3
+    obs_horizon: ${...obs_horizon}

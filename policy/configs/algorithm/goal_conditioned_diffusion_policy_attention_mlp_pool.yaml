@@ -1,3 +1,7 @@
 defaults:
   - goal_conditioned_diffusion_policy_attention
   - override pooling@encoder.pooling: mlp
+
+encoder:
+  pooling:
+    obs_horizon: ${...obs_horizon}
