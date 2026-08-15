@@ -14,10 +14,6 @@ class BasePooling(nn.Module, ABC):
 
     def __init__(self, mode: PoolingMode = "all"):
         super().__init__()
-        if mode not in ("all", "objects", "time"):
-            raise ValueError(
-                f"Unknown pooling mode: {mode!r}. Expected 'all', 'objects', or 'time'."
-            )
         self.mode: PoolingMode = mode
 
     @property

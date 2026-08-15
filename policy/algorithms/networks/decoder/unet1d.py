@@ -196,12 +196,6 @@ class FiLMDecoder1D(nn.Module, DiffusionNetworkProtocol):
 
     Operates: Downsample residual blocks --> Middle residual blocks --> Upsample residual
     blocks with skip connections, using FiLM (Feature-wise Linear Modulation) conditioning.
-
-    Takes ``cond_dims`` directly (computed by a :class:`~policy.algorithms.networks.encoder.
-    ConditioningEncoder` the owning algorithm builds separately) rather than owning any
-    conditioning logic itself. Its ``external_cond`` is the encoder's already-encoded payload,
-    never a raw obs/goal tree -- the name is kept for consistency with `DiffusionNetworkProtocol`
-    and `DiffusionGPT`'s calling convention, even though nothing "external" happens here anymore.
     """
 
     def __init__(
@@ -386,15 +380,6 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]
 
-        def make_cross_attn(channels: int) -> CrossAttentionBlock1D:
-            return CrossAttentionBlock1D(
-                channels,
-                context_dim,
-                num_heads=cross_attn_num_heads,
-                dropout=cross_attn_dropout,
-                n_groups=n_groups,
-            )
-
         self.down_modules = nn.ModuleList([])
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (len(in_out) - 1)
@@ -416,7 +401,13 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
-                        make_cross_attn(dim_out),
+                        CrossAttentionBlock1D(
+                            dim_out,
+                            context_dim,
+                            num_heads=cross_attn_num_heads,
+                            dropout=cross_attn_dropout,
+                            n_groups=n_groups,
+                        ),
                         downsample,
                     ]
                 )
@@ -432,7 +423,13 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
                 ),
             ]
         )
-        self.mid_cross_attn = make_cross_attn(mid_dim)
+        self.mid_cross_attn = CrossAttentionBlock1D(
+            mid_dim,
+            context_dim,
+            num_heads=cross_attn_num_heads,
+            dropout=cross_attn_dropout,
+            n_groups=n_groups,
+        )
 
         self.up_modules = nn.ModuleList([])
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
@@ -455,7 +452,13 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
                             kernel_size=kernel_size,
                             n_groups=n_groups,
                         ),
-                        make_cross_attn(dim_in),
+                        CrossAttentionBlock1D(
+                            dim_in,
+                            context_dim,
+                            num_heads=cross_attn_num_heads,
+                            dropout=cross_attn_dropout,
+                            n_groups=n_groups,
+                        ),
                         upsample,
                     ]
                 )

@@ -23,9 +23,6 @@ class SelfAttention(nn.Module):
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon, output_dim))
         self.attn = nn.MultiheadAttention(output_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm = nn.LayerNorm(output_dim)
-        # Position-wise FFN sublayer, mirroring DiffusionGPT.Block's MLP shape. `dropout` is
-        # deliberately shared with the attention sublayer: this embedder has never exposed
-        # per-sublayer dropout granularity, and its config surface stays a single `dropout`.
         self.mlp = nn.Sequential(
             nn.Linear(output_dim, 4 * output_dim),
             nn.GELU(),
