@@ -25,8 +25,8 @@ class StateTokenizer:
     def __init__(self, task_dim: int, relative_goal: bool = True):
         self.task_dim = task_dim
         self.relative_goal = relative_goal
-        if relative_goal and task_dim == 21:
-            self.output_dim = 18
+        if relative_goal and task_dim % 7 == 0:
+            self.output_dim = (task_dim // 7) * 6
         else:
             self.output_dim = task_dim
 

@@ -14,9 +14,12 @@ def _pose(pos: tuple[float, float, float], axis_angle: tuple[float, float, float
 
 class TestStateTokenizer:
     def test_output_dim_matches_task_dim(self):
-        tokenizer = StateTokenizer(task_dim=42)
+        tokenizer = StateTokenizer(task_dim=42, relative_goal=False)
         assert tokenizer.output_dim == 42
         assert tokenizer.tokens_per_step == 1
+
+        tokenizer_rel = StateTokenizer(task_dim=42, relative_goal=True)
+        assert tokenizer_rel.output_dim == 36  # (42 // 7) * 6 = 36
 
     def test_single_side_tokenization_preserves_dict_or_tensor(self):
         tokenizer = StateTokenizer(task_dim=10)

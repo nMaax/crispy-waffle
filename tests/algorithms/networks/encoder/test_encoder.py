@@ -206,10 +206,13 @@ class TestConditioningEncoderLogic:
     # ------------------------------------------------------------------ #
     def _per_object_encoder(self, **overrides) -> ConditioningEncoder:
         kwargs = dict(
-            obs_dim={"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
             goal_conditioned=True,
             relative_goal=True,
-            tokenizer={"_target_": "policy.algorithms.networks.encoder.tokenizers.ObjectTokenizer"},
+            tokenizer={
+                "_target_": "policy.algorithms.networks.encoder.tokenizers.ObjectTokenizer",
+                "object_keys": ("obj_0_pose", "obj_1_pose", "obj_2_pose"),
+            },
             embedder={
                 "_target_": "policy.algorithms.networks.encoder.embedders.self_attention.SelfAttention",
                 "output_dim": 8,
@@ -223,14 +226,16 @@ class TestConditioningEncoderLogic:
     def _per_object_obs_goal(self, batch_size=2):
         obs = {
             "proprio": torch.randn(batch_size, 2, 18),
-            "a_pose": torch.randn(batch_size, 2, 7),
-            "b_pose": torch.randn(batch_size, 2, 7),
+            "obj_0_pose": torch.randn(batch_size, 2, 7),
+            "obj_1_pose": torch.randn(batch_size, 2, 7),
+            "obj_2_pose": torch.randn(batch_size, 2, 7),
             "tcp_pose": torch.randn(batch_size, 2, 7),
         }
         goal = {
             "proprio": torch.randn(batch_size, 18),
-            "a_pose": torch.randn(batch_size, 7),
-            "b_pose": torch.randn(batch_size, 7),
+            "obj_0_pose": torch.randn(batch_size, 7),
+            "obj_1_pose": torch.randn(batch_size, 7),
+            "obj_2_pose": torch.randn(batch_size, 7),
             "tcp_pose": torch.randn(batch_size, 7),
         }
         return obs, goal
@@ -261,7 +266,7 @@ class TestConditioningEncoderLogic:
         assert set(obs_cond) == {"proprio"}
         assert torch.equal(obs_cond["proprio"], obs["proprio"])
 
-        # 3 tokens per timestep (objA, objB, TCP) x 2 timesteps, t-major k-minor, kept as a
+        # 3 tokens per timestep (obj_0, obj_1, obj_2) x 2 timesteps, t-major k-minor, kept as a
         # sequence (not folded into a wider per-timestep vector).
         context = ext_cond["context"]
         assert isinstance(context, torch.Tensor)
@@ -321,60 +326,60 @@ class TestConditioningEncoderLogic:
         from policy.algorithms.networks.encoder.pooling import AttentionPooling
         from policy.algorithms.networks.encoder.tokenizers.object import ObjectTokenizer
 
-        tokenizer = ObjectTokenizer(object_keys=("a_pose", "b_pose", "tcp_pose"))
+        tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
-            pooling=AttentionPooling(dim=6, num_heads=2, mode="all"),
+            pooling=AttentionPooling(dim=15, num_heads=3, mode="all"),
         )
         assert encoder.pools_time is True
         assert encoder.pools_objects is True
         assert encoder.cond_dims == {
             "obs": CondEntry(width=18, kind="per_timestep"),
-            "task": CondEntry(width=6, kind="global"),
+            "task": CondEntry(width=15, kind="global"),
         }
 
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs", "task"}
-        assert ext_cond["task"].shape == (2, 6)
+        assert ext_cond["task"].shape == (2, 15)
 
     def test_encoder_pooling_mode_objects(self):
         from policy.algorithms.networks.encoder.pooling import AttentionPooling
         from policy.algorithms.networks.encoder.tokenizers.object import ObjectTokenizer
 
-        tokenizer = ObjectTokenizer(object_keys=("a_pose", "b_pose", "tcp_pose"))
+        tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
-            pooling=AttentionPooling(dim=6, num_heads=2, mode="objects"),
+            pooling=AttentionPooling(dim=15, num_heads=3, mode="objects"),
         )
         assert encoder.pools_time is False
         assert encoder.pools_objects is True
         assert encoder.cond_dims == {
-            "obs": CondEntry(width=18 + 6, kind="per_timestep"),
+            "obs": CondEntry(width=18 + 15, kind="per_timestep"),
         }
 
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs"}
-        assert ext_cond["obs"]["task"].shape == (2, 2, 6)
+        assert ext_cond["obs"]["task"].shape == (2, 2, 15)
 
     def test_encoder_pooling_mode_time(self):
         from policy.algorithms.networks.encoder.pooling import AttentionPooling
         from policy.algorithms.networks.encoder.tokenizers.object import ObjectTokenizer
 
-        tokenizer = ObjectTokenizer(object_keys=("a_pose", "b_pose", "tcp_pose"))
+        tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose", "obj_2_pose"))
         encoder = ConditioningEncoder(
-            obs_dim={"proprio": 18, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+            obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "obj_2_pose": 7, "tcp_pose": 7},
             goal_conditioned=True,
             relative_goal=True,
             tokenizer=tokenizer,
-            pooling=AttentionPooling(dim=6, num_heads=2, mode="time"),
+            pooling=AttentionPooling(dim=15, num_heads=3, mode="time"),
         )
         assert encoder.pools_time is True
         assert encoder.pools_objects is False
@@ -382,7 +387,7 @@ class TestConditioningEncoderLogic:
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs", "task"}
-        assert ext_cond["task"].shape == (2, 3, 6)
+        assert ext_cond["task"].shape == (2, 3, 15)
 
     def test_encoder_rejects_invalid_pooling_mode(self):
         from policy.algorithms.networks.encoder.pooling import AttentionPooling

@@ -96,7 +96,7 @@ def test_cross_attention_pipeline_instantiates_and_runs():
 
     encoder_cfg = _compose_encoder(
         "cross_attention",
-        obs_dim={"proprio": proprio_dim, "a_pose": 7, "b_pose": 7, "tcp_pose": 7},
+        obs_dim={"proprio": proprio_dim, "obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7},
         goal_conditioned=True,
         tokenizer={"_target_": "policy.algorithms.networks.encoder.tokenizers.ObjectTokenizer"},
         embedder={
@@ -117,14 +117,18 @@ def test_cross_attention_pipeline_instantiates_and_runs():
     timestep = torch.randint(0, 100, (batch_size,))
     obs = {
         "proprio": torch.randn(batch_size, obs_horizon, proprio_dim),
-        "a_pose": torch.randn(batch_size, obs_horizon, 7),
-        "b_pose": torch.randn(batch_size, obs_horizon, 7),
+        "obj_0_pose": torch.randn(batch_size, obs_horizon, 7),
+        "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, obs_horizon, 3),
+        "obj_1_pose": torch.randn(batch_size, obs_horizon, 7),
+        "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, obs_horizon, 3),
         "tcp_pose": torch.randn(batch_size, obs_horizon, 7),
     }
     goal = {
         "proprio": torch.randn(batch_size, proprio_dim),
-        "a_pose": torch.randn(batch_size, 7),
-        "b_pose": torch.randn(batch_size, 7),
+        "obj_0_pose": torch.randn(batch_size, 7),
+        "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, 3),
+        "obj_1_pose": torch.randn(batch_size, 7),
+        "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, 3),
         "tcp_pose": torch.randn(batch_size, 7),
     }
 
@@ -138,3 +142,114 @@ def test_cross_attention_pipeline_instantiates_and_runs():
         if p.requires_grad:
             assert p.grad is not None, f"{name} got no gradient"
             assert torch.isfinite(p.grad).all(), f"{name} got a non-finite gradient"
+
+    # Verify that the same instantiated pipeline handles a different number of objects (e.g. adding 2 clutter objects)
+    obs_with_clutter = dict(obs)
+    obs_with_clutter["obj_2_pose"] = torch.randn(batch_size, obs_horizon, 7)
+    obs_with_clutter["obj_2_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, obs_horizon, 3)
+    obs_with_clutter["obj_3_pose"] = torch.randn(batch_size, obs_horizon, 7)
+    obs_with_clutter["obj_3_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, obs_horizon, 3)
+    goal_with_clutter = dict(goal)
+    goal_with_clutter["obj_2_pose"] = torch.randn(batch_size, 7)
+    goal_with_clutter["obj_2_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3)
+    goal_with_clutter["obj_3_pose"] = torch.randn(batch_size, 7)
+    goal_with_clutter["obj_3_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3)
+
+    encoded_cond_clutter = encoder(obs_with_clutter, goal_with_clutter)
+    # Context sequence length should now be obs_horizon * 4 objects = 8
+    assert encoded_cond_clutter["context"].shape == (batch_size, obs_horizon * 4, context_dim)
+    output_clutter = decoder(sample, timestep, external_cond=encoded_cond_clutter)
+    assert output_clutter.shape == sample.shape
+
+
+def test_film_pipeline_with_object_tokenizer_and_attention_pooling():
+    """FiLM pipeline with ObjectTokenizer + AttentionPooling(mode="objects"):
+
+    K object tokens are compressed into 1 vector per timestep, allowing variable objects.
+    """
+    batch_size, pred_horizon, obs_horizon, act_dim = 8, 16, 2, 4
+    proprio_dim, embed_dim = 18, 16
+
+    encoder_cfg = _compose_encoder(
+        "film",
+        obs_dim={"proprio": proprio_dim, "obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7},
+        goal_conditioned=True,
+        relative_goal=True,
+        proprio_dim=proprio_dim,
+        tokenizer={"_target_": "policy.algorithms.networks.encoder.tokenizers.ObjectTokenizer"},
+        embedder={
+            "_target_": "policy.algorithms.networks.encoder.embedders.mlp.MLP",
+            "output_dim": embed_dim,
+            "hidden_dims": [32],
+        },
+        pooling={
+            "_target_": "policy.algorithms.networks.encoder.pooling.AttentionPooling",
+            "mode": "objects",
+            "num_heads": 2,
+        },
+    )
+    encoder = hydra_zen.instantiate(encoder_cfg)
+
+    decoder_cfg = _compose_decoder("film_decoder1d", act_dim=act_dim, obs_horizon=obs_horizon)
+    decoder = hydra_zen.instantiate(decoder_cfg, cond_dims=encoder.cond_dims)
+
+    sample = torch.randn(batch_size, pred_horizon, act_dim)
+    timestep = torch.randint(0, 100, (batch_size,))
+    obs = {
+        "proprio": torch.randn(batch_size, obs_horizon, proprio_dim),
+        "obj_0_pose": torch.randn(batch_size, obs_horizon, 7),
+        "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, obs_horizon, 3),
+        "obj_1_pose": torch.randn(batch_size, obs_horizon, 7),
+        "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, obs_horizon, 3),
+        "tcp_pose": torch.randn(batch_size, obs_horizon, 7),
+    }
+    goal = {
+        "proprio": torch.randn(batch_size, proprio_dim),
+        "obj_0_pose": torch.randn(batch_size, 7),
+        "obj_0_role": torch.tensor([1.0, 0.0, 0.0]).expand(batch_size, 3),
+        "obj_1_pose": torch.randn(batch_size, 7),
+        "obj_1_role": torch.tensor([0.0, 1.0, 0.0]).expand(batch_size, 3),
+        "tcp_pose": torch.randn(batch_size, 7),
+    }
+
+    encoded_cond = encoder(obs, goal)
+    output = decoder(sample, timestep, external_cond=encoded_cond)
+    assert output.shape == sample.shape
+
+    # Same pipeline with 3 clutter objects added
+    obs_with_clutter = dict(obs)
+    obs_with_clutter["obj_2_pose"] = torch.randn(batch_size, obs_horizon, 7)
+    obs_with_clutter["obj_2_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, obs_horizon, 3)
+    obs_with_clutter["obj_3_pose"] = torch.randn(batch_size, obs_horizon, 7)
+    obs_with_clutter["obj_3_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, obs_horizon, 3)
+    obs_with_clutter["obj_4_pose"] = torch.randn(batch_size, obs_horizon, 7)
+    obs_with_clutter["obj_4_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, obs_horizon, 3)
+    goal_with_clutter = dict(goal)
+    goal_with_clutter["obj_2_pose"] = torch.randn(batch_size, 7)
+    goal_with_clutter["obj_2_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3)
+    goal_with_clutter["obj_3_pose"] = torch.randn(batch_size, 7)
+    goal_with_clutter["obj_3_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3)
+    goal_with_clutter["obj_4_pose"] = torch.randn(batch_size, 7)
+    goal_with_clutter["obj_4_role"] = torch.tensor([0.0, 0.0, 1.0]).expand(batch_size, 3)
+
+    encoded_cond_clutter = encoder(obs_with_clutter, goal_with_clutter)
+    # FiLM conditioning shape remains exactly the same because of object pooling
+    assert encoded_cond_clutter["obs"]["task"].shape == (batch_size, obs_horizon, embed_dim)
+    output_clutter = decoder(sample, timestep, external_cond=encoded_cond_clutter)
+    assert output_clutter.shape == sample.shape
+
+
+def test_film_pipeline_rejects_variable_objects_without_pooling():
+    """FiLM without object pooling cannot process dynamic/variable object tokens."""
+    import pytest
+    encoder_cfg = _compose_encoder(
+        "film",
+        obs_dim={"proprio": 18, "obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7},
+        goal_conditioned=True,
+        relative_goal=True,
+        proprio_dim=18,
+        tokenizer={"_target_": "policy.algorithms.networks.encoder.tokenizers.ObjectTokenizer"},
+        pooling=None,
+    )
+    with pytest.raises(Exception, match="pooling across objects"):
+        hydra_zen.instantiate(encoder_cfg)

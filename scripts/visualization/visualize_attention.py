@@ -188,7 +188,8 @@ def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) 
     """Token names in `t * K + k` order, matching `SelfAttention`'s flattening."""
     tokenizer = require_encoder(model).tokenizer
     if isinstance(tokenizer, ObjectTokenizer):
-        return [f"t{t}/{key}" for t in range(obs_horizon) for key in tokenizer.object_keys]
+        keys = tokenizer.object_keys or ("obj_0_pose", "obj_1_pose")
+        return [f"t{t}/{key}" for t in range(obs_horizon) for key in keys]
     return [f"t{t}" for t in range(obs_horizon)]
 
 

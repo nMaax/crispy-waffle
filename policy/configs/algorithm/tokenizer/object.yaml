@@ -1,2 +1,2 @@
 _target_: policy.algorithms.networks.encoder.tokenizers.object.ObjectTokenizer
-object_keys: [a_pose, b_pose, tcp_pose]
+object_keys: null

@@ -188,11 +188,15 @@ class TokenizerProtocol(Protocol):
     several implementations of this protocol.
     """
 
-    output_dim: int
-    """Width ``D`` of one raw token; becomes the downstream embedder's ``input_dim``."""
+    @property
+    def output_dim(self) -> int:
+        """Width ``D`` of one raw token; becomes the downstream embedder's ``input_dim``."""
+        ...
 
-    tokens_per_step: int
-    """Number of tokens ``K`` produced per observed timestep."""
+    @property
+    def tokens_per_step(self) -> int | None:
+        """Number of tokens ``K`` produced per observed timestep (None if dynamic/variable)."""
+        ...
 
     supports_single_side: ClassVar[bool]
     """Whether :meth:`tokenize` can be called with exactly one of ``obs_task`` and

@@ -49,7 +49,14 @@ def _place_sphere_obs(batch=False):
     }
 
 
-EXPECTED_KEYS = {"proprio", "tcp_pose", "a_pose", "b_pose"}
+EXPECTED_KEYS = {
+    "proprio",
+    "tcp_pose",
+    "obj_0_pose",
+    "obj_0_role",
+    "obj_1_pose",
+    "obj_1_role",
+}
 
 
 class TestCanonicalizer:
@@ -69,8 +76,10 @@ class TestCanonicalizer:
         assert set(out.keys()) == EXPECTED_KEYS
         assert out["proprio"].shape[-1] == 18  # qpos(9) + qvel(9)
         assert out["tcp_pose"].shape[-1] == 7
-        assert out["a_pose"].shape[-1] == 7
-        assert out["b_pose"].shape[-1] == 7
+        assert out["obj_0_pose"].shape[-1] == 7
+        assert out["obj_1_pose"].shape[-1] == 7
+        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
 
     @pytest.mark.parametrize(
         "env_id",
@@ -96,11 +105,13 @@ class TestCanonicalizer:
         canon = Canonicalizer("PlaceSphere-v1")
         out = canon(_place_sphere_obs())
         assert set(out.keys()) == EXPECTED_KEYS
-        # b_pose should have a fake quaternion [1,0,0,0] appended to bin_pos
-        assert out["b_pose"].shape[-1] == 7
-        assert torch.all(out["b_pose"][..., 3:] == torch.tensor([1.0, 0.0, 0.0, 0.0]))
-        # a_pose is the sphere pose
-        assert out["a_pose"].shape[-1] == 7
+        # obj_1_pose (bin target) should have a fake quaternion [1,0,0,0] appended to bin_pos
+        assert out["obj_1_pose"].shape[-1] == 7
+        assert torch.all(out["obj_1_pose"][..., 3:] == torch.tensor([1.0, 0.0, 0.0, 0.0]))
+        # obj_0_pose is the sphere pose
+        assert out["obj_0_pose"].shape[-1] == 7
+        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
 
     def test_batched_input(self):
         canon = Canonicalizer("StackCube-v1")
@@ -111,15 +122,26 @@ class TestCanonicalizer:
     def test_parse_stack_cube_clutter(self):
         obs = _stack_cube_obs()
         obs["extra"]["obj_0_pose"] = torch.randn(7)
+        obs["extra"]["obj_0_active"] = torch.tensor(True)
         obs["extra"]["obj_1_pose"] = torch.randn(7)
+        obs["extra"]["obj_1_active"] = torch.tensor(False)
+        obs["extra"]["obj_2_pose"] = torch.randn(7)
+        obs["extra"]["obj_2_active"] = torch.tensor(True)
 
         canon = Canonicalizer("StackCubeClutter-v1")
         out = canon(obs)
         assert EXPECTED_KEYS.issubset(out.keys())
-        assert "clutter_0_pose" in out
-        assert "clutter_1_pose" in out
-        assert out["a_pose"].shape == (7,)
-        assert out["b_pose"].shape == (7,)
+        assert "obj_0_pose" in out
+        assert "obj_1_pose" in out
+        assert "obj_2_pose" in out
+        assert "obj_3_pose" in out
+        assert "obj_4_pose" not in out
+        assert torch.equal(out["obj_2_pose"], obs["extra"]["obj_0_pose"])
+        assert torch.equal(out["obj_3_pose"], obs["extra"]["obj_2_pose"])
+        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
+        assert torch.equal(out["obj_2_role"], torch.tensor([0.0, 0.0, 1.0]))
+        assert torch.equal(out["obj_3_role"], torch.tensor([0.0, 0.0, 1.0]))
 
     def test_parse_stack_cube_clutter_random_pick(self):
         obs = {
@@ -135,10 +157,21 @@ class TestCanonicalizer:
             obs["extra"][f"obj_{i}_pose"] = torch.randn(7)
             obs["extra"][f"obj_{i}_is_pick"] = torch.tensor(i == 3)
             obs["extra"][f"obj_{i}_is_target"] = torch.tensor(i == 6)
+            obs["extra"][f"obj_{i}_active"] = torch.tensor(i != 7)  # slot 7 inactive
 
         canon = Canonicalizer("StackCubeClutterRandomPick-v1")
         out = canon(obs)
-        assert EXPECTED_KEYS.issubset(out.keys())
-        assert torch.equal(out["a_pose"], obs["extra"]["obj_3_pose"])
-        assert torch.equal(out["b_pose"], obs["extra"]["obj_6_pose"])
-        assert "clutter_0_pose" in out
+        assert "proprio" in out
+        assert "tcp_pose" in out
+        # 7 active objects: obj_0 .. obj_6
+        for i in range(7):
+            assert f"obj_{i}_pose" in out
+            assert f"obj_{i}_role" in out
+            assert torch.equal(out[f"obj_{i}_pose"], obs["extra"][f"obj_{i}_pose"])
+        assert "obj_7_pose" not in out
+
+        # Check role vectors: obj_3 is pick [1,0,0], obj_6 is target [0,1,0], others are [0,0,1]
+        assert torch.equal(out["obj_3_role"], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.equal(out["obj_6_role"], torch.tensor([0.0, 1.0, 0.0]))
+        assert torch.equal(out["obj_0_role"], torch.tensor([0.0, 0.0, 1.0]))
+        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 0.0, 1.0]))

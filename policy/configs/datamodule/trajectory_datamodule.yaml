@@ -10,8 +10,10 @@ canonicalize: true
 obs_dim:
   proprio: 18
   tcp_pose: 7
-  a_pose: 7
-  b_pose: 7
+  obj_0_pose: 7
+  obj_0_role: 3
+  obj_1_pose: 7
+  obj_1_role: 3
 act_dim: 4
 
 batch_size: 256

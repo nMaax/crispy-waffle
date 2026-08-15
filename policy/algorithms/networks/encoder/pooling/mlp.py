@@ -31,6 +31,11 @@ class MLPPooling(BasePooling):
         mode: PoolingMode = "all",
     ):
         super().__init__(mode=mode)
+        if self.mode in ("all", "objects") and (tokens_per_step is None or tokens_per_step <= 0):
+            raise ValueError(
+                f"MLPPooling with mode={self.mode!r} requires a positive integer for tokens_per_step, "
+                f"got {tokens_per_step}."
+            )
         out_dim = output_dim if output_dim is not None else dim
         seq_len = {
             "all": obs_horizon * tokens_per_step,
