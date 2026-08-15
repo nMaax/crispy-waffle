@@ -23,6 +23,10 @@ class TestConditioningEncoderLogic:
     # ------------------------------------------------------------------ #
     # Default tokenizer, absolute conditioning (relative_goal=False)
     # ------------------------------------------------------------------ #
+    def test_default_goal_conditioned_is_false(self):
+        encoder = ConditioningEncoder(obs_dim=48, proprio_dim=18)
+        assert encoder.goal_conditioned is False
+
     def test_default_tokenizer_is_state_tokenizer(self):
         encoder = ConditioningEncoder(obs_dim=48, goal_conditioned=True, proprio_dim=18)
         assert isinstance(encoder.tokenizer, StateTokenizer)

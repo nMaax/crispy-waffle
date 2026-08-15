@@ -69,7 +69,7 @@ uv run pytest --cov=policy --cov-fail-under=70
 
 ## Custom ManiSkill code and replays
 
-crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `PlaceCubeRight-v1`, `PlaceCubeLeftLockedRotation-v1`, `PlaceCubeRightLockedRotation-v1`, `StackCubeSwapped-v1`, `StackCubeSwappedLockedRotation-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`, `PlaceSphereRestrictedSpawn-v1`, and the modified `PlaceSphere-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill — see `CUSTOM_ENVS.md` in the fork for the spawn regions and success criteria of each. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, tracking the `dev` branch, while `uv.lock` pins the exact resolved commit so `uv sync` stays reproducible.
+crispy-waffle's custom tasks (`PlaceCubeLeft-v1`, `PlaceCubeRight-v1`, `PlaceCubeLeftLockedRotation-v1`, `PlaceCubeRightLockedRotation-v1`, `StackCubeSwapped-v1`, `StackCubeSwappedLockedRotation-v1`, `StackCubeLockedRotation-v1`, `StackCubeRestrictedSpawn-v1`) are defined in [nMaax/ManiSkill](https://github.com/nMaax/ManiSkill), `dev` branch, not in vanilla ManiSkill — see `CUSTOM_ENVS.md` in the fork for the spawn regions and success criteria of each. `pyproject.toml` pulls `mani-skill` straight from such fork via `[tool.uv.sources]`, tracking the `dev` branch, while `uv.lock` pins the exact resolved commit so `uv sync` stays reproducible.
 
 To move the pin to the current tip of the fork's `dev` branch:
 

@@ -202,7 +202,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
     def _encoder_extra_kwargs(self) -> dict[str, Any]:
         """Extra kwargs threaded to encoder instantiation."""
-        return {}
+        return {"obs_dim": self.obs_dim}
 
     def _decoder_extra_kwargs(self) -> dict[str, Any]:
         """Extra kwargs threaded to decoder instantiation."""
@@ -215,12 +215,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         return {"obs": get_total_dim(self.obs_dim)}
 
     def _encode(self, external_cond: Mapping[str, TensorTree]) -> Mapping[str, TensorTree]:
-        if self.encoder is None:
-            return external_cond
 
         if "obs" not in external_cond:
             raise ValueError("external_cond must contain an 'obs' entry.")
-        return self.encoder(external_cond["obs"], external_cond.get("goal"))
+
+        if self.encoder is None:
+            return external_cond
+
+        return self.encoder(**external_cond)
 
     def _ema_parameters(self) -> list[torch.nn.Parameter]:
         """Parameters tracked by EMA: whatever training actually updates."""
@@ -292,12 +294,21 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.ema is not None and "ema_state_dict" in checkpoint:
             self.ema.load_state_dict(checkpoint["ema_state_dict"])
 
+    def _normalize_obs(self, obs: TensorTree) -> TensorTree:
+        """Normalizes observations if an obs_normalizer is configured; otherwise returns them as-
+        is."""
+        return self.obs_normalizer.normalize(obs) if self.obs_normalizer is not None else obs
+
+    def _normalize_act(self, act: torch.Tensor) -> torch.Tensor:
+        """Normalizes actions if an act_normalizer is configured; otherwise returns them as-is."""
+        return self.act_normalizer.normalize(act) if self.act_normalizer is not None else act
+
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
-    ):
+    ) -> torch.Tensor:
         """Runs the reverse diffusion process to predict an action sequence from the current
         observation.
 
@@ -305,18 +316,12 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             obs_seq: [B, obs_horizon * obs_dim] (flattened conditioning) or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-
         external_cond = self._build_external_cond(obs_seq)
-
-        action = self._run_diffusion_loop(
+        return self._run_diffusion_loop(
             external_cond=external_cond,
             num_inference_steps=num_inference_steps,
             output_clip_range=output_clip_range,
         )
-
-        return action
 
     def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
         """Main step logic, it doesn't differ between training and validation except for the
@@ -327,30 +332,24 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             batch["act_seq"]: [B, pred_horizon, act_dim]
             returns: scalar loss tensor []
         """
-        obs_seq = batch["obs_seq"]
-        action_seq = batch["act_seq"]
-
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-
-        if self.act_normalizer is not None:
-            action_seq = self.act_normalizer.normalize(action_seq)
-
-        external_cond = self._build_external_cond(obs_seq)
+        action_seq = self._normalize_act(batch["act_seq"])
+        external_cond = self._build_external_cond_from_batch(batch)
 
         loss = self._compute_loss(external_cond, action_seq)
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
 
-    def _build_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
-        """Prepares the network ``external_cond``. ``external_cond`` is a dict of tensors.
+    def _build_external_cond_from_batch(self, batch: dict[str, Any]) -> dict[str, TensorTree]:
+        """Extracts and normalizes observation conditioning from a training/validation batch."""
+        return self._build_external_cond(batch["obs_seq"])
 
-        Observations are packaged in their un-flattened shape (``[B, obs_horizon,
-        dim]`` or a nested tree of such tensors); handling and flattening them is a responsibility
-        of the receiving network.
+    def _build_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
+        """Prepares the network ``external_cond``.
+
+        ``external_cond`` is a dict of normalized tensors.
         """
-        return {"obs": obs}
+        return {"obs": self._normalize_obs(obs)}
 
     def _compute_loss(
         self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor

@@ -11,12 +11,17 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     """Goal-conditioned diffusion policy using diffusers noise schedulers."""
 
     def __init__(self, *args, goal_horizon: int = 1, **kwargs):
+        if goal_horizon < 1:
+            raise ValueError(
+                f"GoalConditionedDiffusionPolicy requires goal_horizon >= 1 (got {goal_horizon}). "
+                "Use DiffusionPolicy for unconditioned diffusion."
+            )
         super().__init__(*args, **kwargs)
         self.goal_horizon = goal_horizon
-        self.goal_conditioned = goal_horizon > 0
+        self.goal_conditioned = True
 
     def _encoder_extra_kwargs(self) -> dict[str, Any]:
-        return {"obs_dim": self.obs_dim, "goal_conditioned": self.goal_conditioned}
+        return {**super()._encoder_extra_kwargs(), "goal_conditioned": self.goal_conditioned}
 
     def extract_embeddings(
         self,
@@ -42,10 +47,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 else goal.to(self.device)
             )
 
-        if self.obs_normalizer is not None:
-            obs = self.obs_normalizer.normalize(obs)
-            if goal is not None:
-                goal = self.obs_normalizer.normalize(goal)
+        obs = self._normalize_obs(obs)
+        if goal is not None:
+            goal = self._normalize_obs(goal)
 
         with torch.no_grad():
             return self.encoder.extract_embeddings(obs, goal=goal)
@@ -53,7 +57,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
     def get_action(
         self,
         obs_seq: torch.Tensor | Mapping[str, Any],
-        goal: torch.Tensor | Mapping[str, Any] | None = None,
+        goal: torch.Tensor | Mapping[str, Any],
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ) -> torch.Tensor:
@@ -65,11 +69,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             goal: [B, obs_dim] or dict
             returns: [B, act_horizon, act_dim] (denoised actions to execute)
         """
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            if goal is not None:
-                goal = self.obs_normalizer.normalize(goal)
-
         external_cond = self._build_external_cond(obs_seq, goal)
 
         return self._run_diffusion_loop(
@@ -78,10 +77,10 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             output_clip_range=output_clip_range,
         )
 
-    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        """Main step logic for training and validation."""
+    def _build_external_cond_from_batch(self, batch: dict[str, Any]) -> dict[str, TensorTree]:
+        """Extracts and normalizes observation and goal conditioning from a training/validation
+        batch."""
         obs_seq = batch["obs_seq"]
-        action_seq = batch["act_seq"]
         goal = batch.get("goal", None)
 
         if not isinstance(obs_seq, torch.Tensor | Mapping):
@@ -89,37 +88,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 f"Expected batch['obs_seq'] to be a torch.Tensor or Mapping, but got {type(obs_seq)}."
             )
 
-        if goal is not None and not isinstance(goal, torch.Tensor | Mapping):
+        if goal is None or not isinstance(goal, torch.Tensor | Mapping):
             raise ValueError(
                 f"Expected batch['goal'] to be a torch.Tensor or Mapping, but got {type(goal)}."
             )
 
-        if self.obs_normalizer is not None:
-            obs_seq = self.obs_normalizer.normalize(obs_seq)
-            if goal is not None:
-                goal = self.obs_normalizer.normalize(goal)
+        return self._build_external_cond(obs_seq, goal)
 
-        if self.act_normalizer is not None:
-            action_seq = self.act_normalizer.normalize(action_seq)
-
-        external_cond = self._build_external_cond(obs_seq, goal)
-
-        loss = self._compute_loss(external_cond, action_seq)
-
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
-        return loss
-
-    def _build_external_cond(
-        self, obs: TensorTree, goal: TensorTree | None
-    ) -> dict[str, TensorTree]:
-        if self.goal_conditioned and goal is None:
-            raise ValueError(
-                f"{type(self).__name__} is configured with goal_horizon={self.goal_horizon} > 0, "
-                "but received goal=None."
-            )
-
-        if self.goal_conditioned:
-            assert goal is not None
-            return {"obs": obs, "goal": goal}
-        else:
-            return {"obs": obs}
+    def _build_external_cond(self, obs: TensorTree, goal: TensorTree) -> dict[str, TensorTree]:
+        return {"obs": self._normalize_obs(obs), "goal": self._normalize_obs(goal)}

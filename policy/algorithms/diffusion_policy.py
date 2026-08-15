@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 import torch
 import torch.nn.functional as F
@@ -31,10 +31,9 @@ class DiffusionPolicy(BaseDiffusionAgent):
                 "DiffusionPolicy requires a noise scheduler. Pass a valid `noise_scheduler` config."
             )
 
-    def _encoder_extra_kwargs(self) -> dict[str, Any]:
-        return {"obs_dim": self.obs_dim, "goal_conditioned": False}
-
-    def _compute_loss(self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor) -> torch.Tensor:
+    def _compute_loss(
+        self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor
+    ) -> torch.Tensor:
         """Samples noise, adds it to the target sequence, and computes the reconstruction loss.
 
         Shapes:

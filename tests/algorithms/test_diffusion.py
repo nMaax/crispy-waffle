@@ -43,7 +43,7 @@ class GoalConditionedDiffusionPolicyTests(DiffusionPolicyTests[GoalConditionedDi
         algorithm.to(batch_device)
 
         obs_seq = training_step_content.batch["obs_seq"]
-        goal = training_step_content.batch.get("goal", None)
+        goal = training_step_content.batch["goal"]
         with torch.no_grad():
             out = algorithm.get_action(obs_seq, goal=goal)
 
@@ -54,6 +54,31 @@ class GoalConditionedDiffusionPolicyTests(DiffusionPolicyTests[GoalConditionedDi
             training_step_content.batch["act_seq"].shape[0],
             algorithm.act_horizon,
             algorithm.act_dim,
+        )
+
+    def test_get_action_is_reproducible(
+        self,
+        algorithm,
+        training_step_content,
+        tensor_regression,
+        hardware_label: str,
+    ):
+        """Check that get_action produces the same action tensor given a fixed random seed."""
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch["goal"]
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        # Regression check
+        tensor_regression.check(
+            {"action": out},
+            default_tolerance={"rtol": 1e-5, "atol": 1e-6},
+            additional_label=hardware_label,
+            include_gpu_name_in_stats=False,
         )
 
 
@@ -175,14 +200,22 @@ class TestDiffusionPolicyLogic:
         kwargs.update(overrides)
         return GoalConditionedDiffusionPolicy(**kwargs)
 
-    def test_encoder_extra_kwargs_reports_obs_dim_and_goal_conditioned(self):
-        """The only thing this class threads to the encoder now: the raw obs schema and whether
-        a goal exists at all. Everything about *how* that becomes conditioning (tokenizer,
-        embedder, relative_goal, cross-attention) is the encoder's own ConditioningEncoder
-        business -- see tests/algorithms/networks/encoder/test_encoder.py and
-        tests/algorithms/networks/test_encoder_decoder_pipeline.py for that. The decoder, in turn, only ever needs
-        `cond_dims` (the base class default `_decoder_extra_kwargs()`), the same contract BESO's
-        DiffusionGPT already uses."""
+    def test_diffusion_policy_encoder_extra_kwargs_reports_obs_dim(self):
+        kwargs = {
+            "decoder": {"_target_": "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"},
+            "encoder": {"_target_": "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"},
+            "ema": {},
+            "noise_scheduler": {},
+            "optimizer": {},
+            "act_dim": 4,
+            "obs_dim": 48,
+            "pred_horizon": 16,
+            "obs_horizon": 2,
+        }
+        policy = DiffusionPolicy(**kwargs)
+        assert policy._encoder_extra_kwargs() == {"obs_dim": 48}
+
+    def test_goal_conditioned_diffusion_policy_encoder_extra_kwargs_reports_goal_conditioned(self):
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -190,26 +223,15 @@ class TestDiffusionPolicyLogic:
             policy = self._make_goal_policy(goal_horizon=2)
             assert policy._encoder_extra_kwargs() == {"obs_dim": 48, "goal_conditioned": True}
 
-            unconditioned = self._make_goal_policy(goal_horizon=0)
-            assert unconditioned._encoder_extra_kwargs() == {
-                "obs_dim": 48,
-                "goal_conditioned": False,
-            }
-
-    def test_goal_horizon_zero_sets_not_goal_conditioned(self):
+    def test_goal_conditioned_diffusion_policy_requires_goal_horizon_ge_1(self):
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
         ):
-            policy = self._make_goal_policy(goal_horizon=0)
-            assert not policy.goal_conditioned
+            with pytest.raises(ValueError, match="requires goal_horizon >= 1"):
+                self._make_goal_policy(goal_horizon=0)
 
-            ext_cond = policy._build_external_cond(torch.randn(2, 2, 48), goal=torch.randn(2, 48))
-            assert set(ext_cond) == {"obs"}
-
-    def test_build_external_cond_passes_the_raw_tree_through(self):
-        """No tokenizing/embedding/packaging left here at all -- obs/goal go straight into
-        external_cond exactly as given, mirroring BesoPolicy._build_external_cond."""
+    def test_build_external_cond_from_batch_extracts_obs_and_goal(self):
         with patch(
             "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
             return_value=MagicMock(),
@@ -218,17 +240,11 @@ class TestDiffusionPolicyLogic:
             obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
             goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
 
-            ext_cond = policy._build_external_cond(obs, goal)
+            ext_cond = policy._build_external_cond_from_batch({"obs_seq": obs, "goal": goal})
             assert ext_cond == {"obs": obs, "goal": goal}
 
-    def test_build_external_cond_requires_goal_when_conditioned(self):
-        with patch(
-            "policy.algorithms.base_diffusion_agent.hydra_zen.instantiate",
-            return_value=MagicMock(),
-        ):
-            policy = self._make_goal_policy(goal_horizon=1)
-            with pytest.raises(ValueError, match="but received goal=None"):
-                policy._build_external_cond(torch.randn(2, 2, 48), None)
+            with pytest.raises(ValueError, match="Expected batch\\['goal'\\]"):
+                policy._build_external_cond_from_batch({"obs_seq": obs})
 
     def test_extract_embeddings_delegates_to_the_encoder(self):
         with patch(

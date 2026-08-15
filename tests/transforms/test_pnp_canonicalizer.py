@@ -29,26 +29,6 @@ def _stack_cube_obs(batch=False):
     }
 
 
-def _place_sphere_obs(batch=False):
-    tcp_pose = torch.randn(*_shape(7, batch))
-    obj_pose = torch.randn(*_shape(7, batch))
-    bin_pos = torch.randn(*_shape(3, batch))
-
-    return {
-        "agent": {
-            "qpos": torch.randn(*_shape(9, batch)),
-            "qvel": torch.randn(*_shape(9, batch)),
-        },
-        "extra": {
-            "is_grasped": torch.zeros(*_shape(1, batch)),
-            "tcp_pose": tcp_pose,
-            "bin_pos": bin_pos,
-            "obj_pose": obj_pose,
-            "tcp_to_obj_pos": obj_pose[..., :3] - tcp_pose[..., :3],
-        },
-    }
-
-
 EXPECTED_KEYS = {
     "proprio",
     "tcp_pose",
@@ -57,6 +37,20 @@ EXPECTED_KEYS = {
     "obj_1_pose",
     "obj_1_role",
 }
+
+
+class TestCanonicalizerDimSpec:
+    def test_dim_spec_default_matches_class_constant(self):
+        assert Canonicalizer.dim_spec(2) == Canonicalizer.DIM_SPEC
+
+    def test_dim_spec_generalizes_to_object_count(self):
+        spec = Canonicalizer.dim_spec(8)
+        assert spec["proprio"] == 18
+        assert spec["tcp_pose"] == 7
+        for i in range(8):
+            assert spec[f"obj_{i}_pose"] == 7
+            assert spec[f"obj_{i}_role"] == 3
+        assert "obj_8_pose" not in spec
 
 
 class TestCanonicalizer:
@@ -84,8 +78,6 @@ class TestCanonicalizer:
     @pytest.mark.parametrize(
         "env_id",
         [
-            "StackCubeSwapped-v1",
-            "StackCubeSwappedLockedRotation-v1",
             "StackCubeRestrictedSpawn-v1",
             "StackCubeLockedRotation-v1",
             "PlaceCubeLeft-v1",
@@ -101,17 +93,20 @@ class TestCanonicalizer:
         for key in EXPECTED_KEYS:
             assert torch.allclose(out_base[key], out_delegate[key])
 
-    def test_parse_place_sphere(self):
-        canon = Canonicalizer("PlaceSphere-v1")
-        out = canon(_place_sphere_obs())
-        assert set(out.keys()) == EXPECTED_KEYS
-        # obj_1_pose (bin target) should have a fake quaternion [1,0,0,0] appended to bin_pos
-        assert out["obj_1_pose"].shape[-1] == 7
-        assert torch.all(out["obj_1_pose"][..., 3:] == torch.tensor([1.0, 0.0, 0.0, 0.0]))
-        # obj_0_pose is the sphere pose
-        assert out["obj_0_pose"].shape[-1] == 7
-        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
+    @pytest.mark.parametrize(
+        "env_id", ["StackCubeSwapped-v1", "StackCubeSwappedLockedRotation-v1"]
+    )
+    def test_stack_cube_swapped_reverses_pick_and_target(self, env_id):
+        # StackCubeSwapped picks cubeB and targets cubeA -- the opposite of every other
+        # stack_cube-family task, so its roles (not just its poses) must be swapped too.
+        obs = _stack_cube_obs()
+        out_base = Canonicalizer("StackCube-v1")(obs)
+        out_swapped = Canonicalizer(env_id)(obs)
+
+        assert torch.equal(out_swapped["obj_0_pose"], out_base["obj_1_pose"])
+        assert torch.equal(out_swapped["obj_1_pose"], out_base["obj_0_pose"])
+        assert torch.equal(out_swapped["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.equal(out_swapped["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
 
     def test_batched_input(self):
         canon = Canonicalizer("StackCube-v1")

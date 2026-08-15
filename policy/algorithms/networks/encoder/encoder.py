@@ -35,7 +35,7 @@ class ConditioningEncoder(nn.Module):
         obs_dim: DimSpec,
         proprio_dim: int | None = None,
         task_dim: int | None = None,
-        goal_conditioned: bool = True,
+        goal_conditioned: bool = False,
         relative_goal: bool = False,
         mode: Literal["film", "cross_attention"] | None = None,
         decoder_type: Literal["film", "cross_attention"] = "film",
@@ -94,7 +94,7 @@ class ConditioningEncoder(nn.Module):
         else:
             self.pooling = None
 
-        # Validation
+        # Validation and extra options
         self._validate_config()
         self.cond_dims = self._compute_cond_dims()
 

@@ -63,6 +63,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         **kwargs,
     ):
 
+        # TODO: looking at this code, it seems like BESO is actually using some form of
+        # (degenerate, checks and reshaping only) encoder. Value later if we could make one for it too.
+
         super().__init__(*args, **kwargs)
 
         if "DiffusionGPT" not in self.decoder_config.get("_target_", None):
@@ -83,7 +86,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self.relative_goal = relative_goal
         self.use_proprio_token = use_proprio_token
         if use_proprio_token or relative_goal:
-            self.proprio_dim, self.task_dim = self._validate_obs_dim(proprio_dim, task_dim)
+            self.proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
+            self.task_dim = derive_task_dim(self.obs_dim, self.proprio_dim, task_dim)
 
         # Training
         self.alpha = alpha
@@ -98,17 +102,13 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # Training and Inference
         self.sigma_data = sigma_data
 
+        # Validation and extra options
         self._validate_goal_parameters()
 
         self.pred_last_action_only = pred_last_action_only
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
         self.num_parallel_samples = num_parallel_samples
-
-    def _validate_obs_dim(self, proprio_dim: int | None, task_dim: int | None) -> tuple[int, int]:
-        proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
-        task_dim = derive_task_dim(self.obs_dim, proprio_dim, task_dim)
-        return proprio_dim, task_dim
 
     def _validate_goal_parameters(self):
         if self.relative_goal and not self.goal_conditioned:
@@ -567,7 +567,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         # NOTE: The original BESO implementation incorrectly inverts the order of normalization and clipping:
         # it first clips the denoised actions in the normalized space (to [-1, 1]), and only then unnormalizes
-        # them to the physical space. This is mathematically sloppy and highly restrictive:
+        # them to the physical space. This is mathematically sloppy:
         # 1. With MinMaxNormalizer, it assumes the training dataset's min/max bounds perfectly align with the
         #    physical environment boundaries.
         # 2. With ZScoreNormalizer, it restricts the generated actions to within exactly one standard deviation

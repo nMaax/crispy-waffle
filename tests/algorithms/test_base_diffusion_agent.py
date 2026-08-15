@@ -79,7 +79,7 @@ class TestBaseDiffusionAgentLogic:
         assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
 
     # ------------------------------------------------------------------ #
-    # _get_cond_dims / _build_external_cond
+    # _get_cond_dims / _build_external_cond / Normalization helpers
     # ------------------------------------------------------------------ #
     def test_get_cond_dims_wraps_obs_dim(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
@@ -90,6 +90,21 @@ class TestBaseDiffusionAgentLogic:
         obs = torch.randn(2, 2, 3)
         external_cond = agent._build_external_cond(obs)
         assert external_cond == {"obs": obs}
+
+    def test_normalize_helpers_delegate_when_normalizers_present(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        agent.obs_normalizer = MagicMock()
+        agent.obs_normalizer.normalize.side_effect = lambda x: x + 1.0
+        agent.act_normalizer = MagicMock()
+        agent.act_normalizer.normalize.side_effect = lambda x: x * 2.0
+
+        obs = torch.tensor([1.0, 2.0])
+        act = torch.tensor([3.0, 4.0])
+        assert torch.equal(agent._normalize_obs(obs), torch.tensor([2.0, 3.0]))
+        assert torch.equal(agent._normalize_act(act), torch.tensor([6.0, 8.0]))
+
+        ext_cond = agent._build_external_cond(obs)
+        assert torch.equal(ext_cond["obs"], torch.tensor([2.0, 3.0]))
 
     # ------------------------------------------------------------------ #
     # EMA optionality
@@ -152,12 +167,17 @@ class TestBaseDiffusionAgentLogic:
         with pytest.raises(ValueError, match="must contain an 'obs' entry"):
             agent._encode({})
 
-    def test_encode_calls_encoder_with_obs_and_goal(self):
+    def test_encode_forwards_external_cond_as_kwargs_to_encoder(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
         agent.encoder = MagicMock()
-        obs, goal = torch.randn(2, 2, 3), torch.randn(2, 3)
+        obs = torch.randn(2, 2, 3)
+        agent._encode({"obs": obs})
+        agent.encoder.assert_called_once_with(obs=obs)
+
+        agent.encoder.reset_mock()
+        goal = torch.randn(2, 3)
         agent._encode({"obs": obs, "goal": goal})
-        agent.encoder.assert_called_once_with(obs, goal)
+        agent.encoder.assert_called_once_with(obs=obs, goal=goal)
 
     def test_get_cond_dims_uses_encoder_cond_dims_when_present(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
@@ -178,3 +198,83 @@ class TestBaseDiffusionAgentLogic:
         agent.decoder = torch.nn.Linear(3, 3)
         assert agent.encoder is None
         assert agent._ema_parameters() == list(agent.decoder.parameters())
+
+
+class TestGoalConditionedDiffusionPolicyLogic:
+    def test_init_with_goal_horizon_zero_raises(self):
+        from policy.algorithms.goal_conditioned_diffusion_policy import (
+            GoalConditionedDiffusionPolicy,
+        )
+
+        with pytest.raises(ValueError, match="requires goal_horizon >= 1"):
+            GoalConditionedDiffusionPolicy(
+                decoder={"_target_": DECODER_TARGET},
+                optimizer={},
+                ema={"_target_": "diffusers.training_utils.EMAModel"},
+                noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
+                goal_horizon=0,
+            )
+
+    def test_encoder_extra_kwargs_threads_goal_conditioned_true(self):
+        from policy.algorithms.goal_conditioned_diffusion_policy import (
+            GoalConditionedDiffusionPolicy,
+        )
+
+        policy = GoalConditionedDiffusionPolicy(
+            decoder={"_target_": DECODER_TARGET},
+            optimizer={},
+            ema={"_target_": "diffusers.training_utils.EMAModel"},
+            noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
+            goal_horizon=1,
+            obs_dim=48,
+        )
+        kwargs = policy._encoder_extra_kwargs()
+        assert kwargs["goal_conditioned"] is True
+        assert kwargs["obs_dim"] == 48
+
+    def test_build_external_cond_from_batch_missing_goal_raises(self):
+        from policy.algorithms.goal_conditioned_diffusion_policy import (
+            GoalConditionedDiffusionPolicy,
+        )
+
+        policy = GoalConditionedDiffusionPolicy(
+            decoder={"_target_": DECODER_TARGET},
+            optimizer={},
+            ema={"_target_": "diffusers.training_utils.EMAModel"},
+            noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
+            goal_horizon=1,
+        )
+        with pytest.raises(ValueError, match="Expected batch\\['goal'\\]"):
+            policy._build_external_cond_from_batch({"obs_seq": torch.randn(2, 2, 3)})
+
+    def test_build_external_cond_packs_obs_and_goal(self):
+        from policy.algorithms.goal_conditioned_diffusion_policy import (
+            GoalConditionedDiffusionPolicy,
+        )
+
+        policy = GoalConditionedDiffusionPolicy(
+            decoder={"_target_": DECODER_TARGET},
+            optimizer={},
+            ema={"_target_": "diffusers.training_utils.EMAModel"},
+            noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
+            goal_horizon=1,
+        )
+        obs = torch.randn(2, 2, 3)
+        goal = torch.randn(2, 3)
+        assert policy._build_external_cond(obs, goal) == {"obs": obs, "goal": goal}
+
+    def test_shared_step_missing_goal_raises(self):
+        from policy.algorithms.goal_conditioned_diffusion_policy import (
+            GoalConditionedDiffusionPolicy,
+        )
+
+        policy = GoalConditionedDiffusionPolicy(
+            decoder={"_target_": DECODER_TARGET},
+            optimizer={},
+            ema={"_target_": "diffusers.training_utils.EMAModel"},
+            noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
+            goal_horizon=1,
+        )
+        batch = {"obs_seq": torch.randn(2, 2, 3), "act_seq": torch.randn(2, 16, 4)}
+        with pytest.raises(ValueError, match="Expected batch\\['goal'\\]"):
+            policy._shared_step(batch, 0, "train")
