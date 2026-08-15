@@ -8,17 +8,15 @@ import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
+from policy.algorithms.networks.utils import as_task_only, derive_task_dim, resolve_proprio_dim
 from policy.utils import (
-    as_task_only,
     concat_leaf_tensors,
-    derive_task_dim,
     get_batch_size,
     get_total_dim,
     map_leaves,
     merge_dicts,
     pack_obs_goal,
     pop_leaf_key,
-    resolve_proprio_dim,
     subtract_leaves,
 )
 from policy.utils.typing_utils import (

@@ -2,17 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import hydra.utils
 import torch
 import torch.nn as nn
 
-
-def _resolve_activation(activation: type[nn.Module] | str) -> type[nn.Module]:
-    if isinstance(activation, str):
-        if hasattr(nn, activation):
-            return getattr(nn, activation)
-        return hydra.utils.get_class(activation)
-    return activation
+from policy.algorithms.networks.utils import resolve_activation
 
 
 class MLP(nn.Module):
@@ -31,7 +24,7 @@ class MLP(nn.Module):
         self.hidden_dims = hidden_dims
         self.bias = bias
 
-        act_cls = _resolve_activation(activation)
+        act_cls = resolve_activation(activation)
 
         layers: list[nn.Module] = []
         current_dim = input_dim

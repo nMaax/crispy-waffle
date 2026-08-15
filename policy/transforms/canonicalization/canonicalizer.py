@@ -4,29 +4,12 @@ import torch
 
 from policy.transforms.canonicalization.spec import (
     ROLE_CLUTTER,
-    ROLE_DIM,
     ROLE_PICK,
     ROLE_TARGET,
     canonical_dim_spec,
 )
+from policy.transforms.canonicalization.utils import match_shape, role_tensor
 from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
-
-
-def _role_tensor(role: tuple[float, float, float], like: torch.Tensor) -> torch.Tensor:
-    return torch.tensor(role, dtype=like.dtype, device=like.device).expand(
-        *like.shape[:-1], ROLE_DIM
-    )
-
-
-def _match_shape(t: torch.Tensor, like: torch.Tensor) -> torch.Tensor:
-    """Broadcasts a per-object scalar flag (e.g. is_pick/is_active) to like's batch shape, adding a
-    trailing singleton dim so it concatenates against role/pose tensors."""
-    t = t.to(dtype=like.dtype, device=like.device)
-    while t.ndim < like.ndim:
-        t = t.unsqueeze(-1)
-    if t.shape[:-1] != like.shape[:-1]:
-        t = t.expand(*like.shape[:-1], 1)
-    return t
 
 
 class Canonicalizer:
@@ -97,10 +80,10 @@ class Canonicalizer:
             pick_pose = get_tensor(extra, f"{pick_key}_pose")
             target_pose = get_tensor(extra, f"{target_key}_pose")
             res[f"obj_{next_idx}_pose"] = pick_pose
-            res[f"obj_{next_idx}_role"] = _role_tensor(ROLE_PICK, pick_pose)
+            res[f"obj_{next_idx}_role"] = role_tensor(ROLE_PICK, pick_pose)
             next_idx += 1
             res[f"obj_{next_idx}_pose"] = target_pose
-            res[f"obj_{next_idx}_role"] = _role_tensor(ROLE_TARGET, target_pose)
+            res[f"obj_{next_idx}_role"] = role_tensor(ROLE_TARGET, target_pose)
             next_idx += 1
 
         # [obj_0_pose, obj_1_pose, ...] -> [0, 1, ...]
@@ -122,8 +105,8 @@ class Canonicalizer:
             if is_random_pick:
                 # Every pool member (cubeA, cubeB, and clutter alike) carries its own per-episode
                 # role. Read it directly instead of guessing.
-                is_pick_t = _match_shape(get_tensor(extra, f"obj_{i}_is_pick"), pose_tensor)
-                is_target_t = _match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose_tensor)
+                is_pick_t = match_shape(get_tensor(extra, f"obj_{i}_is_pick"), pose_tensor)
+                is_target_t = match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose_tensor)
                 # An object is clutter if it is neither pick nor target
                 is_clutter_t = 1.0 - torch.clamp(is_pick_t + is_target_t, 0.0, 1.0)
                 res[f"obj_{next_idx}_role"] = torch.cat(
@@ -132,7 +115,7 @@ class Canonicalizer:
             else:
                 # obj_i here is always decorative clutter: the fixed pair above already claimed
                 # the pick/target roles.
-                res[f"obj_{next_idx}_role"] = _role_tensor(ROLE_CLUTTER, pose_tensor)
+                res[f"obj_{next_idx}_role"] = role_tensor(ROLE_CLUTTER, pose_tensor)
 
             next_idx += 1
 

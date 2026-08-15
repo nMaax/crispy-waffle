@@ -5,7 +5,8 @@ from collections.abc import Mapping
 import torch
 import torch.nn as nn
 
-from policy.utils import as_task_only, concat_leaf_tensors, get_total_dim, pop_leaf_key
+from policy.algorithms.networks.utils import as_task_only
+from policy.utils import concat_leaf_tensors, get_total_dim, pop_leaf_key
 from policy.utils.typing_utils import DimSpec, TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
 

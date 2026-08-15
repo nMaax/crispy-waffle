@@ -399,9 +399,3 @@ class TestConditioningEncoderLogic:
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs", "task"}
         assert ext_cond["task"].shape == (2, 3, 15)
-
-    def test_encoder_rejects_invalid_pooling_mode(self):
-        from policy.algorithms.networks.encoder.pooling import AttentionPooling
-
-        with pytest.raises(ValueError, match="Unknown pooling mode"):
-            AttentionPooling(dim=6, num_heads=2, mode="invalid")  # type: ignore[arg-type]

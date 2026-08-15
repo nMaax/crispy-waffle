@@ -9,6 +9,7 @@ from .spec import (
     ROLE_TARGET,
     canonical_dim_spec,
 )
+from .utils import match_shape, role_tensor
 
 __all__ = [
     "Canonicalizer",
@@ -20,4 +21,6 @@ __all__ = [
     "ROLE_TARGET",
     "ROLE_CLUTTER",
     "canonical_dim_spec",
+    "match_shape",
+    "role_tensor",
 ]

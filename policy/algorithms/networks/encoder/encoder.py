@@ -8,14 +8,8 @@ import torch.nn as nn
 
 from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.algorithms.networks.encoder.tokenizers import StateTokenizer
-from policy.utils import (
-    derive_task_dim,
-    get_ndim,
-    map_leaves,
-    merge_dicts,
-    pop_leaf_key,
-    resolve_proprio_dim,
-)
+from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
+from policy.utils import get_ndim, map_leaves, merge_dicts, pop_leaf_key
 from policy.utils.typing_utils import (
     DimSpec,
     HydraConfigFor,
@@ -153,19 +147,15 @@ class ConditioningEncoder(nn.Module):
                 context_key="context",
             )
 
-        if self.decoder_type == "film":
-            if self.pools_time:
-                return ConditioningContract(
-                    step_dim=self.proprio_dim,
-                    global_dim=self.output_dim + goal_dim,
-                )
-            else:
-                return ConditioningContract(
-                    step_dim=self.proprio_dim + step_task_dim,
-                    global_dim=goal_dim,
-                )
-
-        raise ValueError(f"Unknown decoder_type: {self.decoder_type!r}")
+        if self.pools_time:
+            return ConditioningContract(
+                step_dim=self.proprio_dim,
+                global_dim=self.output_dim + goal_dim,
+            )
+        return ConditioningContract(
+            step_dim=self.proprio_dim + step_task_dim,
+            global_dim=goal_dim,
+        )
 
     @property
     def is_multi_token(self) -> bool:

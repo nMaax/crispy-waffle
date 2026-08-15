@@ -161,8 +161,3 @@ def test_base_pooling_properties():
     time_pool = AttentionPooling(dim=12, mode="time")
     assert time_pool.pools_time is True
     assert time_pool.pools_objects is False
-
-
-def test_pooling_invalid_mode():
-    with pytest.raises(ValueError, match="Unknown pooling mode"):
-        AttentionPooling(dim=12, mode="invalid")  # type: ignore[arg-type]

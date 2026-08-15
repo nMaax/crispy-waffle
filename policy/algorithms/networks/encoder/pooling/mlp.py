@@ -2,19 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import hydra.utils
 import torch
 import torch.nn as nn
 
 from policy.algorithms.networks.encoder.pooling.base import BasePooling, PoolingMode
-
-
-def _resolve_activation(activation: type[nn.Module] | str) -> type[nn.Module]:
-    if isinstance(activation, str):
-        if hasattr(nn, activation):
-            return getattr(nn, activation)
-        return hydra.utils.get_class(activation)
-    return activation
+from policy.algorithms.networks.utils import resolve_activation
 
 
 class MLPPooling(BasePooling):
@@ -44,7 +36,7 @@ class MLPPooling(BasePooling):
         }[self.mode]
         in_dim = seq_len * dim
 
-        act_cls = _resolve_activation(activation)
+        act_cls = resolve_activation(activation)
 
         layers: list[nn.Module] = [nn.Flatten(start_dim=1)]
         curr_dim = in_dim
