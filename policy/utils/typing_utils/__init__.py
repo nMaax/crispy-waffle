@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, NewType, TypeAlias, TypeGuard
+from typing import Any, TypeAlias, TypeGuard
 
 import numpy as np
 import torch
@@ -21,17 +21,6 @@ from .protocols import (
     PoolingProtocol,
     TokenizerProtocol,
 )
-
-# These are used to show which dim is which in image data
-C = NewType("C", int)
-"""NewType annotation representing a image/feature channel dimension."""
-
-H = NewType("H", int)
-"""NewType annotation representing an image height dimension."""
-
-W = NewType("W", int)
-"""NewType annotation representing an image width dimension."""
-
 
 T = TypeVar("T")
 HydraConfigFor = Builds[type[T]]
@@ -95,9 +84,6 @@ def get_subtree(tree: Mapping[str, TensorTree], key: str) -> Mapping[str, Tensor
 
 
 __all__ = [
-    "C",
-    "H",
-    "W",
     "T",
     "DataModule",
     "DiffusionSchedulerProtocol",
