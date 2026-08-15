@@ -103,6 +103,14 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
             lightning.seed_everything(random_seed, workers=True)
             yield random_seed
 
+    @pytest.fixture(autouse=True)
+    def reseed_before_each_test(self, seed: int):
+        """Re-seed before every test, not just once per class.
+
+        For correct reproducibility.
+        """
+        lightning.seed_everything(seed, workers=True, verbose=False)
+
     @pytest.fixture(scope="class")
     def training_step_content(
         self,
