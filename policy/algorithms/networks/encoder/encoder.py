@@ -5,7 +5,7 @@ import hydra_zen
 import torch
 import torch.nn as nn
 
-from policy.algorithms.networks.encoder.spec import CondEntry, ConditioningSpec
+from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.algorithms.networks.encoder.tokenizers import StateTokenizer
 from policy.utils import (
     derive_task_dim,
@@ -96,7 +96,7 @@ class ConditioningEncoder(nn.Module):
 
         # Validation
         self._validate_config()
-        self.cond_dims: ConditioningSpec = self._compute_cond_dims()
+        self.cond_dims = self._compute_cond_dims()
 
     def _validate_config(self) -> None:
         if self.relative_goal and not self.goal_conditioned:
@@ -104,11 +104,13 @@ class ConditioningEncoder(nn.Module):
                 "relative_goal=True requires goal_conditioned=True: there is no goal to "
                 "difference the observations against otherwise."
             )
+
         if not self.relative_goal and not self.tokenizer.supports_single_side:
             raise ValueError(
                 f"{type(self.tokenizer).__name__} cannot be used with relative_goal=False: "
                 "it only produces tokens for goal deltas, so absolute conditioning isn't supported."
             )
+
         if not self.goal_conditioned and not self.tokenizer.supports_single_side:
             raise ValueError(
                 f"{type(self.tokenizer).__name__} cannot tokenize a standalone observation "
@@ -116,8 +118,6 @@ class ConditioningEncoder(nn.Module):
             )
 
         if self.decoder_type == "cross_attention":
-            if not self.relative_goal:
-                raise ValueError("mode='cross_attention' requires relative_goal=True.")
             if self.tokens_per_step is not None and self.tokens_per_step <= 1:
                 raise ValueError(
                     "mode='cross_attention' requires a tokenizer with tokens_per_step > 1; "
@@ -131,44 +131,35 @@ class ConditioningEncoder(nn.Module):
                 "pooling across objects (pools_objects=True, e.g. AttentionPooling(mode='objects'))."
             )
 
-    def _compute_cond_dims(self) -> ConditioningSpec:
-        entries = dict(self._task_cond_entries())
-        if self.goal_conditioned and not self.relative_goal:
-            goal_width = (
-                self.output_dim
-                if (self.pools_time or self.pools_objects)
-                else self.output_dim * (self.tokens_per_step or 1)
-            )
-            entries["goal"] = CondEntry(width=goal_width, kind="global")
-        return ConditioningSpec(entries)
-
-    def _task_cond_entries(self) -> dict[str, CondEntry]:
-        if self.decoder_type == "cross_attention":
-            return {
-                "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
-                "context": CondEntry(width=self.output_dim, kind="sequence"),
-            }
-        if self.pooling_mode == "time":
-            return {
-                "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
-                "task": CondEntry(width=self.output_dim, kind="sequence"),
-            }
-        if self.pools_time:
-            return {
-                "obs": CondEntry(width=self.proprio_dim, kind="per_timestep"),
-                "task": CondEntry(width=self.output_dim, kind="global"),
-            }
-        task_width = (
+    def _compute_cond_dims(self) -> ConditioningContract:
+        step_task_dim = (
             self.output_dim
             if self.pools_objects
             else self.output_dim * (self.tokens_per_step or 1)
         )
-        return {
-            "obs": CondEntry(
-                width=self.proprio_dim + task_width,
-                kind="per_timestep",
+        goal_dim = step_task_dim if (self.goal_conditioned and not self.relative_goal) else 0
+
+        if self.decoder_type == "cross_attention":
+            return ConditioningContract(
+                step_dim=self.proprio_dim,
+                global_dim=goal_dim,
+                context_dim=self.output_dim,
+                context_key="context",
             )
-        }
+
+        if self.decoder_type == "film":
+            if self.pools_time:
+                return ConditioningContract(
+                    step_dim=self.proprio_dim,
+                    global_dim=self.output_dim + goal_dim,
+                )
+            else:
+                return ConditioningContract(
+                    step_dim=self.proprio_dim + step_task_dim,
+                    global_dim=goal_dim,
+                )
+
+        raise ValueError(f"Unknown decoder_type: {self.decoder_type!r}")
 
     @property
     def is_multi_token(self) -> bool:

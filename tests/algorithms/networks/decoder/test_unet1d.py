@@ -5,7 +5,7 @@ from hydra import compose, initialize_config_module
 from omegaconf import OmegaConf
 
 from policy.algorithms.networks.decoder.unet1d import CrossAttentionDecoder1D, FiLMDecoder1D
-from policy.algorithms.networks.encoder import CondEntry, ConditioningSpec
+from policy.algorithms.networks.encoder import ConditioningContract
 
 
 def _compose_film_decoder(**overrides):
@@ -29,12 +29,12 @@ def _compose_cross_attn_decoder(**overrides):
 
 
 def test_film_decoder1d_instantiates_and_runs():
-    """FiLMDecoder1D built directly from a hand-built ConditioningSpec, bypassing
+    """FiLMDecoder1D built directly from a hand-built ConditioningContract, bypassing
     ConditioningEncoder entirely -- exercises the decoder in isolation."""
     batch_size, horizon, act_dim = 8, 4, 4
     obs_width = 67
 
-    cond_dims = ConditioningSpec({"obs": CondEntry(width=obs_width, kind="per_timestep")})
+    cond_dims = ConditioningContract(step_dim=obs_width)
     net_cfg = _compose_film_decoder(act_dim=act_dim, obs_horizon=horizon)
     decoder = hydra_zen.instantiate(net_cfg, cond_dims=cond_dims)
     assert isinstance(decoder, FiLMDecoder1D)
@@ -55,16 +55,11 @@ def test_film_decoder1d_instantiates_and_runs():
 
 
 def test_film_decoder1d_with_a_goal_entry_instantiates_and_runs():
-    """A 'global' goal entry alongside 'obs' -- exercises _get_film_width's global-kind branch."""
+    """A static goal alongside 'obs' -- exercises get_film_width's global_dim addition."""
     batch_size, horizon, act_dim = 4, 4, 4
     obs_width, goal_width = 15, 10
 
-    cond_dims = ConditioningSpec(
-        {
-            "obs": CondEntry(width=obs_width, kind="per_timestep"),
-            "goal": CondEntry(width=goal_width, kind="global"),
-        }
-    )
+    cond_dims = ConditioningContract(step_dim=obs_width, global_dim=goal_width)
     net_cfg = _compose_film_decoder(act_dim=act_dim, obs_horizon=horizon)
     decoder = hydra_zen.instantiate(net_cfg, cond_dims=cond_dims)
 
@@ -80,16 +75,14 @@ def test_film_decoder1d_with_a_goal_entry_instantiates_and_runs():
 
 
 def test_cross_attention_decoder1d_instantiates_and_runs():
-    """CrossAttentionDecoder1D built directly from a hand-built ConditioningSpec with a 'sequence'
-    entry, bypassing ConditioningEncoder entirely."""
+    """CrossAttentionDecoder1D built directly from a hand-built ConditioningContract with
+    context_dim."""
     batch_size, pred_horizon, obs_horizon, act_dim = 8, 16, 2, 4
     proprio_dim, context_dim, seq_len = 18, 8, 3
 
-    cond_dims = ConditioningSpec(
-        {
-            "obs": CondEntry(width=proprio_dim, kind="per_timestep"),
-            "context": CondEntry(width=context_dim, kind="sequence"),
-        }
+    cond_dims = ConditioningContract(
+        step_dim=proprio_dim,
+        context_dim=context_dim,
     )
     net_cfg = _compose_cross_attn_decoder(act_dim=act_dim, obs_horizon=obs_horizon)
     decoder = hydra_zen.instantiate(net_cfg, cond_dims=cond_dims)
@@ -113,21 +106,19 @@ def test_cross_attention_decoder1d_instantiates_and_runs():
             assert torch.isfinite(p.grad).all(), f"{name} got a non-finite gradient"
 
 
-def test_cross_attention_decoder1d_requires_a_sequence_entry():
-    """CrossAttentionDecoder1D construction rejects a ConditioningSpec with no 'sequence' entry."""
-    cond_dims = ConditioningSpec({"obs": CondEntry(width=10, kind="per_timestep")})
+def test_cross_attention_decoder1d_requires_a_context_dim():
+    """CrossAttentionDecoder1D construction rejects a contract with no context_dim."""
+    cond_dims = ConditioningContract(step_dim=10)
     net_cfg = _compose_cross_attn_decoder(act_dim=4, obs_horizon=4)
-    with pytest.raises(Exception, match="requires a kind='sequence' entry"):
+    with pytest.raises(Exception, match="requires context_dim to be set"):
         hydra_zen.instantiate(net_cfg, cond_dims=cond_dims)
 
 
 def test_cross_attention_decoder1d_expects_the_declared_context_key():
     """A well-formed decoder still rejects an external_cond payload missing its context key."""
-    cond_dims = ConditioningSpec(
-        {
-            "obs": CondEntry(width=10, kind="per_timestep"),
-            "context": CondEntry(width=8, kind="sequence"),
-        }
+    cond_dims = ConditioningContract(
+        step_dim=10,
+        context_dim=8,
     )
     net_cfg = _compose_cross_attn_decoder(act_dim=4, obs_horizon=2)
     decoder = hydra_zen.instantiate(net_cfg, cond_dims=cond_dims)

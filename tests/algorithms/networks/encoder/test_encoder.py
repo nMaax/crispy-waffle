@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from policy.algorithms.networks.encoder import (
-    CondEntry,
+    ConditioningContract,
     ConditioningEncoder,
     StateTokenizer,
 )
@@ -50,10 +50,9 @@ class TestConditioningEncoderLogic:
 
     def test_absolute_mode_reports_separate_goal_entry(self):
         encoder = ConditioningEncoder(obs_dim=48, goal_conditioned=True, proprio_dim=18)
-        assert encoder.cond_dims == {
-            "obs": CondEntry(width=48, kind="per_timestep"),
-            "goal": CondEntry(width=30, kind="global"),
-        }
+        assert encoder.cond_dims == ConditioningContract(step_dim=48, global_dim=30)
+        assert encoder.cond_dims["obs"] == 48
+        assert encoder.cond_dims["goal"] == 30
 
         obs = torch.randn(2, 2, 48)
         goal = torch.randn(2, 48)
@@ -68,7 +67,7 @@ class TestConditioningEncoderLogic:
 
     def test_unconditioned_has_no_goal_key(self):
         encoder = ConditioningEncoder(obs_dim=48, goal_conditioned=False, proprio_dim=18)
-        assert encoder.cond_dims == {"obs": CondEntry(width=48, kind="per_timestep")}
+        assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
         ext_cond = encoder(torch.randn(2, 2, 48))
         assert set(ext_cond) == {"obs"}
@@ -102,7 +101,7 @@ class TestConditioningEncoderLogic:
         encoder = ConditioningEncoder(
             obs_dim=48, goal_conditioned=True, relative_goal=True, proprio_dim=18
         )
-        assert encoder.cond_dims == {"obs": CondEntry(width=48, kind="per_timestep")}
+        assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
         obs = torch.randn(2, 2, 48)
         goal = torch.randn(2, 48)
@@ -128,7 +127,7 @@ class TestConditioningEncoderLogic:
                 "hidden_dims": [16],
             },
         )
-        assert encoder.cond_dims == {"obs": CondEntry(width=26, kind="per_timestep")}
+        assert encoder.cond_dims == ConditioningContract(step_dim=26)
 
         obs = torch.randn(2, 2, 48)
         goal = torch.randn(2, 48)
@@ -180,10 +179,7 @@ class TestConditioningEncoderLogic:
             },
         )
         cond_dims = encoder.cond_dims
-        assert cond_dims == {
-            "obs": CondEntry(width=18, kind="per_timestep"),
-            "task": CondEntry(width=8, kind="global"),
-        }
+        assert cond_dims == ConditioningContract(step_dim=18, global_dim=8)
         encoder.embedder.eval()
 
         obs = torch.randn(2, 2, 48)
@@ -198,7 +194,7 @@ class TestConditioningEncoderLogic:
 
         obs_horizon = 2
         actual_width = flatten_and_concat_leaf_tensors(ext_cond).shape[-1]
-        expected_width = cond_dims["obs"].width * obs_horizon + cond_dims["task"].width
+        expected_width = cond_dims.get_film_width(obs_horizon)
         assert actual_width == expected_width
 
     # ------------------------------------------------------------------ #
@@ -239,10 +235,9 @@ class TestConditioningEncoderLogic:
             "tcp_pose": torch.randn(batch_size, 7),
         }
         return obs, goal
-
     def test_per_object_tokenizer_folds_tokens_without_cross_attention(self):
         encoder = self._per_object_encoder()
-        assert encoder.cond_dims == {"obs": CondEntry(width=18 + 8 * 3, kind="per_timestep")}
+        assert encoder.cond_dims == ConditioningContract(step_dim=18 + 8 * 3)
 
         obs, goal = self._per_object_obs_goal()
         obs_cond = encoder(obs, goal)["obs"]
@@ -252,10 +247,10 @@ class TestConditioningEncoderLogic:
 
     def test_per_object_tokenizer_with_cross_attention_keeps_a_token_sequence(self):
         encoder = self._per_object_encoder(mode="cross_attention")
-        assert encoder.cond_dims == {
-            "obs": CondEntry(width=18, kind="per_timestep"),
-            "context": CondEntry(width=8, kind="sequence"),
-        }
+        assert encoder.cond_dims == ConditioningContract(
+            step_dim=18,
+            context_dim=8,
+        )
 
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
@@ -336,10 +331,10 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.pools_time is True
         assert encoder.pools_objects is True
-        assert encoder.cond_dims == {
-            "obs": CondEntry(width=18, kind="per_timestep"),
-            "task": CondEntry(width=15, kind="global"),
-        }
+        assert encoder.cond_dims == ConditioningContract(
+            step_dim=18,
+            global_dim=15,
+        )
 
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
@@ -360,9 +355,9 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.pools_time is False
         assert encoder.pools_objects is True
-        assert encoder.cond_dims == {
-            "obs": CondEntry(width=18 + 15, kind="per_timestep"),
-        }
+        assert encoder.cond_dims == ConditioningContract(
+            step_dim=18 + 15,
+        )
 
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
@@ -383,7 +378,10 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.pools_time is True
         assert encoder.pools_objects is False
-
+        assert encoder.cond_dims == ConditioningContract(
+            step_dim=18,
+            global_dim=15,
+        )
         obs, goal = self._per_object_obs_goal()
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs", "task"}

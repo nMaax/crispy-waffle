@@ -6,32 +6,10 @@ from collections.abc import Mapping, Sequence
 import torch
 import torch.nn as nn
 
-from policy.algorithms.networks.encoder import ConditioningSpec
+from policy.algorithms.networks.encoder import ConditioningContract
 from policy.utils import flatten_and_concat_leaf_tensors
 from policy.utils.typing_utils import TensorTree
 from policy.utils.typing_utils.protocols import DiffusionNetworkProtocol
-
-
-def _get_film_width(cond_dims: ConditioningSpec, obs_horizon: int) -> int:
-    return sum(
-        entry.width * (obs_horizon if entry.kind == "per_timestep" else 1)
-        for entry in cond_dims.of_kind("per_timestep", "global").values()
-    )
-
-
-def _get_cross_attention_context(cond_dims: ConditioningSpec) -> tuple[str, int]:
-    sequences = cond_dims.of_kind("sequence")
-    if not sequences:
-        raise ValueError(
-            "CrossAttentionDecoder1D requires a kind='sequence' entry in ConditioningSpec."
-        )
-    if len(sequences) > 1:
-        raise ValueError(
-            "Expected at most one kind='sequence' conditioning entry, but this spec declares "
-            f"{len(sequences)}: {sorted(sequences)}."
-        )
-    key, entry = next(iter(sequences.items()))
-    return key, entry.width
 
 
 class SinusoidalPosEmb(nn.Module):
@@ -229,7 +207,7 @@ class FiLMDecoder1D(nn.Module, DiffusionNetworkProtocol):
     def __init__(
         self,
         act_dim: int,
-        cond_dims: ConditioningSpec,
+        cond_dims: ConditioningContract,
         obs_horizon: int,
         diffusion_step_embed_dim: int = 256,
         down_dims: Sequence[int] = (256, 512, 1024),
@@ -249,7 +227,7 @@ class FiLMDecoder1D(nn.Module, DiffusionNetworkProtocol):
             nn.Linear(dsed * 4, dsed),
         )
 
-        film_dim = dsed + _get_film_width(cond_dims, obs_horizon)
+        film_dim = dsed + cond_dims.get_film_width(obs_horizon)
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]
 
@@ -370,18 +348,12 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
 
     Operates: Downsample residual blocks --> Middle residual blocks --> Upsample residual
     blocks with skip connections, using cross-attention conditioning.
-
-    Takes ``cond_dims`` directly (computed by a :class:`~policy.algorithms.networks.encoder.
-    ConditioningEncoder` the owning algorithm builds separately) rather than owning any
-    conditioning logic itself. Its ``external_cond`` is the encoder's already-encoded payload,
-    never a raw obs/goal tree -- the name is kept for consistency with `DiffusionNetworkProtocol`
-    and `DiffusionGPT`'s calling convention, even though nothing "external" happens here anymore.
     """
 
     def __init__(
         self,
         act_dim: int,
-        cond_dims: ConditioningSpec,
+        cond_dims: ConditioningContract,
         obs_horizon: int,
         diffusion_step_embed_dim: int = 256,
         down_dims: Sequence[int] = (256, 512, 1024),
@@ -403,8 +375,13 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
             nn.Linear(dsed * 4, dsed),
         )
 
-        self.context_key, context_dim = _get_cross_attention_context(cond_dims)
-        film_dim = dsed + _get_film_width(cond_dims, obs_horizon)
+        if cond_dims.context_dim is None:
+            raise ValueError(
+                "CrossAttentionDecoder1D requires context_dim to be set in ConditioningContract."
+            )
+        self.context_key = cond_dims.context_key
+        context_dim = cond_dims.context_dim
+        film_dim = dsed + cond_dims.get_film_width(obs_horizon)
 
         in_out = list(zip(all_dims[:-1], all_dims[1:]))
         mid_dim = all_dims[-1]

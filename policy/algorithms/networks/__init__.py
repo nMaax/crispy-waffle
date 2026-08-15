@@ -1,9 +1,7 @@
 from policy.algorithms.networks.decoder import CrossAttentionDecoder1D, DiffusionGPT, FiLMDecoder1D
 from policy.algorithms.networks.encoder import (
-    CondEntry,
+    ConditioningContract,
     ConditioningEncoder,
-    ConditioningSpec,
-    CondKind,
     ObjectTokenizer,
     StateTokenizer,
 )
@@ -22,9 +20,7 @@ __all__ = [
     "AttentionPooling",
     "MLPPooling",
     "ConditioningEncoder",
-    "CondEntry",
-    "ConditioningSpec",
-    "CondKind",
+    "ConditioningContract",
     "ObjectTokenizer",
     "StateTokenizer",
 ]
