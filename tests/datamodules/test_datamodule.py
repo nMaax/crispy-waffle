@@ -12,7 +12,7 @@ from lightning.pytorch.trainer.states import RunningStage
 from tensor_regression.fixture import TensorRegressionFixture
 from torch.utils.data import DataLoader
 
-from policy.utils.test_utils import IN_GITHUB_CLOUD_CI, get_gpu_arch_name
+from policy.utils.testing import IN_GITHUB_CLOUD_CI
 from tests.algorithms.test_lightning_module import convert_list_and_tuples_to_dicts
 from tests.conftest import algorithm_config
 
@@ -92,8 +92,9 @@ class DataModuleTests(Generic[DataModuleType], abc.ABC):
         self,
         batch,
         tensor_regression: TensorRegressionFixture,
+        hardware_label: str,
     ):
         batch = convert_list_and_tuples_to_dicts(batch)
         tensor_regression.check(
-            batch, additional_label=get_gpu_arch_name(), include_gpu_name_in_stats=False
+            batch, additional_label=hardware_label, include_gpu_name_in_stats=False
         )

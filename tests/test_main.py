@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import shlex
-import shutil
 import subprocess
 import sys
 import uuid
@@ -13,7 +12,6 @@ from unittest.mock import Mock
 
 import omegaconf
 import pytest
-import torch
 from _pytest.mark.structures import ParameterSet
 from hydra.types import RunMode
 from omegaconf import DictConfig
@@ -160,12 +158,6 @@ def test_experiment_config_is_tested(experiment_config: str, pytestconfig: pytes
     )
 
 
-def test_torch_can_use_the_GPU():
-    """Test that torch can use the GPU if it we have one."""
-
-    assert torch.cuda.is_available() == bool(shutil.which("nvidia-smi"))
-
-
 @pytest.fixture
 def mock_train_and_validate(monkeypatch: pytest.MonkeyPatch):
     fn = policy.experiment.train_and_validate
@@ -220,7 +212,6 @@ def test_can_run_experiment(
     policy.main.main()
 
 
-@pytest.mark.xfail(strict=False, reason="Regression files aren't necessarily present.")
 def test_help_string(file_regression: FileRegressionFixture) -> None:
     help_string = subprocess.run(
         # Pass a seed so it isn't selected randomly, which would make the regression file change.

@@ -25,7 +25,7 @@ def datamodule_factory(tmp_path: Path):
     def _create_datamodule(
         num_episodes: int = 10,
         episode_length: int = 5,
-        obs_mode: str = "state",
+        obs_mode: str = "state_dict",
         control_mode: str = "pd_ee_delta_pos",
         sim_backend: str = "physx_cpu",
         val_split: float = 0.2,
@@ -117,10 +117,10 @@ class TestManiSkillDataModuleLogic:
 
     @patch("policy.datamodules.trajectory_datamodule.rank_zero_warn")
     def test_json_metadata_parsing(self, mock_warn, datamodule_factory):
-        """Tests parsing logic for physx backends and observation modes."""
+        """Tests parsing logic for physx backends."""
 
         # 'auto' backend falls back to physx_cpu and warns
-        dm_auto = datamodule_factory(sim_backend="auto", obs_mode="state")
+        dm_auto = datamodule_factory(sim_backend="auto")
         assert dm_auto.physx_backend == "physx_cpu"
         mock_warn.assert_called_with(
             "Dataset specifies 'auto' sim_backend. Defaulting to 'physx_cpu'."
@@ -180,7 +180,6 @@ class TestManiSkillDataLoaders:
             batch_size=batch_size,
             obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
-            obs_mode="state",
         )
         dm.setup()
 
@@ -255,7 +254,7 @@ class TestManiSkillDataModuleHFFetch:
                             "env_info": {
                                 "env_id": "StackCube-v1",
                                 "env_kwargs": {
-                                    "obs_mode": "state",
+                                    "obs_mode": "state_dict",
                                     "control_mode": "pd_ee_delta_pos",
                                     "sim_backend": "physx_cpu",
                                 },

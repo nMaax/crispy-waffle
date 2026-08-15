@@ -66,13 +66,10 @@ markers = [
 omit = [
   "tests/*",
   "*/tests/*",
-  "src/test_*.py",
-  "venv/*",
-  "*/migrations/*",
   "scripts/*",
   "*/scripts/*",
-  "policy/adapters/*",
-  "policy/*/*aligner*",
+  # Test infrastructure that happens to ship inside the package.
+  "policy/utils/testing.py",
 ]
 
 [tool.ruff]

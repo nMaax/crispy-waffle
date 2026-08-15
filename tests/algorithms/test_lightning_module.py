@@ -24,7 +24,6 @@ from policy.configs.config import Config
 from policy.experiment import instantiate_algorithm, instantiate_trainer
 from policy.utils.hydra_utils import resolve_dictconfig
 from policy.utils.logging_utils import setup_logging
-from policy.utils.test_utils import get_gpu_arch_name
 from tests.conftest import DEFAULT_SEED
 
 logger = get_logger(__name__)
@@ -131,26 +130,20 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         self,
         training_step_content: StuffFromFirstTrainingStep,
         tensor_regression: TensorRegressionFixture,
-        accelerator: str,
+        hardware_label: str,
     ):
         """Check that the network initialization is reproducible given the same random seed."""
-        hw_label = (
-            get_gpu_arch_name()
-            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
-            else accelerator
-        )
         tensor_regression.check(
             training_step_content.initial_state_dict,
-            # Save the regression files on a different subfolder for each architecture (e.g. Pascal, Lovelace, CPU, ...)
-            additional_label=hw_label,
+            additional_label=hardware_label,
             include_gpu_name_in_stats=False,
         )
 
     def test_forward_pass_is_reproducible(
         self,
-        algorithm: LightningModuleType,
         training_step_content: StuffFromFirstTrainingStep,
         tensor_regression: TensorRegressionFixture,
+        hardware_label: str,
     ):
         """Check that the forward pass is reproducible given the same input and random seed.
 
@@ -172,12 +165,10 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
             training_step_content.forward_outputs[0]
         )
 
-        device = next(algorithm.parameters()).device
-        hw_label = get_gpu_arch_name() if device.type == "cuda" else device.type
         tensor_regression.check(
             {"input": forward_pass_input, "out": forward_pass_output},
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},  # Some tolerance
-            additional_label=hw_label,
+            additional_label=hardware_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -185,7 +176,7 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         self,
         training_step_content: StuffFromFirstTrainingStep,
         tensor_regression: TensorRegressionFixture,
-        accelerator: str,
+        hardware_label: str,
     ):
         """Check that the backward pass is reproducible given the same weights, inputs and random
         seed."""
@@ -198,11 +189,6 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
             training_step_content.training_step_output
         )
 
-        hw_label = (
-            get_gpu_arch_name()
-            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
-            else accelerator
-        )
         tensor_regression.check(
             {
                 "batch": batch,
@@ -210,7 +196,7 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
                 "outputs": training_step_outputs,
             },
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},
-            additional_label=hw_label,
+            additional_label=hardware_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -219,19 +205,14 @@ class LightningModuleTests(Generic[LightningModuleType], ABC):
         algorithm: LightningModuleType,
         training_step_content: StuffFromFirstTrainingStep,
         tensor_regression: TensorRegressionFixture,
-        accelerator: str,
+        hardware_label: str,
     ):
         """Check that the weights after one step of training are the same given the same seed."""
         assert training_step_content.initial_state_dict
 
-        hw_label = (
-            get_gpu_arch_name()
-            if accelerator in ["auto", "gpu", "cuda"] and torch.cuda.is_available()
-            else accelerator
-        )
         tensor_regression.check(
             algorithm.state_dict(),
-            additional_label=hw_label,
+            additional_label=hardware_label,
             include_gpu_name_in_stats=False,
         )
 

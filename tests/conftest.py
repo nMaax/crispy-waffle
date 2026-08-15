@@ -90,12 +90,13 @@ from policy.main import PROJECT_NAME
 from policy.utils.env_vars import NUM_WORKERS, REPO_ROOTDIR
 from policy.utils.hydra_utils import resolve_dictconfig
 from policy.utils.logging_utils import setup_logging
-from policy.utils.test_utils import (
+from policy.utils.testing import (
     IN_GITHUB_CI,
     PARAM_WHEN_USED_MARK_NAME,
     default_marks_for_config_combinations,
     default_marks_for_config_name,
 )
+from policy.utils.testing import hardware_label as _hardware_label
 from policy.utils.typing_utils import is_sequence_of
 
 # NOTE: while there are indeed some bugs pointed out below, they only concern the test
@@ -205,7 +206,7 @@ def command_line_arguments(
     experiment.
 
     The `algorithm_config`, `decoder_config` and `datamodule_config` values here are parametrized
-    indirectly by most tests using the [`policy.utils.test_utils.run_for_all_configs_of_type`][]
+    indirectly by most tests using the [`policy.utils.testing.run_for_all_configs_of_type`][]
     function so that the respective components are created in the same way as they
     would be by Hydra in a regular run.
     """
@@ -401,6 +402,16 @@ def device(accelerator: str) -> torch.device:
     if accelerator == "cpu":
         return torch.device("cpu")
     raise NotImplementedError(accelerator)
+
+
+@pytest.fixture(scope="session")
+def hardware_label(device: torch.device) -> str:
+    """Subfolder regression files are saved under, one per GPU model (or "cpu").
+
+    Derived from `device` rather than from `accelerator` so the label always names the hardware
+    the tensors were actually computed on.
+    """
+    return _hardware_label(device)
 
 
 @pytest.fixture(scope="session")

@@ -4,6 +4,7 @@ import functools
 import importlib
 import inspect
 import os
+import re
 import typing
 from collections.abc import Callable, Mapping
 from logging import getLogger as get_logger
@@ -13,8 +14,6 @@ import hydra_zen
 import pytest
 import torch
 from hydra.core.config_store import ConfigStore
-
-from policy.utils.env_vars import NETWORK_DATASETS_DIR
 
 logger = get_logger(__name__)
 
@@ -38,30 +37,7 @@ def get_outer_class(inner_class: type) -> type:
     return getattr(mod, outer_class_name)
 
 
-def needs_network_dataset_dir(dataset_name: str | None = None):
-    """Gives a mark that skips the test if the predownloaded dataset directory is not available."""
-    return pytest.mark.skipif(
-        not (NETWORK_DATASETS_DIR and (NETWORK_DATASETS_DIR / (dataset_name or "")).exists()),
-        # strict=True,
-        # raises=hydra.errors.InstantiationException,
-        reason=(
-            "Expects to be run on a cluster where a shared network datasets directory"
-            + ("exists." if dataset_name is None else f"contains a {dataset_name} subdirectory.")
-        ),
-    )
-
-
-default_marks_for_config_name: dict[str, list[pytest.MarkDecorator]] = {
-    "inaturalist": [
-        pytest.mark.slow,
-        needs_network_dataset_dir("inat"),
-    ],
-    "imagenet": [
-        pytest.mark.slow,
-        needs_network_dataset_dir("inat"),
-    ],
-    "vision": [pytest.mark.skip(reason="Base class, shouldn't be instantiated.")],
-}
+default_marks_for_config_name: dict[str, list[pytest.MarkDecorator]] = {}
 """Dict with some default marks for some configs name."""
 
 
@@ -380,23 +356,18 @@ def total_vram_gb() -> float:
     )
 
 
-def get_gpu_arch_name() -> str:
-    """Maps CUDA compute capability to architecture names."""
-    if not torch.cuda.is_available():
+def hardware_label(device: torch.device | str | None = None) -> str:
+    """Names the hardware a regression file was recorded on, as one path component.
+
+    Keyed on the GPU *model* rather than its architecture: a TITAN RTX and a GTX 1650 Ti are
+    both compute capability 7.5, but do not produce bit-identical results, so sharing a
+    `Turing` baseline between them makes a real regression indistinguishable from a hardware
+    difference.
+
+    `tensor_regression` interpolates `additional_label` into the path unsanitized, hence the
+    substitution.
+    """
+    device = torch.device(device) if device is not None else None
+    if (device is not None and device.type != "cuda") or not torch.cuda.is_available():
         return "cpu"
-
-    major, minor = torch.cuda.get_device_capability()
-    arch_map = {
-        10: "Blackwell",
-        9: "Hopper",
-        8: {9: "Lovelace", "default": "Ampere"},
-        7: {5: "Turing", "default": "Volta"},
-        6: "Pascal",
-        5: "Maxwell",
-        3: "Kepler",
-    }
-
-    arch = arch_map.get(major, "Unknown_Arch")
-    if isinstance(arch, dict):
-        return arch.get(minor, arch.get("default", "Unknown_Arch"))
-    return arch
+    return re.sub(r"\W+", "_", torch.cuda.get_device_name(device)).strip("_")

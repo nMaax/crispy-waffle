@@ -7,34 +7,60 @@ import torch
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.utils import get_total_dim
-from policy.utils.test_utils import get_gpu_arch_name
-from tests.algorithms.test_lightning_module import LightningModuleTests
+from tests.algorithms.test_lightning_module import LightningModuleTests, LightningModuleType
 
 
-@pytest.mark.parametrize("algorithm_config", ["diffusion_policy"], indirect=True)
-@pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)
-class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
-    """Test suite for the DiffusionPolicy.
+class DiffusionPolicyTests(LightningModuleTests[LightningModuleType]):
+    """Shared body for every diffusers-family suite.
 
-    By inheriting from LightningModuleTests, this class automatically runs:
-    - test_initialization_is_reproducible
-    - test_forward_pass_is_reproducible (SKIPPED)
-    - test_backward_pass_is_reproducible
-    - test_update_is_reproducible
+    Inference runs the reverse-diffusion loop iteratively through `get_action`, so there is no
+    single-step `forward` for the inherited forward-pass regression check to pin down.
     """
 
     def test_forward_pass_is_reproducible(
         self,
-        algorithm,
         training_step_content,
         tensor_regression,
+        hardware_label: str,
     ):
         pytest.skip(
-            "The built-in test would have required to define forward() in the model. "
-            "However, diffusion do not use a standard single-step `forward` pass "
-            "during the training step. Inference is handled iteratively via multiple calls (see `get_action`)."
-            "Thus, we skip this test as it is not applicable to the DiffusionPolicy architecture."
+            "Diffusion policies have no single-step `forward` during training; inference is "
+            "iterative, see `get_action`."
         )
+
+
+class GoalConditionedDiffusionPolicyTests(DiffusionPolicyTests[GoalConditionedDiffusionPolicy]):
+    """Shared body for the goal-conditioned suites, which differ only in the encoder configs they
+    parametrize over."""
+
+    def test_get_action_runs(
+        self,
+        algorithm,
+        training_step_content,
+    ):
+        algorithm.eval()
+        batch_device = training_step_content.batch["act_seq"].device
+        algorithm.to(batch_device)
+
+        obs_seq = training_step_content.batch["obs_seq"]
+        goal = training_step_content.batch.get("goal", None)
+        with torch.no_grad():
+            out = algorithm.get_action(obs_seq, goal=goal)
+
+        assert isinstance(out, torch.Tensor)
+        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
+        assert out.device == algorithm.device
+        assert out.shape == (
+            training_step_content.batch["act_seq"].shape[0],
+            algorithm.act_horizon,
+            algorithm.act_dim,
+        )
+
+
+@pytest.mark.parametrize("algorithm_config", ["diffusion_policy"], indirect=True)
+@pytest.mark.parametrize("datamodule_config", ["trajectory_datamodule"], indirect=True)
+class TestDiffusionPolicy(DiffusionPolicyTests[DiffusionPolicy]):
+    """Test suite for the (unconditioned) DiffusionPolicy."""
 
     def test_get_action_runs(
         self,
@@ -73,6 +99,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         algorithm,
         training_step_content,
         tensor_regression,
+        hardware_label: str,
     ):
         """Check that get_action produces the same action tensor given a fixed random seed."""
         #  Prepare model for inference and sync devices
@@ -88,7 +115,7 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
         tensor_regression.check(
             {"action": out},
             default_tolerance={"rtol": 1e-5, "atol": 1e-6},
-            additional_label=get_gpu_arch_name(),
+            additional_label=hardware_label,
             include_gpu_name_in_stats=False,
         )
 
@@ -97,39 +124,8 @@ class TestDiffusionPolicy(LightningModuleTests[DiffusionPolicy]):
 @pytest.mark.parametrize(
     "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
 )
-class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDiffusionPolicy]):
+class TestGoalConditionedDiffusionPolicy(GoalConditionedDiffusionPolicyTests):
     """Test suite for GoalConditionedDiffusionPolicy."""
-
-    def test_forward_pass_is_reproducible(
-        self,
-        algorithm,
-        training_step_content,
-        tensor_regression,
-    ):
-        pytest.skip("Diffusion policies do not use standard forward pass during training.")
-
-    def test_get_action_runs(
-        self,
-        algorithm,
-        training_step_content,
-    ):
-        algorithm.eval()
-        batch_device = training_step_content.batch["act_seq"].device
-        algorithm.to(batch_device)
-
-        obs_seq = training_step_content.batch["obs_seq"]
-        goal = training_step_content.batch.get("goal", None)
-        with torch.no_grad():
-            out = algorithm.get_action(obs_seq, goal=goal)
-
-        assert isinstance(out, torch.Tensor)
-        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
-        assert out.device == algorithm.device
-        assert out.shape == (
-            training_step_content.batch["act_seq"].shape[0],
-            algorithm.act_horizon,
-            algorithm.act_dim,
-        )
 
 
 @pytest.mark.parametrize(
@@ -147,43 +143,10 @@ class TestGoalConditionedDiffusionPolicy(LightningModuleTests[GoalConditionedDif
 @pytest.mark.parametrize(
     "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
 )
-class TestGoalConditionedDiffusionPolicyAttention(
-    LightningModuleTests[GoalConditionedDiffusionPolicy]
-):
+class TestGoalConditionedDiffusionPolicyAttention(GoalConditionedDiffusionPolicyTests):
     """Test suite for GoalConditionedDiffusionPolicy with the self-attention embedder, with and
     without a pooling head or cross-attention (mutually exclusive with pooling: both collapse the
     per-object token sequence, in different ways)."""
-
-    def test_forward_pass_is_reproducible(
-        self,
-        algorithm,
-        training_step_content,
-        tensor_regression,
-    ):
-        pytest.skip("Diffusion policies do not use standard forward pass during training.")
-
-    def test_get_action_runs(
-        self,
-        algorithm,
-        training_step_content,
-    ):
-        algorithm.eval()
-        batch_device = training_step_content.batch["act_seq"].device
-        algorithm.to(batch_device)
-
-        obs_seq = training_step_content.batch["obs_seq"]
-        goal = training_step_content.batch.get("goal", None)
-        with torch.no_grad():
-            out = algorithm.get_action(obs_seq, goal=goal)
-
-        assert isinstance(out, torch.Tensor)
-        assert torch.isfinite(out).all(), "Output contains NaN or Inf"
-        assert out.device == algorithm.device
-        assert out.shape == (
-            training_step_content.batch["act_seq"].shape[0],
-            algorithm.act_horizon,
-            algorithm.act_dim,
-        )
 
 
 class TestDiffusionPolicyLogic:

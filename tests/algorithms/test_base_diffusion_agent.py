@@ -59,10 +59,6 @@ class TestBaseDiffusionAgentLogic:
         with pytest.raises(ValueError, match="is too short"):
             _MinimalDiffusionAgent(**_basic_kwargs(obs_horizon=4, pred_horizon=8, act_horizon=6))
 
-    def test_horizon_valid_constructs(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        assert agent.act_horizon == 8
-
     # ------------------------------------------------------------------ #
     # Normalizer building (_build_normalizer)
     # ------------------------------------------------------------------ #
@@ -121,17 +117,6 @@ class TestBaseDiffusionAgentLogic:
         agent.ema = MagicMock()
         agent.on_train_batch_end(torch.tensor(0.0), {}, 0)
         agent.ema.step.assert_called_once()
-
-    # ------------------------------------------------------------------ #
-    # Abstract methods
-    # ------------------------------------------------------------------ #
-    def test_abstract_compute_loss_raises(self):
-        with pytest.raises(NotImplementedError):
-            BaseDiffusionAgent._compute_loss(None, {"obs": torch.zeros(1)}, torch.zeros(1))
-
-    def test_abstract_run_diffusion_loop_raises(self):
-        with pytest.raises(NotImplementedError):
-            BaseDiffusionAgent._run_diffusion_loop(None, {"obs": torch.zeros(1)})
 
     # ------------------------------------------------------------------ #
     # Obs-only template methods

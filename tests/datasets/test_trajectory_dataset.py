@@ -22,7 +22,7 @@ def dummy_trajectory_data(tmp_path: Path) -> Path:
         "env_info": {
             "env_id": "MockEnv-v0",
             "env_kwargs": {
-                "obs_mode": "state",
+                "obs_mode": "state_dict",
                 "control_mode": "pd_joint_delta_pos",
                 "sim_backend": "physx_cpu",
             },
