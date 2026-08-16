@@ -2,14 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, TypeAlias, TypeGuard
-
-import numpy as np
-import torch
-from hydra_zen.typing import Builds
-from typing_extensions import TypeVar
-
 from .protocols import (
     DataModule,
     DiffusionNetworkProtocol,
@@ -21,70 +13,27 @@ from .protocols import (
     PoolingProtocol,
     TokenizerProtocol,
 )
-
-T = TypeVar("T")
-HydraConfigFor = Builds[type[T]]
-"""Type annotation to say "a hydra config that returns an object of type T when instantiated"."""
-
-
-K = TypeVar("K")
-V = TypeVar("V")
-NestedMapping: TypeAlias = Mapping[K, V | "NestedMapping[K, V]"]
-"""A mapping with keys of type K and values that are either of type V or recursively nested
-mappings."""
-
-Leaf = TypeVar("Leaf")
-Tree: TypeAlias = Leaf | NestedMapping[str, Leaf]
-"""A generic tree structure mapping string keys to either leaf values of type Leaf or nested
-subtrees."""
-
-TensorLeaf: TypeAlias = torch.Tensor
-TensorTree: TypeAlias = Tree[TensorLeaf]
-"""A tensor, or an arbitrarily nested mapping of tensors."""
-
-RawLeaf: TypeAlias = torch.Tensor | np.ndarray | Sequence[Any]
-RawTree: TypeAlias = Tree[RawLeaf]
-"""A raw array, sequence, or nested mapping of raw data prior to tensor conversion."""
-
-DimSpec: TypeAlias = int | torch.Tensor | Sequence[int] | Mapping[str, "DimSpec"]
-"""A dimension specification: an integer, tensor, shape sequence, or nested mapping of dimensions."""
-
-
-def is_sequence_of(
-    object: Any, item_type: type[T] | tuple[type[T], ...]
-) -> TypeGuard[Sequence[T]]:
-    """Used to check (and tell the type checker) that `object` is a sequence of items of this
-    type."""
-    return isinstance(object, Sequence) and all(isinstance(value, item_type) for value in object)
-
-
-def is_mapping_of(object: Any, key_type: type[K], value_type: type[V]) -> TypeGuard[Mapping[K, V]]:
-    """Used to check (and tell the type checker) that `object` is a mapping with keys and values of
-    the given types."""
-    return isinstance(object, Mapping) and all(
-        isinstance(key, key_type) and isinstance(value, value_type)
-        for key, value in object.items()
-    )
-
-
-def get_tensor(tree: Mapping[str, TensorTree], key: str) -> torch.Tensor:
-    """Look up `key`, asserting the result is a leaf tensor (not a further nested mapping)."""
-    value = tree[key]
-    if not isinstance(value, torch.Tensor):
-        raise TypeError(f"Expected a Tensor at key {key!r}, got {type(value).__name__}.")
-    return value
-
-
-def get_subtree(tree: Mapping[str, TensorTree], key: str) -> Mapping[str, TensorTree]:
-    """Look up `key`, asserting the result is a nested mapping (not a leaf tensor)."""
-    value = tree[key]
-    if not isinstance(value, Mapping):
-        raise TypeError(f"Expected a nested mapping at key {key!r}, got {type(value).__name__}.")
-    return value
-
+from .typeguards import is_mapping_of, is_sequence_of
+from .types import (
+    DimSpec,
+    HydraConfigFor,
+    K,
+    Leaf,
+    NestedMapping,
+    RawLeaf,
+    RawTree,
+    T,
+    TensorLeaf,
+    TensorTree,
+    Tree,
+    V,
+)
 
 __all__ = [
     "T",
+    "K",
+    "V",
+    "Leaf",
     "DataModule",
     "DiffusionSchedulerProtocol",
     "PolicyProtocol",
@@ -97,12 +46,11 @@ __all__ = [
     "HydraConfigFor",
     "NestedMapping",
     "Tree",
+    "TensorLeaf",
     "TensorTree",
     "RawLeaf",
     "RawTree",
     "DimSpec",
     "is_sequence_of",
     "is_mapping_of",
-    "get_tensor",
-    "get_subtree",
 ]

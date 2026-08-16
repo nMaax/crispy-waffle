@@ -25,8 +25,8 @@ from matplotlib.lines import Line2D
 
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.transforms import observation_pipeline
-from policy.utils import map_leaves, stack_dicts, to_tensor
-from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
+from policy.utils import get_subtree, get_tensor, map_leaves, stack_dicts, to_tensor
+from policy.utils.typing_utils import TensorTree
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
     build_external_cond,

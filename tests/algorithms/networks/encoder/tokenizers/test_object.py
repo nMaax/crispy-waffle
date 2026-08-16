@@ -97,18 +97,6 @@ class TestObjectTokenizer:
         assert torch.equal(tokens[0, 0, 0, 6:13], obs["obj_0_pose"][0, 0])
         assert torch.equal(tokens[0, 0, 1, 6:13], obs["obj_1_pose"][0, 0])
 
-    def test_tokenize_requires_dict_shaped_task_trees(self):
-        tokenizer = ObjectTokenizer()
-        with pytest.raises(TypeError):
-            tokenizer.tokenize(torch.randn(1, 1, 30), torch.randn(1, 30))
-
-    def test_tokenize_explicit_keys_raises_on_missing(self):
-        tokenizer = ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose"))
-        obs, goal = self._obs_goal()
-        del obs["obj_1_pose"]
-        with pytest.raises(KeyError):
-            tokenizer.tokenize(obs, goal)
-
     def test_natural_obj_slots_with_role_tensors(self):
         """Tests that natural object slot order is preserved with role tensors."""
         tokenizer = ObjectTokenizer(relative_goal=True)
@@ -161,9 +149,16 @@ class TestObjectTokenizer:
             tokenizer.tokenize(obs, goal)
 
     def test_missing_canonical_keys_raises_keyerror(self):
-        tokenizer = ObjectTokenizer()
+        tokenizer = ObjectTokenizer(relative_goal=False)
         with pytest.raises(KeyError, match="No canonical object pose keys"):
             tokenizer.tokenize({"random_key": torch.randn(1, 7)}, None)
+
+    def test_missing_goal_key_raises_keyerror(self):
+        tokenizer = ObjectTokenizer(relative_goal=True)
+        obs, goal = self._obs_goal()
+        del goal["obj_0_pose"]
+        with pytest.raises(KeyError):
+            tokenizer.tokenize(obs, goal)
 
     def test_single_side_support(self):
         assert ObjectTokenizer.supports_single_side is True

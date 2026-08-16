@@ -18,29 +18,20 @@ class TestStateTokenizer:
         assert tokenizer.output_dim == 42
         assert tokenizer.tokens_per_step == 1
 
-        tokenizer_rel = StateTokenizer(task_dim=42, relative_goal=True)
-        assert tokenizer_rel.output_dim == 36  # (42 // 7) * 6 = 36
+        # Mapping task_dim with _pose keys converts 7D poses to 6D relative SE(3) deltas
+        task_spec = {"obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7, "other": 3}
+        tokenizer_spec = StateTokenizer(task_dim=task_spec, relative_goal=True)
+        assert tokenizer_spec.output_dim == 3 * 6 + 3  # 21
 
-    def test_single_side_tokenization_preserves_dict_or_tensor(self):
-        tokenizer = StateTokenizer(task_dim=10)
-        t = torch.randn(2, 4, 10)
-        assert torch.equal(tokenizer.tokenize(t, None), t)
-        assert torch.equal(tokenizer.tokenize(None, t), t)
-
+    def test_single_side_tokenization_flattens_mapping(self):
+        tokenizer = StateTokenizer(task_dim={"a": 3, "b": 7})
         obs_dict = {"a": torch.randn(2, 4, 3), "b": torch.randn(2, 4, 7)}
         expected = torch.cat([obs_dict["a"], obs_dict["b"]], dim=-1)
         assert torch.equal(tokenizer.tokenize(obs_dict, None), expected)
 
-    def test_two_sided_tokenization_differences_goal_and_obs(self):
-        tokenizer = StateTokenizer(task_dim=5)
-        obs = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
-        goal = torch.tensor([2.0, 4.0, 6.0, 8.0, 10.0])
-        # obs gets time axis [1, 1, 5]; goal is [1, 5]
-        delta = tokenizer.tokenize(obs.unsqueeze(0).unsqueeze(0), goal.unsqueeze(0))
-        assert torch.equal(delta, (goal - obs).unsqueeze(0).unsqueeze(0))
-
     def test_two_sided_tokenization_computes_se3_quaternion_deltas(self):
-        tokenizer = StateTokenizer(task_dim=21, relative_goal=True)
+        task_spec = {"obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7}
+        tokenizer = StateTokenizer(task_dim=task_spec, relative_goal=True)
         assert tokenizer.output_dim == 18
 
         obs = {
@@ -61,6 +52,13 @@ class TestStateTokenizer:
         assert torch.allclose(r_0[:3], torch.tensor([1.0, 2.0, 3.0]))
         assert torch.allclose(r_0[3:6].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
 
+    def test_missing_key_in_goal_raises_keyerror(self):
+        task_spec = {"obj_0_pose": 7, "obj_1_pose": 7}
+        tokenizer = StateTokenizer(task_dim=task_spec, relative_goal=True)
+        obs = {"obj_0_pose": _pose((0, 0, 0)), "obj_1_pose": _pose((1, 0, 0))}
+        goal = {"obj_0_pose": _pose((1, 1, 1))}
+        with pytest.raises(KeyError, match="obj_1_pose"):
+            tokenizer.tokenize(obs, goal)
 
     def test_tokenize_raises_if_both_none(self):
         tokenizer = StateTokenizer(task_dim=5)

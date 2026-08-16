@@ -45,10 +45,10 @@ class TestConditioningEncoderLogic:
 
     def test_none_tokenizer_and_embedder_and_pooling_runs(self):
         encoder = ConditioningEncoder(
-            obs_dim=48, goal_conditioned=True, relative_goal=True, proprio_dim=18
+            obs_dim={"proprio": 18, "task": 30}, goal_conditioned=True, relative_goal=True
         )
-        obs = torch.randn(2, 2, 48)
-        goal = torch.randn(2, 48)
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
         ext_cond = encoder(obs, goal)
         assert set(ext_cond) == {"obs"}
         assert ext_cond["obs"]["task"].shape == (2, 2, 30)
@@ -104,28 +104,27 @@ class TestConditioningEncoderLogic:
     # ------------------------------------------------------------------ #
     def test_relative_goal_folds_goal_into_obs(self):
         encoder = ConditioningEncoder(
-            obs_dim=48, goal_conditioned=True, relative_goal=True, proprio_dim=18
+            obs_dim={"proprio": 18, "task": 30}, goal_conditioned=True, relative_goal=True
         )
         assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
-        obs = torch.randn(2, 2, 48)
-        goal = torch.randn(2, 48)
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
         ext_cond = encoder(obs, goal)
 
         assert set(ext_cond) == {"obs"}
         obs_cond = ext_cond["obs"]
         assert isinstance(obs_cond, Mapping)
-        assert torch.equal(obs_cond["proprio"], obs[:, :, :18])
-        expected = goal[:, 18:].unsqueeze(1) - obs[:, :, 18:]
+        assert torch.equal(obs_cond["proprio"], obs["proprio"])
+        expected = goal["task"].unsqueeze(1) - obs["task"]
         assert torch.equal(obs_cond["task"], expected)
 
     def test_relative_goal_taken_before_a_nonlinear_embedder(self):
         torch.manual_seed(0)
         encoder = ConditioningEncoder(
-            obs_dim=48,
+            obs_dim={"proprio": 18, "task": 30},
             goal_conditioned=True,
             relative_goal=True,
-            proprio_dim=18,
             embedder={
                 "_target_": "policy.algorithms.networks.encoder.embedders.mlp.MLP",
                 "output_dim": 8,
@@ -134,27 +133,30 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.cond_dims == ConditioningContract(step_dim=26)
 
-        obs = torch.randn(2, 2, 48)
-        goal = torch.randn(2, 48)
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
         obs_cond = encoder(obs, goal)["obs"]
         assert isinstance(obs_cond, Mapping)
 
         with torch.no_grad():
-            expected = encoder.embedder(goal[:, 18:].unsqueeze(1) - obs[:, :, 18:])
+            expected = encoder.embedder(goal["task"].unsqueeze(1) - obs["task"])
         assert torch.allclose(obs_cond["task"], expected)
 
     def test_relative_goal_requires_goal_conditioning(self):
         with pytest.raises(ValueError, match="requires goal_conditioned=True"):
             ConditioningEncoder(
-                obs_dim=48, goal_conditioned=False, relative_goal=True, proprio_dim=18
+                obs_dim={"proprio": 18, "task": 30}, goal_conditioned=False, relative_goal=True
             )
 
     def test_relative_goal_rejects_obs_without_time_axis(self):
         encoder = ConditioningEncoder(
-            obs_dim=48, goal_conditioned=True, relative_goal=True, proprio_dim=18
+            obs_dim={"proprio": 18, "task": 30}, goal_conditioned=True, relative_goal=True
         )
         with pytest.raises(ValueError, match=r"expects observations of shape \[B, T, F\]"):
-            encoder(torch.randn(2, 2 * 48), torch.randn(2, 48))
+            encoder(
+                {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)},
+                {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)},
+            )
 
     # ------------------------------------------------------------------ #
     # Pooling embedder collapses the time axis
@@ -167,10 +169,9 @@ class TestConditioningEncoderLogic:
         multiplies only "obs") stay consistent with the actual flattened conditioning width.
         """
         encoder = ConditioningEncoder(
-            obs_dim=48,
+            obs_dim={"proprio": 18, "task": 30},
             goal_conditioned=True,
             relative_goal=True,
-            proprio_dim=18,
             embedder={
                 "_target_": "policy.algorithms.networks.encoder.embedders.self_attention.SelfAttention",
                 "output_dim": 8,
@@ -187,8 +188,8 @@ class TestConditioningEncoderLogic:
         assert cond_dims == ConditioningContract(step_dim=18, global_dim=8)
         encoder.embedder.eval()
 
-        obs = torch.randn(2, 2, 48)
-        goal = torch.randn(2, 48)
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
         ext_cond = encoder(obs, goal)
 
         assert set(ext_cond) == {"obs", "task"}
@@ -318,13 +319,13 @@ class TestConditioningEncoderLogic:
     def test_extract_embeddings_reports_absolute_embeddings_under_delta_mode(self):
         """extract_embeddings stays absolute (not differenced), independently of relative_goal."""
         encoder = ConditioningEncoder(
-            obs_dim=48, goal_conditioned=True, relative_goal=True, proprio_dim=18
+            obs_dim={"proprio": 18, "task": 30}, goal_conditioned=True, relative_goal=True
         )
-        obs = torch.randn(2, 2, 48)
-        goal = torch.randn(2, 48)
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
         embeddings = encoder.extract_embeddings(obs, goal=goal)
-        assert torch.equal(embeddings["obs_embeddings"], obs[:, :, 18:])
-        assert torch.equal(embeddings["goal_embedding"], goal[:, 18:])
+        assert torch.equal(embeddings["obs_embeddings"], obs["task"])
+        assert torch.equal(embeddings["goal_embedding"], goal["task"])
 
     # ------------------------------------------------------------------ #
     # Axis-Selective Pooling (mode="all", "objects", "time")

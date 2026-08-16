@@ -28,7 +28,8 @@ from matplotlib.lines import Line2D
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.encoder import ConditioningEncoder
-from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
+from policy.utils import get_subtree, get_tensor
+from policy.utils.typing_utils import TensorTree
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
     describe_model_config,

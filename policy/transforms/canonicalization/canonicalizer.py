@@ -9,7 +9,8 @@ from policy.transforms.canonicalization.spec import (
     canonical_dim_spec,
 )
 from policy.transforms.canonicalization.utils import match_shape, role_tensor
-from policy.utils.typing_utils import TensorTree, get_subtree, get_tensor
+from policy.utils import get_subtree, get_tensor
+from policy.utils.typing_utils import TensorTree
 
 
 class Canonicalizer:

@@ -331,3 +331,31 @@ def pop_leaf_key(tree: TensorTree, key: str, size: int) -> tuple[torch.Tensor | 
             raise TypeError(f"Expected leaf at key {key!r} to be a Tensor, got {type(popped)}.")
         return popped, {k: v for k, v in tree.items() if k != key}
     return tree[..., :size], tree[..., size:]
+
+
+def match_shapes(
+    tensor: torch.Tensor, target: torch.Tensor | torch.Size | Sequence[int]
+) -> torch.Tensor:
+    """Expands leading dimensions of `tensor` to match the leading dimensions of `target`."""
+    target_shape = target.shape if isinstance(target, torch.Tensor) else target
+    while tensor.ndim < len(target_shape):
+        tensor = tensor.unsqueeze(1)
+    if tensor.shape[:-1] != tuple(target_shape[:-1]):
+        tensor = tensor.expand(*target_shape[:-1], -1)
+    return tensor
+
+
+def get_tensor(tree: Mapping[str, TensorTree], key: str) -> torch.Tensor:
+    """Look up `key`, asserting the result is a leaf tensor (not a further nested mapping)."""
+    value = tree[key]
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"Expected a Tensor at key {key!r}, got {type(value).__name__}.")
+    return value
+
+
+def get_subtree(tree: Mapping[str, TensorTree], key: str) -> Mapping[str, TensorTree]:
+    """Look up `key`, asserting the result is a nested mapping (not a leaf tensor)."""
+    value = tree[key]
+    if not isinstance(value, Mapping):
+        raise TypeError(f"Expected a nested mapping at key {key!r}, got {type(value).__name__}.")
+    return value

@@ -9,6 +9,8 @@ from policy.utils.utils import (
     flatten_and_concat_leaf_tensors,
     get_batch_size,
     get_device,
+    get_subtree,
+    get_tensor,
     get_total_dim,
     pop_leaf_key,
     print_config,
@@ -181,3 +183,27 @@ def test_pop_leaf_key_flat_tensor():
     popped, remainder = pop_leaf_key(x, "proprio", size=2)
     assert torch.equal(popped, x[..., :2])
     assert torch.equal(remainder, x[..., 2:])
+
+
+def test_get_tensor():
+    t = torch.tensor([1.0, 2.0])
+    tree = {"leaf": t, "sub": {"nested": torch.tensor([3.0])}}
+    assert torch.equal(get_tensor(tree, "leaf"), t)
+
+    with pytest.raises(TypeError, match="Expected a Tensor at key 'sub', got dict."):
+        get_tensor(tree, "sub")
+
+    with pytest.raises(KeyError):
+        get_tensor(tree, "missing")
+
+
+def test_get_subtree():
+    sub = {"nested": torch.tensor([3.0])}
+    tree = {"leaf": torch.tensor([1.0, 2.0]), "sub": sub}
+    assert get_subtree(tree, "sub") == sub
+
+    with pytest.raises(TypeError, match="Expected a nested mapping at key 'leaf', got Tensor."):
+        get_subtree(tree, "leaf")
+
+    with pytest.raises(KeyError):
+        get_subtree(tree, "missing")
