@@ -57,6 +57,7 @@ norecursedirs = [".venv"]
 # Required to use torch deterministic mode.
 env = ["CUBLAS_WORKSPACE_CONFIG=:4096:8"]
 addopts = ["--doctest-modules"]
+tmp_path_retention_policy = "none"
 markers = [
   "incremental: incremental testing support",
   "parametrize_when_used: Parametrize a test only when the argument is used.",

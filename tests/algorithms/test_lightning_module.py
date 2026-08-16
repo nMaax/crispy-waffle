@@ -32,6 +32,7 @@ LightningModuleType = TypeVar("LightningModuleType", bound=LightningModule)
 
 
 @pytest.mark.incremental  # https://docs.pytest.org/en/stable/example/simple.html#incremental-testing-test-steps
+@pytest.mark.regression
 class LightningModuleTests(Generic[LightningModuleType], ABC):
     """Suite of generic tests for a LightningModule.
 

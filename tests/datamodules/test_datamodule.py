@@ -27,6 +27,7 @@ DataModuleType = TypeVar("DataModuleType", bound=LightningDataModule)
     reason="Getting weird bugs with MacOS on GitHub CI.",
 )
 @pytest.mark.parametrize(algorithm_config.__name__, ["no_op"], indirect=True, ids=[""])
+@pytest.mark.regression
 class DataModuleTests(Generic[DataModuleType], abc.ABC):
     @pytest.fixture(
         scope="class",

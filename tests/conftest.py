@@ -719,3 +719,6 @@ def pytest_configure(config: pytest.Config):
     config.addinivalue_line(
         "markers", "very_fast: mark test as very fast to run (including test setup)."
     )
+    config.addinivalue_line(
+        "markers", "regression: mark test as generating/checking tensor_regression baseline files"
+    )
