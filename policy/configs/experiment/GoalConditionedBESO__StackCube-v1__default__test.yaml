@@ -1,7 +1,0 @@
-# @package _global_
-defaults:
-  - GoalConditionedBESO__StackCube-v1__default__train
-  - override /trainer/callbacks: test_stack_cube
-
-name: ${hydra:runtime.choices.experiment}
-ckpt_path: ???

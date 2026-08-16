@@ -1,0 +1,10 @@
+_target_: policy.algorithms.networks.encoder.encoder.ConditioningEncoder
+_recursive_: false
+
+relative_goal: false
+tokenizer:
+  _target_: policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer
+embedder: null
+pooling: null
+proprio_dim: null
+task_dim: null

@@ -1,0 +1,25 @@
+defaults:
+  - zero_shot_stack_cube_locked_rotation.yaml
+  - _self_
+
+rollout_evaluation:
+  env_id: "StackCubeClutterRandomPickLockedRotation-v1"
+  name: "StackCubeClutterRandomPickLockedRotation-v1"
+
+rollout_evaluation_stack_cube:
+  _target_: policy.algorithms.callbacks.rollout_evaluation.RolloutEvaluationCallback
+  _recursive_: false
+  num_episodes: 100
+  num_envs: null
+  max_episode_steps: 250
+  ignore_terminations: true
+  clamp_action: true
+  video_dir: null
+  seed: ${seed}
+  env_id: "StackCubeLockedRotation-v1"
+  name: "StackCubeLockedRotation-v1"
+  robot_uids: null
+  obs_mode: "state_dict"
+  control_mode: "pd_ee_delta_pos"
+  physx_backend: "physx_cuda"
+  canonicalize: true

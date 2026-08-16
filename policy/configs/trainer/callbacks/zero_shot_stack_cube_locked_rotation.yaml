@@ -2,10 +2,6 @@ defaults:
   - test_stack_cube_locked_rotation.yaml
   - _self_
 
-# Adds zero-shot rollout evaluation on the 3 generalization envs (locked-rotation variants) on top
-# of the in-distribution `StackCubeLockedRotation-v1` rollout, for a single test invocation that
-# logs one wandb bar chart per metric comparing all 4 envs. See `RolloutEvaluationCallback`'s
-# `name` param and `policy/eval.py::_log_zero_shot_bar_charts`.
 rollout_evaluation:
   name: "StackCubeLockedRotation-v1"
 

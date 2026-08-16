@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - BESO++__SCLR__default__train
+  - override /trainer/callbacks: zero_shot_stack_cube_locked_rotation
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
+
+trainer:
+  callbacks:
+    rollout_evaluation_place_left:
+      num_inference_steps: 3
+    rollout_evaluation_place_right:
+      num_inference_steps: 3
+    rollout_evaluation_stack_swapped:
+      num_inference_steps: 3

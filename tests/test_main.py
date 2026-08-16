@@ -35,86 +35,34 @@ This is used to check that all the experiment configs are covered by tests.
 """
 
 experiment_commands_to_test: list[str | ParameterSet] = [
-    # DiffusionPolicy
-    "experiment=DiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=DiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    # Goal Conditioned BESO
-    "experiment=GoalConditionedBESO__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Goal Conditioned BESO++, always conditioned on the goal-state difference (g - s_t) instead
-    # of the observation and the goal separately
-    "experiment=GoalConditionedBESO++DeltaInput__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO++DeltaInput__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO++DeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO++DeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO++DeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedBESO++DeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy
-    "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicy__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy MLP
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLP__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy MLP, conditioned on goal-state differences (input space)
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCube-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCube-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyMLPDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same, with an attention pooling head (a learned query cross-attending over the tokens)
-    # collapsing the per-token MLP embedder's time axis before FiLM
-    "experiment=GoalConditionedDiffusionPolicyMLPAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy Attention, conditioned on goal-state differences (input space)
-    "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same, with an MLP pooling head collapsing the attention embedder's time axis before FiLM
-    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same, with an attention pooling head (a learned query cross-attending over the tokens) instead
-    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Goal-Conditioned Diffusion Policy Attention, per-object tokenization (one token per
-    # objA/objB/TCP instead of one flattened token per timestep), conditioned on goal-state
-    # differences (input space, the only mode ObjectTokenizer supports)
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same, with an MLP pooling head collapsing the per-object attention embedder's token axis
-    # (T * tokens_per_step) before FiLM
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionMLPPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same, with an attention pooling head (a learned query cross-attending over the tokens) instead
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyPerObjectAttentionAttnPoolDeltaInput__StackCubeLockedRotation-v1__default__test__ZeroShot__RenderVideo trainer.max_epochs=1",
-    # Same tokens as PerObjectAttentionDeltaInput, but cross-attended over by the UNet
-    # (use_cross_attention=true) instead of flattened into FiLM. No ZeroShot siblings exist for
-    # this one.
-    "experiment=GoalConditionedDiffusionPolicyCrossAttentionDeltaInput__StackCubeLockedRotation-v1__default__test trainer.max_epochs=1",
-    "experiment=GoalConditionedDiffusionPolicyCrossAttentionDeltaInput__StackCubeLockedRotation-v1__default__train trainer.max_epochs=1",
+    "experiment=BESO++__SCLR__default__train trainer.max_epochs=1",
+    "experiment=BESO++__SCLR__default__test trainer.max_epochs=1",
+    "experiment=BESO++__SCLR__default__test__Video trainer.max_epochs=1",
+    # trained on SCCRPLR, not SCLR
+    "experiment=GCDP-MLP__SCCRPLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-MLP__SCCRPLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-MLP-AttnPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Attn__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Attn__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Attn__SCLR__default__test__Video trainer.max_epochs=1",
+    "experiment=GCDP-Attn-MLPPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Attn-MLPPool__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Attn-MLPPool__SCLR__default__test__Video trainer.max_epochs=1",
+    "experiment=GCDP-Attn-AttnPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Attn-AttnPool__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Attn-AttnPool__SCLR__default__test__Video trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn__SCLR__default__test__Video trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test__Video trainer.max_epochs=1",
+    # trained on SCCRPLR, not SCLR
+    "experiment=GCDP-Obj-Attn-AttnPool__SCCRPLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-AttnPool__SCCRPLR__default__test trainer.max_epochs=1",
+    # trained on SCCRPLR, not SCLR
+    "experiment=GCDP-Obj-Attn-CrossAttn__SCCRPLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-CrossAttn__SCCRPLR__default__test trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 

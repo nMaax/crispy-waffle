@@ -1,6 +1,6 @@
 defaults:
   - decoder: film_decoder1d
-  - encoder: film
+  - encoder: default
   - optimizer: AdamW
   - ema: default
   - noise_scheduler: ddpm

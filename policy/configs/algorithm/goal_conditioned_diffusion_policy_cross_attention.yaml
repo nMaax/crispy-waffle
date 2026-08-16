@@ -1,12 +1,11 @@
 defaults:
   - goal_conditioned_diffusion_policy
   - override decoder: cross_attention_decoder1d
-  - override encoder: cross_attention
   - override tokenizer@encoder.tokenizer: object
   - override embedder@encoder.embedder: self_attention
 
 encoder:
+  decoder_type: cross_attention
+  relative_goal: true
   embedder:
-    # Three dots: jumps straight to algorithm.obs_horizon (ConditioningEncoder has no
-    # obs_horizon field of its own to relay through).
     obs_horizon: ${...obs_horizon}

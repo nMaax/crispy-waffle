@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - GCDP-Attn-AttnPool__SCLR__default__test
+
+name: ${hydra:runtime.choices.experiment}
+
+trainer:
+  callbacks:
+    rollout_evaluation:
+      num_episodes: 9
+      num_envs: 9
+      video_dir: "${hydra:runtime.output_dir}/renderings/StackCubeLockedRotation-v1"
+    rollout_evaluation_place_left:
+      num_episodes: 9
+      num_envs: 9
+      video_dir: "${hydra:runtime.output_dir}/renderings/PlaceCubeLeftLockedRotation-v1"
+    rollout_evaluation_place_right:
+      num_episodes: 9
+      num_envs: 9
+      video_dir: "${hydra:runtime.output_dir}/renderings/PlaceCubeRightLockedRotation-v1"
+    rollout_evaluation_stack_swapped:
+      num_episodes: 9
+      num_envs: 9
+      video_dir: "${hydra:runtime.output_dir}/renderings/StackCubeSwappedLockedRotation-v1"

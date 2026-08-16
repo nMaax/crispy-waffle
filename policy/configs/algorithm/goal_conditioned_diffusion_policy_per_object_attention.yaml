@@ -4,10 +4,6 @@ defaults:
   - override embedder@encoder.embedder: self_attention
 
 encoder:
-  # ObjectTokenizer's only compatible value (validated by ConditioningEncoder): its tokens are
-  # goal-relative by construction, so there is no absolute (relative_goal=false) equivalent for it.
   relative_goal: true
   embedder:
-    # Three dots: jumps straight to algorithm.obs_horizon (ConditioningEncoder has no
-    # obs_horizon field of its own to relay through).
     obs_horizon: ${...obs_horizon}
