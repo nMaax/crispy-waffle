@@ -259,7 +259,7 @@ class TestConditioningEncoderLogic:
         assert obs_cond["task"].shape == (2, 2, 8 * 3)
 
     def test_per_object_tokenizer_with_cross_attention_keeps_a_token_sequence(self):
-        encoder = self._per_object_encoder(mode="cross_attention")
+        encoder = self._per_object_encoder(decoder_type="cross_attention")
         assert encoder.cond_dims == ConditioningContract(
             step_dim=18,
             context_dim=8,
@@ -286,7 +286,7 @@ class TestConditioningEncoderLogic:
                 obs_dim={"proprio": 18, "task": 30},
                 goal_conditioned=True,
                 relative_goal=True,
-                mode="cross_attention",
+                decoder_type="cross_attention",
             )
 
     # ------------------------------------------------------------------ #

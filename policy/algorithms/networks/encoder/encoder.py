@@ -32,7 +32,6 @@ class ConditioningEncoder(nn.Module):
         task_dim: int | None = None,
         goal_conditioned: bool = False,
         relative_goal: bool = False,
-        mode: Literal["film", "cross_attention"] | None = None,
         decoder_type: Literal["film", "cross_attention"] = "film",
         tokenizer: HydraConfigFor[TokenizerProtocol] | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
@@ -51,8 +50,7 @@ class ConditioningEncoder(nn.Module):
         self.goal_conditioned = goal_conditioned
         self.relative_goal = relative_goal
 
-        self.decoder_type = mode if mode is not None else decoder_type
-        self.mode = self.decoder_type
+        self.decoder_type = decoder_type
 
         # Tokenizer
         if isinstance(tokenizer, TokenizerProtocol):
@@ -82,9 +80,9 @@ class ConditioningEncoder(nn.Module):
             self.embedder = None
 
         if self.embedder is not None:
-            self.output_dim: int = self.embedder.output_dim
+            self.output_dim = self.embedder.output_dim
         else:
-            self.output_dim: int = self.tokenizer.output_dim
+            self.output_dim = self.tokenizer.output_dim
 
         # Pooling
         if isinstance(pooling, nn.Module | PoolingProtocol):
