@@ -1,7 +1,0 @@
-# @package _global_
-defaults:
-  - GCDP-MLP__SCCRPLR__default__train
-  - override /trainer/callbacks: zero_shot_stack_cube_clutter_random_pick_locked_rotation
-
-name: ${hydra:runtime.choices.experiment}
-ckpt_path: ???
