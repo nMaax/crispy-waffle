@@ -25,11 +25,10 @@ from matplotlib.lines import Line2D
 
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.transforms import observation_pipeline
-from policy.utils import get_subtree, get_tensor, map_leaves, stack_dicts, to_tensor
+from policy.utils import map_leaves, stack_dicts, to_tensor
 from policy.utils.typing_utils import TensorTree
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
-    build_external_cond,
     describe_model_config,
     ensure_local_checkpoint,
     load_goal_conditioned_diffusion_policy,
@@ -206,11 +205,13 @@ def embed(
 
     Two architectures need different treatment:
 
-    - Embedders that can encode a single state on their own give an *absolute* embedding, which is
-      what `extract_embeddings` returns.
+    - Embedders that can encode a single state on their own give an *absolute* embedding.
     - Token-based embedders such as `ObjectTokenizer` only ever see goal-relative deltas
       (`supports_single_side=False`), so no standalone state embedding exists. There the
       comparable quantity is the conditioning vector the network actually receives.
+
+    `model.extract_embeddings` reports which of the two it produced; see
+    `ConditioningEncoder.extract_embeddings`.
 
     Also returns the pre-normalisation representation when the embedder has an output norm. That
     norm pins the magnitude of the returned embedding, so any distance computed from it is confined
@@ -222,20 +223,9 @@ def embed(
     )
     goal_batch = transform(broadcast_goal(goal, seq_len))
 
-    encoder = model.encoder
-    with torch.no_grad(), capture_pre_norm(encoder.embedder) as pre_norm:
-        try:
-            embeddings = model.extract_embeddings(obs_batch)["obs_embeddings"]
-            mode = "absolute"
-        except NotImplementedError:
-            external_cond = build_external_cond(model, obs_batch, goal_batch)
-            task = (
-                get_tensor(external_cond, "task")
-                if encoder.pools_time
-                else get_tensor(get_subtree(external_cond, "obs"), "task")
-            )
-            embeddings = task[:, -1] if task.ndim == 3 else task
-            mode = "goal-relative"
+    with torch.no_grad(), capture_pre_norm(model.encoder.embedder) as pre_norm:
+        embeddings_dict, mode = model.extract_embeddings(obs_batch, goal=goal_batch)
+        embeddings = embeddings_dict["obs_embeddings"]
 
         # The first capture is the observation branch; goal-delta modes that embed the goal
         # separately append a second one after it.

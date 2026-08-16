@@ -237,10 +237,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         num_inference_steps: int | None = None,
         output_clip_range: tuple | None = None,
     ):
-        obs_seq = self._normalize_obs(obs_seq)
-        if goal is not None:
-            goal = self._normalize_obs(goal)
-
         external_cond = self._build_external_cond(obs_seq, goal)
 
         return self._run_diffusion_loop(
@@ -253,10 +249,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         obs_seq = batch["obs_seq"]
         action_seq = batch["act_seq"]
         goal = batch.get("goal", None)
-
-        obs_seq = self._normalize_obs(obs_seq)
-        if goal is not None:
-            goal = self._normalize_obs(goal)
 
         action_seq = self._normalize_act(action_seq)
 
@@ -345,6 +337,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "(not goal-conditioned), but received a non-None goal. Pass goal=None, or "
                 "construct this policy with goal_horizon > 0."
             )
+
+        obs = self._normalize_obs(obs)
+        if goal is not None:
+            goal = self._normalize_obs(goal)
 
         if self.relative_goal:
             assert goal is not None

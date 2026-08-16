@@ -323,9 +323,47 @@ class TestConditioningEncoderLogic:
         )
         obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
         goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
-        embeddings = encoder.extract_embeddings(obs, goal=goal)
+        embeddings, mode = encoder.extract_embeddings(obs, goal=goal)
+        assert mode == "absolute"
         assert torch.equal(embeddings["obs_embeddings"], obs["task"])
         assert torch.equal(embeddings["goal_embedding"], goal["task"])
+
+    def test_extract_embeddings_reports_goal_relative_when_tokenizer_has_no_single_side(self):
+        """A tokenizer that only ever produces goal-relative deltas has no standalone state
+        embedding to report -- extract_embeddings falls back to the actual conditioning tensor
+        `forward()` would hand the decoder, built the same way (`_build_delta`)."""
+
+        class SingleSideUnsupportedTokenizer(StateTokenizer):
+            supports_single_side = False
+
+        encoder = ConditioningEncoder(
+            obs_dim={"proprio": 18, "task": 30},
+            goal_conditioned=True,
+            relative_goal=True,
+            proprio_dim=18,
+            tokenizer=SingleSideUnsupportedTokenizer(task_dim={"task": 30}),
+        )
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        goal = {"proprio": torch.randn(2, 18), "task": torch.randn(2, 30)}
+        embeddings, mode = encoder.extract_embeddings(obs, goal=goal)
+        assert mode == "goal-relative"
+        expected_delta = goal["task"].unsqueeze(1) - obs["task"]
+        assert torch.allclose(embeddings["obs_embeddings"], expected_delta)
+
+    def test_extract_embeddings_requires_goal_when_tokenizer_has_no_single_side(self):
+        class SingleSideUnsupportedTokenizer(StateTokenizer):
+            supports_single_side = False
+
+        encoder = ConditioningEncoder(
+            obs_dim={"proprio": 18, "task": 30},
+            goal_conditioned=True,
+            relative_goal=True,
+            proprio_dim=18,
+            tokenizer=SingleSideUnsupportedTokenizer(task_dim={"task": 30}),
+        )
+        obs = {"proprio": torch.randn(2, 2, 18), "task": torch.randn(2, 2, 30)}
+        with pytest.raises(ValueError, match="goal=None has no embedding"):
+            encoder.extract_embeddings(obs, goal=None)
 
     # ------------------------------------------------------------------ #
     # Axis-Selective Pooling (mode="all", "objects", "time")

@@ -255,13 +255,14 @@ class TestDiffusionPolicyLogic:
             policy.configure_model()
             assert policy.encoder is not None
             policy.encoder.extract_embeddings = MagicMock(
-                return_value={"obs_embeddings": torch.zeros(2, 2, 30)}
+                return_value=({"obs_embeddings": torch.zeros(2, 2, 30)}, "absolute")
             )
 
             obs = torch.randn(2, 2, 48)
-            result = policy.extract_embeddings(obs)
+            result, mode = policy.extract_embeddings(obs)
             policy.encoder.extract_embeddings.assert_called_once()
             assert "obs_embeddings" in result
+            assert mode == "absolute"
 
     @pytest.fixture(autouse=True)
     def patch_instantiate(self):

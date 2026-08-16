@@ -9,7 +9,7 @@ import torch.nn as nn
 from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.algorithms.networks.encoder.tokenizers import StateTokenizer
 from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
-from policy.utils import get_ndim, map_leaves, merge_dicts, pop_leaf_key
+from policy.utils import get_ndim, get_subtree, get_tensor, map_leaves, merge_dicts, pop_leaf_key
 from policy.utils.typing_utils import (
     DimSpec,
     HydraConfigFor,
@@ -186,19 +186,20 @@ class ConditioningEncoder(nn.Module):
         return payload
 
     def _build_obs(self, obs: TensorTree) -> dict[str, TensorTree]:
-        proprio, task_embedded = self._embed_states(obs)
-        return self._package_task(proprio, task_embedded)
+        proprio, task_embedded = self._embed_absolute_state(obs)
+        return self._pack_task(proprio, task_embedded)
 
     def _build_goal(self, goal: TensorTree) -> dict[str, TensorTree]:
-        _, goal_embedded = self._embed_states(goal, is_goal=True)
+        _, goal_embedded = self._embed_absolute_state(goal, is_goal=True)
+        # Basically the equivalent of a _pack_task call, but for goal, which is trivial
         return {"goal": goal_embedded}
 
     def _build_delta(self, obs: TensorTree, goal: TensorTree) -> dict[str, TensorTree]:
         """Conditions on the difference between the goal and each observation timestep."""
         obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
-        goal_proprio, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
-        if obs_proprio is None or goal_proprio is None:
-            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
+        _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
+        if obs_proprio is None:
+            raise ValueError("Observation mapping must contain a 'proprio' key.")
 
         # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
         # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
@@ -218,29 +219,34 @@ class ConditioningEncoder(nn.Module):
 
         # The goal's own proprioception never enters conditioning: only the historical (observed)
         # proprioception is passed through raw, same as the absolute-conditioning path.
-        return self._package_task(obs_proprio, task_delta)
+        return self._pack_task(obs_proprio, task_delta)
 
-    def _package_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
+    def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
         if self.decoder_type == "cross_attention":
             return {"obs": {"proprio": proprio}, "context": task}
-        if self.pools_time:
+        elif self.pools_time:
             return {"obs": {"proprio": proprio}, "task": task}
-        return {"obs": {"proprio": proprio, "task": task}}
+        else:
+            return {"obs": {"proprio": proprio, "task": task}}
 
-    def _embed_states(
+    def _unpack_task(self, payload: dict[str, TensorTree]) -> torch.Tensor:
+        if self.decoder_type == "cross_attention":
+            return get_tensor(payload, self.cond_dims.context_key)
+        elif self.pools_time:
+            return get_tensor(payload, "task")
+        else:
+            return get_tensor(get_subtree(payload, "obs"), "task")
+
+    def _embed_absolute_state(
         self, states: TensorTree, *, is_goal: bool = False
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprio/task and embeds the task components."""
+        """Splits proprio/task and embeds the task components.
+
+        Only ever called when `self.tokenizer.supports_single_side` is True.
+        """
         proprio, task = pop_leaf_key(states, "proprio", self.proprio_dim)
         if proprio is None:
             raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
-
-        if not self.tokenizer.supports_single_side:
-            raise NotImplementedError(
-                f"{type(self.tokenizer).__name__} tokenizes only goal-relative deltas "
-                "(supports_single_side=False); there is no standalone embedding of a single "
-                "state, so absolute conditioning isn't supported."
-            )
 
         obs_task = None if is_goal else task
         goal_task = task if is_goal else None
@@ -286,15 +292,20 @@ class ConditioningEncoder(nn.Module):
     @torch.no_grad()
     def extract_embeddings(
         self, obs: TensorTree, goal: TensorTree | None = None
-    ) -> dict[str, torch.Tensor]:
-        """Extracts embedder outputs for observations (and optionally a goal).
+    ) -> tuple[dict[str, torch.Tensor], Literal["absolute", "goal-relative"]]:
+        """Extracts a per-frame conditioning embedding, for visualizing the embedding space."""
+        if self.tokenizer.supports_single_side:
+            _, obs_task_embeddings = self._embed_absolute_state(obs)
+            res = {"obs_embeddings": obs_task_embeddings}
+            if goal is not None:
+                _, goal_task_embedding = self._embed_absolute_state(goal, is_goal=True)
+                res["goal_embedding"] = goal_task_embedding
+            return res, "absolute"
 
-        Helper for visualizing the embeddings. Always reports the absolute embeddings,
-        independently of ``relative_goal``, so visualizations stay comparable across both modes.
-        """
-        _, obs_task_embeddings = self._embed_states(obs)
-        res = {"obs_embeddings": obs_task_embeddings}
-        if goal is not None:
-            _, goal_task_embedding = self._embed_states(goal, is_goal=True)
-            res["goal_embedding"] = goal_task_embedding
-        return res
+        if goal is None:
+            raise ValueError(
+                f"{type(self.tokenizer).__name__} tokenizes only goal-relative deltas "
+                "(supports_single_side=False); goal=None has no embedding to extract."
+            )
+        payload = self._build_delta(obs, goal)
+        return {"obs_embeddings": self._unpack_task(payload)}, "goal-relative"

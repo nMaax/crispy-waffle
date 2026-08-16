@@ -198,10 +198,11 @@ def run_slug(
 
 
 def build_external_cond(model: Any, obs: TensorTree, goal: TensorTree) -> Mapping[str, TensorTree]:
-    """Normalises obs/goal and builds the conditioning tree the network sees."""
-    if model.obs_normalizer is not None:
-        obs = model.obs_normalizer.normalize(obs)
-        goal = model.obs_normalizer.normalize(goal)
+    """Builds the conditioning tree the network sees.
+
+    `_build_external_cond` normalizes obs/goal internally on every algorithm class; this thin
+    wrapper exists only so callers don't reach into the model's private method name directly.
+    """
     return model._build_external_cond(obs, goal)
 
 

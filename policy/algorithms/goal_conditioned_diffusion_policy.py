@@ -1,9 +1,10 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
+from policy.utils import map_leaves
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
@@ -27,29 +28,14 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         self,
         obs: torch.Tensor | Mapping[str, Any],
         goal: torch.Tensor | Mapping[str, Any] | None = None,
-    ) -> dict[str, torch.Tensor]:
-        """Helper for visualizing the embeddings.
-
-        Extracts embedder outputs for observations (and optionally a goal).
-        """
+    ) -> tuple[dict[str, torch.Tensor], Literal["absolute", "goal-relative"]]:
+        """Helper for visualizing the embeddings."""
         if self.encoder is None:
             raise ValueError("Encoder not initialized. Call configure_model() first.")
 
-        obs = (
-            {k: v.to(self.device) for k, v in obs.items()}
-            if isinstance(obs, Mapping)
-            else obs.to(self.device)
-        )
+        obs = self._normalize_obs(map_leaves(lambda t: t.to(self.device), obs))
         if goal is not None:
-            goal = (
-                {k: v.to(self.device) for k, v in goal.items()}
-                if isinstance(goal, Mapping)
-                else goal.to(self.device)
-            )
-
-        obs = self._normalize_obs(obs)
-        if goal is not None:
-            goal = self._normalize_obs(goal)
+            goal = self._normalize_obs(map_leaves(lambda t: t.to(self.device), goal))
 
         with torch.no_grad():
             return self.encoder.extract_embeddings(obs, goal=goal)
