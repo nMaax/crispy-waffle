@@ -115,22 +115,22 @@ decoder.down_modules.0.0.blocks.1.block.1.weight:
 decoder.down_modules.0.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08138856291770935
-  mean: -0.00435833353549242
-  min: -0.08140348643064499
+  max: 0.08490333706140518
+  mean: -0.004546549636870623
+  min: -0.08491891622543335
   shape:
   - 128
-  sum: -0.5578666925430298
+  sum: -0.5819583535194397
 decoder.down_modules.0.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.0821957066655159
-  mean: 0.0001582506374688819
-  min: -0.08219730108976364
+  max: 0.08574534207582474
+  mean: 0.00023905669513624161
+  min: -0.08574700355529785
   shape:
   - 128
-  - 148
-  sum: 2.9979000091552734
+  - 136
+  sum: 4.1614990234375
 decoder.down_modules.0.0.residual_conv.bias:
   device: cpu
   dtype: torch.float32
@@ -230,22 +230,22 @@ decoder.down_modules.0.1.blocks.1.block.1.weight:
 decoder.down_modules.0.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08096645772457123
-  mean: 0.002223060932010412
-  min: -0.08144965767860413
+  max: 0.08446301519870758
+  mean: 0.0023190646898001432
+  min: -0.08496707677841187
   shape:
   - 128
-  sum: 0.28455179929733276
+  sum: 0.29684028029441833
 decoder.down_modules.0.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219766616821289
-  mean: 0.00014407059643417597
-  min: -0.08218931406736374
+  max: 0.08574739098548889
+  mean: 6.384745211107656e-05
+  min: -0.08573867380619049
   shape:
   - 128
-  - 148
-  sum: 2.7292733192443848
+  - 136
+  sum: 1.1114563941955566
 decoder.down_modules.0.2.conv.bias:
   device: cpu
   dtype: torch.float32
@@ -345,22 +345,22 @@ decoder.down_modules.1.0.blocks.1.block.1.weight:
 decoder.down_modules.1.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08140625804662704
-  mean: 0.00211808318272233
-  min: -0.08215797692537308
+  max: 0.08492179960012436
+  mean: 0.0022095534950494766
+  min: -0.08570598065853119
   shape:
   - 256
-  sum: 0.5422292947769165
+  sum: 0.565645694732666
 decoder.down_modules.1.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.0821981206536293
-  mean: -0.0003938358568120748
-  min: -0.08219736814498901
+  max: 0.0857478603720665
+  mean: -0.00034654358751140535
+  min: -0.0857420414686203
   shape:
   - 256
-  - 148
-  sum: -14.921652793884277
+  - 136
+  sum: -12.065261840820312
 decoder.down_modules.1.0.residual_conv.bias:
   device: cpu
   dtype: torch.float32
@@ -460,22 +460,22 @@ decoder.down_modules.1.1.blocks.1.block.1.weight:
 decoder.down_modules.1.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08195295184850693
-  mean: 0.0036028530448675156
-  min: -0.0815802663564682
+  max: 0.0854921042919159
+  mean: 0.003758442122489214
+  min: -0.08510332554578781
   shape:
   - 256
-  sum: 0.922330379486084
+  sum: 0.9621611833572388
 decoder.down_modules.1.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219737559556961
-  mean: 0.0003322823904454708
-  min: -0.0821915864944458
+  max: 0.08574708551168442
+  mean: 0.0002918612153735012
+  min: -0.08574104309082031
   shape:
   - 256
-  - 148
-  sum: 12.589515686035156
+  - 136
+  sum: 10.161439895629883
 decoder.down_modules.1.2.conv.bias:
   device: cpu
   dtype: torch.float32
@@ -575,22 +575,22 @@ decoder.down_modules.2.0.blocks.1.block.1.weight:
 decoder.down_modules.2.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08165895193815231
-  mean: -0.0018173269927501678
-  min: -0.08149687200784683
+  max: 0.08518540859222412
+  mean: -0.0018958087312057614
+  min: -0.08501632511615753
   shape:
   - 512
-  sum: -0.9304714202880859
+  sum: -0.9706540703773499
 decoder.down_modules.2.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219856768846512
-  mean: 0.00016425781359430403
-  min: -0.08219687640666962
+  max: 0.0857483297586441
+  mean: 0.00019180282833985984
+  min: -0.08574656397104263
   shape:
   - 512
-  - 148
-  sum: 12.446800231933594
+  - 136
+  sum: 13.35561466217041
 decoder.down_modules.2.0.residual_conv.bias:
   device: cpu
   dtype: torch.float32
@@ -690,22 +690,22 @@ decoder.down_modules.2.1.blocks.1.block.1.weight:
 decoder.down_modules.2.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08217328041791916
-  mean: -0.0033200851175934076
-  min: -0.0816967710852623
+  max: 0.0857219472527504
+  mean: -0.003463463392108679
+  min: -0.08522486686706543
   shape:
   - 512
-  sum: -1.6998835802078247
+  sum: -1.7732932567596436
 decoder.down_modules.2.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219755440950394
-  mean: -5.5354762480419595e-06
-  min: -0.08219935745000839
+  max: 0.08574726432561874
+  mean: 3.108054443146102e-05
+  min: -0.08574915677309036
   shape:
   - 512
-  - 148
-  sum: -0.41945624351501465
+  - 136
+  sum: 2.1642005443573
 decoder.final_conv.0.block.0.bias:
   device: cpu
   dtype: torch.float32
@@ -843,22 +843,22 @@ decoder.mid_modules.0.blocks.1.block.1.weight:
 decoder.mid_modules.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08207741379737854
-  mean: 0.0018204653169959784
-  min: -0.08210596442222595
+  max: 0.08562194555997849
+  mean: 0.0018990825628861785
+  min: -0.08565172553062439
   shape:
   - 512
-  sum: 0.9320782423019409
+  sum: 0.9723302721977234
 decoder.mid_modules.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219700306653976
-  mean: -0.0002588701609056443
-  min: -0.08219871670007706
+  max: 0.08574669808149338
+  mean: -0.00015935681585688144
+  min: -0.08574847877025604
   shape:
   - 512
-  - 148
-  sum: -19.616146087646484
+  - 136
+  sum: -11.096333503723145
 decoder.mid_modules.1.blocks.0.block.0.bias:
   device: cpu
   dtype: torch.float32
@@ -938,22 +938,22 @@ decoder.mid_modules.1.blocks.1.block.1.weight:
 decoder.mid_modules.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08196300268173218
-  mean: -0.000243053087615408
-  min: -0.08182172477245331
+  max: 0.08550258725881577
+  mean: -0.00025354919489473104
+  min: -0.08535520732402802
   shape:
   - 512
-  sum: -0.1244431808590889
+  sum: -0.1298171877861023
 decoder.mid_modules.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219943195581436
-  mean: 9.725529525894672e-05
-  min: -0.08219902217388153
+  max: 0.08574923127889633
+  mean: 0.00012613677245099097
+  min: -0.08574879914522171
   shape:
   - 512
-  - 148
-  sum: 7.369617462158203
+  - 136
+  sum: 8.78315544128418
 decoder.up_modules.0.0.blocks.0.block.0.bias:
   device: cpu
   dtype: torch.float32
@@ -1033,22 +1033,22 @@ decoder.up_modules.0.0.blocks.1.block.1.weight:
 decoder.up_modules.0.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08180827647447586
-  mean: -0.0004829956451430917
-  min: -0.0814519003033638
+  max: 0.0853411853313446
+  mean: -0.0005038531962782145
+  min: -0.0849694162607193
   shape:
   - 256
-  sum: -0.12364688515663147
+  sum: -0.1289864182472229
 decoder.up_modules.0.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08219360560178757
-  mean: -3.5869950806954876e-05
-  min: -0.08219704031944275
+  max: 0.08574314415454865
+  mean: -5.734906153520569e-06
+  min: -0.08574673533439636
   shape:
   - 256
-  - 148
-  sum: -1.3590407371520996
+  - 136
+  sum: -0.19966650009155273
 decoder.up_modules.0.0.residual_conv.bias:
   device: cpu
   dtype: torch.float32
@@ -1148,22 +1148,22 @@ decoder.up_modules.0.1.blocks.1.block.1.weight:
 decoder.up_modules.0.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.0803733617067337
-  mean: -0.0043146489188075066
-  min: -0.08130577951669693
+  max: 0.08384429663419724
+  mean: -0.004500976763665676
+  min: -0.08481698483228683
   shape:
   - 256
-  sum: -1.1045501232147217
+  sum: -1.152250051498413
 decoder.up_modules.0.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08218957483768463
-  mean: 0.0001177562226075679
-  min: -0.08219455182552338
+  max: 0.08573894947767258
+  mean: 3.178781844326295e-05
+  min: -0.08574413508176804
   shape:
   - 256
-  - 148
-  sum: 4.4615478515625
+  - 136
+  sum: 1.106724739074707
 decoder.up_modules.0.2.conv.bias:
   device: cpu
   dtype: torch.float32
@@ -1263,22 +1263,22 @@ decoder.up_modules.1.0.blocks.1.block.1.weight:
 decoder.up_modules.1.0.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08128099888563156
-  mean: 0.005598634481430054
-  min: -0.07825729250907898
+  max: 0.08479113131761551
+  mean: 0.0058404128067195415
+  min: -0.08163684606552124
   shape:
   - 128
-  sum: 0.7166252136230469
+  sum: 0.7475728392601013
 decoder.up_modules.1.0.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08218701928853989
-  mean: -0.0007460449705831707
-  min: -0.08218074589967728
+  max: 0.08572579175233841
+  mean: -0.0008235013228841126
+  min: -0.08572973310947418
   shape:
   - 128
-  - 148
-  sum: -14.133075714111328
+  - 136
+  sum: -14.335511207580566
 decoder.up_modules.1.0.residual_conv.bias:
   device: cpu
   dtype: torch.float32
@@ -1378,22 +1378,22 @@ decoder.up_modules.1.1.blocks.1.block.1.weight:
 decoder.up_modules.1.1.obs_encoder.1.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.08095341175794601
-  mean: 0.0032934050541371107
-  min: -0.08119868487119675
+  max: 0.0844493955373764
+  mean: 0.003435631049796939
+  min: -0.08470526337623596
   shape:
   - 128
-  sum: 0.42155584692955017
+  sum: 0.4397607743740082
 decoder.up_modules.1.1.obs_encoder.1.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.08218304812908173
-  mean: -0.0003375629894435406
-  min: -0.08219694346189499
+  max: 0.08573213964700699
+  mean: -0.0002694863942451775
+  min: -0.085746631026268
   shape:
   - 128
-  - 148
-  sum: -6.394793510437012
+  - 136
+  sum: -4.691219329833984
 decoder.up_modules.1.2.conv.bias:
   device: cpu
   dtype: torch.float32

@@ -18,10 +18,11 @@ class TestStateTokenizer:
         assert tokenizer.output_dim == 42
         assert tokenizer.tokens_per_step == 1
 
-        # Mapping task_dim with _pose keys converts 7D poses to 6D relative SE(3) deltas
+        # Mapping task_dim with _pose keys converts 7D poses to 6D relative SE(3) deltas,
+        # and tcp_pose is not tokenized at all
         task_spec = {"obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7, "other": 3}
         tokenizer_spec = StateTokenizer(task_dim=task_spec, relative_goal=True)
-        assert tokenizer_spec.output_dim == 3 * 6 + 3  # 21
+        assert tokenizer_spec.output_dim == 2 * 6 + 3  # 15
 
     def test_single_side_tokenization_flattens_mapping(self):
         tokenizer = StateTokenizer(task_dim={"a": 3, "b": 7})
@@ -32,7 +33,7 @@ class TestStateTokenizer:
     def test_two_sided_tokenization_computes_se3_quaternion_deltas(self):
         task_spec = {"obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7}
         tokenizer = StateTokenizer(task_dim=task_spec, relative_goal=True)
-        assert tokenizer.output_dim == 18
+        assert tokenizer.output_dim == 12
 
         obs = {
             "obj_0_pose": _pose((0, 0, 0)).unsqueeze(0).unsqueeze(0),
@@ -45,7 +46,7 @@ class TestStateTokenizer:
             "tcp_pose": _pose((0, 1, 0)).unsqueeze(0),
         }
         tokens = tokenizer.tokenize(obs, goal)
-        assert tokens.shape == (1, 1, 18)
+        assert tokens.shape == (1, 1, 12)
 
         # obj_0_pose (first 6 dims): position delta (1,2,3), rotation delta pi/2 about z
         r_0 = tokens[0, 0, :6]
