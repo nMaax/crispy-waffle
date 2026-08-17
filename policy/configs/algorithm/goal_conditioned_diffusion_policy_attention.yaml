@@ -2,8 +2,6 @@ defaults:
   - goal_conditioned_diffusion_policy
   - override embedder@encoder.embedder: self_attention
 
-relative_goal: true
-
 encoder:
   embedder:
     obs_horizon: ${...obs_horizon}

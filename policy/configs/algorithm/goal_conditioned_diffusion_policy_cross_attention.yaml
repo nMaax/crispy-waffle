@@ -4,8 +4,6 @@ defaults:
   - override tokenizer: object
   - override embedder@encoder.embedder: self_attention
 
-relative_goal: true
-
 encoder:
   decoder_type: cross_attention
   embedder:

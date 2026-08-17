@@ -8,8 +8,6 @@ name: ${hydra:runtime.choices.experiment}
 
 algorithm:
   act_horizon: 8
-  encoder:
-    relative_goal: true
 
 datamodule:
   dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state_dict.pd_ee_delta_pos.physx_cuda.h5

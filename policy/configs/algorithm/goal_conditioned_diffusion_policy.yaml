@@ -6,3 +6,4 @@ defaults:
 _target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy
 
 goal_horizon: 1
+relative_goal: true
