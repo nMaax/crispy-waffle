@@ -75,21 +75,29 @@ class RunEntry:
 def run_prefix_of(repo_path: str) -> str | None:
     """The run directory a repo file belongs to, or None if it isn't inside one."""
     parts = PurePosixPath(repo_path).parts
+    if ".legacy" in parts:
+        return None
     for index, part in enumerate(parts):
         if part in RUN_CHILDREN:
             return "/".join(parts[:index])
     return None
 
 
-def collect_runs(repo_id: str) -> dict[str, RunEntry]:
+def collect_runs(repo_id: str) -> tuple[dict[str, RunEntry], bool]:
     """Walks the repo tree once, grouping every file under the run directory that owns it."""
     from huggingface_hub import HfApi
 
     api = HfApi()
     runs: dict[str, RunEntry] = {}
+    has_legacy = False
     # list_repo_tree, not list_repo_files: only the former reports sizes.
     for item in api.list_repo_tree(repo_id, repo_type="model", recursive=True):
         path = str(item.path)
+        parts = PurePosixPath(path).parts
+        if ".legacy" in parts:
+            has_legacy = True
+            continue
+
         prefix = run_prefix_of(path)
         if prefix is None or not hasattr(item, "size"):
             continue
@@ -110,7 +118,7 @@ def collect_runs(repo_id: str) -> dict[str, RunEntry]:
                 STATUS_BY_FILENAME[name]
             ) < STATUS_PRECEDENCE.index(run.state):
                 run.marker = name
-    return runs
+    return runs, has_legacy
 
 
 def load_details(repo_id: str, runs: dict[str, RunEntry]) -> None:
@@ -198,7 +206,9 @@ def _shown(value: object) -> str:
 STATE_STYLES = {"completed": "green", "interrupted": "yellow", "unknown": "dim"}
 
 
-def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
+def build_report(
+    repo_id: str, runs: dict[str, RunEntry], sort: str, *, has_legacy: bool = False
+) -> Report:
     keys = {
         "date": lambda run: run.when,
         "size": lambda run: -run.total_bytes,
@@ -207,9 +217,13 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
     ordered = sorted(runs.values(), key=keys[sort])
     reasons = {run.prefix: prune_reasons(run, runs) for run in ordered}
 
+    fields = [("repo", repo_id), ("runs", str(len(ordered)))]
+    if has_legacy:
+        fields.append((".legacy", "detected (ignored)"))
+
     report = Report(
         "HF Hub checkpoint inventory",
-        [("repo", repo_id), ("runs", str(len(ordered)))],
+        fields,
     )
 
     if sort == "name":
@@ -225,19 +239,28 @@ def build_report(repo_id: str, runs: dict[str, RunEntry], sort: str) -> Report:
 
     candidates = [run for run in ordered if reasons[run.prefix]]
     report.section("Prune candidates")
-    if not candidates:
+    if not candidates and not has_legacy:
         report.note("None: no run is superseded by a later one.")
     else:
-        report.note(
-            f"{len(candidates)} of {len(ordered)} runs are superseded by a later run of "
-            "the same experiment. Paste the ones you agree with; this script "
-            "deletes nothing."
-        )
-        report.blank()
-        for run in candidates:
-            report.note(styled(f"# {', '.join(reasons[run.prefix])}", "red"))
+        if candidates:
+            report.note(
+                f"{len(candidates)} of {len(ordered)} runs are superseded by a later run of "
+                "the same experiment. Paste the ones you agree with; this script "
+                "deletes nothing."
+            )
+            report.blank()
+            for run in candidates:
+                report.note(styled(f"# {', '.join(reasons[run.prefix])}", "red"))
+                report.raw(
+                    f'HfApi().delete_folder(path_in_repo="{run.prefix}", '
+                    f'repo_id="{repo_id}", repo_type="model")'
+                )
+        if has_legacy:
+            if candidates:
+                report.blank()
+            report.note(styled("# .legacy/ folder found in repo (ignored from inventory)", "red"))
             report.raw(
-                f'HfApi().delete_folder(path_in_repo="{run.prefix}", '
+                f'HfApi().delete_folder(path_in_repo=".legacy", '
                 f'repo_id="{repo_id}", repo_type="model")'
             )
     report.blank()
@@ -336,13 +359,15 @@ def main() -> None:
         )
 
     print(f"Listing {repo_id}...")
-    runs = collect_runs(repo_id)
-    if not runs:
+    runs, has_legacy = collect_runs(repo_id)
+    if not runs and not has_legacy:
         raise SystemExit(f"No run directories found in '{repo_id}'.")
     if args.details:
         load_details(repo_id, runs)
 
-    build_report(repo_id, runs, args.sort).emit(args.out, save=args.out is not None)
+    build_report(repo_id, runs, args.sort, has_legacy=has_legacy).emit(
+        args.out, save=args.out is not None
+    )
 
 
 if __name__ == "__main__":

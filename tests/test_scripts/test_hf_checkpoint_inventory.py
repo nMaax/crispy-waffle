@@ -9,8 +9,10 @@ import pytest
 from scripts.demos.hf_checkpoint_inventory import (
     RunEntry,
     build_report,
+    collect_runs,
     observations,
     prune_reasons,
+    run_prefix_of,
     superseded_by,
 )
 
@@ -192,3 +194,55 @@ class TestBuildReport:
     def test_says_so_when_nothing_is_prunable(self):
         text = build_report("org/repo", as_dict(run("runs/2026-08-05/21-19-46")), "name").render()
         assert "None: no run is superseded" in text
+
+    def test_shows_legacy_delete_command_when_present(self):
+        text = build_report(
+            "org/repo", as_dict(run("runs/2026-08-05/21-19-46")), "name", has_legacy=True
+        ).render()
+        assert ".legacy                      detected (ignored)" in text
+        assert (
+            'HfApi().delete_folder(path_in_repo=".legacy", repo_id="org/repo", repo_type="model")'
+            in text
+        )
+        assert "super_squash_history" in text
+
+
+class TestRunPrefixOf:
+    def test_normal_run_prefix(self):
+        assert (
+            run_prefix_of("logs/exp/runs/2026-08-05/21-19-46/checkpoints/last.ckpt")
+            == "logs/exp/runs/2026-08-05/21-19-46"
+        )
+
+    def test_legacy_path_is_ignored(self):
+        assert (
+            run_prefix_of(".legacy/logs/exp/runs/2026-08-05/21-19-46/checkpoints/last.ckpt")
+            is None
+        )
+        assert run_prefix_of(".legacy/checkpoints/last.ckpt") is None
+
+
+class TestCollectRuns:
+    def test_ignores_legacy_folder_and_flags_it(self, monkeypatch):
+        class FakeItem:
+            def __init__(self, path: str, size: int = 100):
+                self.path = path
+                self.size = size
+
+        items = [
+            FakeItem("logs/exp/runs/2026-08-05/21-19-46/checkpoints/last.ckpt"),
+            FakeItem("logs/exp/runs/2026-08-05/21-19-46/.hydra/config.yaml"),
+            FakeItem(".legacy/logs/old_exp/runs/2026-08-01/10-00-00/checkpoints/last.ckpt"),
+            FakeItem(".legacy/some_file.txt"),
+        ]
+
+        class FakeHfApi:
+            def list_repo_tree(self, repo_id, repo_type="model", recursive=True):
+                return items
+
+        monkeypatch.setattr("huggingface_hub.HfApi", FakeHfApi)
+        runs, has_legacy = collect_runs("org/repo")
+        assert has_legacy is True
+        assert "logs/exp/runs/2026-08-05/21-19-46" in runs
+        assert len(runs) == 1
+        assert not any(".legacy" in prefix for prefix in runs)

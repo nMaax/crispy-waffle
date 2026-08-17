@@ -4,5 +4,5 @@ defaults:
 
 encoder:
   pooling:
-    tokens_per_step: 3
+    tokens_per_step: 2
     obs_horizon: ${...obs_horizon}
