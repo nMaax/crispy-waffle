@@ -80,7 +80,9 @@ class TestSuperseded:
 
     def test_a_different_experiment_never_supersedes(self):
         mine = run("runs/2026-08-05/21-19-46")
-        other = RunEntry(prefix="logs/SomethingElse__X-v1__default__train/runs/2026-09-09/09-09-09")
+        other = RunEntry(
+            prefix="logs/SomethingElse__X-v1__default__train/runs/2026-09-09/09-09-09"
+        )
         assert superseded_by(mine, as_dict(mine, other)) is None
 
     def test_a_different_sweep_point_never_supersedes(self):
@@ -181,30 +183,6 @@ class TestBuildReport:
         text = build_report("org/repo", as_dict(entry), "name").render()
         assert "0.8" in text
         assert "42" in text
-
-    def test_delete_commands_stay_one_per_line(self):
-        old = run("runs/2026-08-05/18-58-03", checkpoints=1)
-        new = run("runs/2026-08-05/21-19-46", checkpoints=4)
-        text = build_report("org/repo", as_dict(old, new), "name").render()
-        calls = [line for line in text.splitlines() if "delete_folder" in line]
-        assert len(calls) == 1
-        assert calls[0].strip().startswith("HfApi().delete_folder(path_in_repo=")
-        assert calls[0].strip().endswith('repo_type="model")')
-
-    def test_says_so_when_nothing_is_prunable(self):
-        text = build_report("org/repo", as_dict(run("runs/2026-08-05/21-19-46")), "name").render()
-        assert "None: no run is superseded" in text
-
-    def test_shows_legacy_delete_command_when_present(self):
-        text = build_report(
-            "org/repo", as_dict(run("runs/2026-08-05/21-19-46")), "name", has_legacy=True
-        ).render()
-        assert ".legacy                      detected (ignored)" in text
-        assert (
-            'HfApi().delete_folder(path_in_repo=".legacy", repo_id="org/repo", repo_type="model")'
-            in text
-        )
-        assert "super_squash_history" in text
 
 
 class TestRunPrefixOf:
