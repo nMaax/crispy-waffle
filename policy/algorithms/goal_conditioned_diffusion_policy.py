@@ -3,8 +3,9 @@ from typing import Any, Literal
 
 import torch
 
+from policy.algorithms.base_diffusion_agent import _as_batch
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import map_leaves
+from policy.utils import get_ndim, map_leaves, pop_leaf_key, to_device
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
@@ -17,12 +18,54 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 f"GoalConditionedDiffusionPolicy requires goal_horizon >= 1 (got {goal_horizon}). "
                 "Use DiffusionPolicy for unconditioned diffusion."
             )
-        super().__init__(*args, **kwargs)
-        self.goal_horizon = goal_horizon
-        self.goal_conditioned = True
+        super().__init__(*args, goal_horizon=goal_horizon, **kwargs)
 
     def _encoder_extra_kwargs(self) -> dict[str, Any]:
         return {**super()._encoder_extra_kwargs(), "goal_conditioned": self.goal_conditioned}
+
+    def _tokenize(self, obs: TensorTree, goal: TensorTree | None = None) -> dict[str, TensorTree]:
+        """Splits proprioception off and tokenizes, routing absolute vs goal-relative."""
+        if self.tokenizer is None:
+            raise ValueError(
+                f"{type(self).__name__} has no tokenizer; _tokenize() should not be reached."
+            )
+
+        if goal is None:
+            raise ValueError("goal_conditioned=True, but received goal=None.")
+
+        obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
+        if obs_proprio is None:
+            raise ValueError("Observation mapping must contain a 'proprio' key.")
+
+        # The goal's own proprioception never enters conditioning: only the historical (observed)
+        # proprioception is used, on both the absolute and the relative path.
+        _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
+
+        if not self.relative_goal:
+            return {
+                "proprio": obs_proprio,
+                "task": self.tokenizer.tokenize(obs_task, None),
+                "goal_task": self.tokenizer.tokenize(None, goal_task),
+            }
+
+        # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
+        # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
+        # across dict-of-poses and flat-tensor task trees via the first leaf tensor found.
+        if get_ndim(obs_task) != 3:
+            raise ValueError(
+                "relative_goal=True expects observations of shape [B, T, F], but got a "
+                f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
+            )
+
+        # goal_task's own missing time axis is added here, on every leaf,
+        # rather than left to the tokenizer.
+        if get_ndim(goal_task) == 2:
+            goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
+
+        return {"proprio": obs_proprio, "task": self.tokenizer.tokenize(obs_task, goal_task)}
+
+    def _obs_normalizer_view(self, item: dict[str, Any]) -> TensorTree:
+        return self._tokenize(_as_batch(item["obs_seq"]), _as_batch(item["goal"]))
 
     def extract_embeddings(
         self,
@@ -33,12 +76,17 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         if self.encoder is None:
             raise ValueError("Encoder not initialized. Call configure_model() first.")
 
-        obs = self._normalize_obs(map_leaves(lambda t: t.to(self.device), obs))
+        obs = to_device(obs, self.device)
         if goal is not None:
-            goal = self._normalize_obs(map_leaves(lambda t: t.to(self.device), goal))
+            goal = to_device(goal, self.device)
 
         with torch.no_grad():
-            return self.encoder.extract_embeddings(obs, goal=goal)
+            payload = self.encoder(self._normalize_obs(self._tokenize(obs, goal)))
+            embeddings = {"obs_embeddings": self.encoder.unpack_task(payload)}
+            if "goal" in payload:
+                embeddings["goal_embedding"] = payload["goal"]
+
+        return embeddings, "goal-relative" if self.relative_goal else "absolute"
 
     def get_action(
         self,
@@ -64,15 +112,9 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         )
 
     def _build_external_cond_from_batch(self, batch: dict[str, Any]) -> dict[str, TensorTree]:
-        """Extracts and normalizes observation and goal conditioning from a training/validation
-        batch."""
+        """Extracts and normalizes observation and goal from a batch."""
         obs_seq = batch["obs_seq"]
         goal = batch.get("goal", None)
-
-        if not isinstance(obs_seq, torch.Tensor | Mapping):
-            raise ValueError(
-                f"Expected batch['obs_seq'] to be a torch.Tensor or Mapping, but got {type(obs_seq)}."
-            )
 
         if goal is None or not isinstance(goal, torch.Tensor | Mapping):
             raise ValueError(
@@ -82,4 +124,4 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return self._build_external_cond(obs_seq, goal)
 
     def _build_external_cond(self, obs: TensorTree, goal: TensorTree) -> dict[str, TensorTree]:
-        return {"obs": self._normalize_obs(obs), "goal": self._normalize_obs(goal)}
+        return {"obs": obs, "goal": goal}

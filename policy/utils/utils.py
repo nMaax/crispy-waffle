@@ -100,7 +100,7 @@ def print_mapping_tree(
 
 def to_tensor(
     data: RawTree,
-    device: torch.device | None = None,
+    device: torch.device | str | None = None,
     dtype: torch.dtype | None = None,
 ) -> TensorTree:
     """Recursively converts a nested raw data tree to a nested dictionary of tensors."""
@@ -108,6 +108,15 @@ def to_tensor(
         return {k: to_tensor(v, device=device, dtype=dtype) for k, v in data.items()}
     else:
         return torch.as_tensor(data, device=device, dtype=dtype)
+
+
+def to_device(
+    data: TensorTree | RawTree,
+    device: torch.device | str,
+    dtype: torch.dtype | None = None,
+) -> TensorTree:
+    """Recursively moves a tensor or nested mapping of tensors to the specified device."""
+    return to_tensor(data, device=device, dtype=dtype)
 
 
 def recursive_index(data: Any, idx: Any) -> Any:

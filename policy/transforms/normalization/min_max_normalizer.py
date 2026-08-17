@@ -4,6 +4,7 @@ from typing import overload
 import torch
 import torch.nn as nn
 
+from policy.transforms.normalization.mask import apply_mask, child_mask, validate_mask
 from policy.utils.typing_utils import DimSpec, TensorTree
 
 
@@ -11,13 +12,23 @@ class MinMaxNormalizer(nn.Module):
     """Min-Max normalizer (scales to [min_val, max_val]) for a tensor or nested dict of tensors.
 
     Structure of the tree of sub-normalizers is fixed at construction time via `spec`.
+
+    ``mask`` marks which channels are actually normalizable: ``False`` channels pass through
+    untouched, for features where an affine rescale is not meaningful (e.g. the one-hot role
+    indicators of a canonicalized observation). A mask tree may cover a subset of `spec`'s keys;
+    leaves it omits are normalized in full.
     """
 
     _running_min: torch.Tensor | None
     _running_max: torch.Tensor | None
+    mask: torch.Tensor | None
 
     def __init__(
-        self, spec: DimSpec, min_val: float = -1.0, max_val: float = 1.0
+        self,
+        spec: DimSpec,
+        min_val: float = -1.0,
+        max_val: float = 1.0,
+        mask: TensorTree | None = None,
     ):
         super().__init__()
 
@@ -33,10 +44,11 @@ class MinMaxNormalizer(nn.Module):
             self.register_buffer("min", torch.zeros(dim))
             self.register_buffer("max", torch.ones(dim))
             self.register_buffer("_is_fit", torch.tensor(False))
+            self.register_buffer("mask", validate_mask(mask, dim), persistent=False)
         else:
             self.norms = nn.ModuleDict(
                 {
-                    key: MinMaxNormalizer(child_spec, min_val, max_val)
+                    key: MinMaxNormalizer(child_spec, min_val, max_val, child_mask(mask, key))
                     for key, child_spec in spec.items()
                 }
             )
@@ -123,7 +135,8 @@ class MinMaxNormalizer(nn.Module):
         if not isinstance(x, Mapping):
             if self.is_fit:
                 diff = (self.max - self.min).clamp(min=1e-6)
-                return self.min_val + (self.max_val - self.min_val) * (x - self.min) / diff
+                normalized = self.min_val + (self.max_val - self.min_val) * (x - self.min) / diff
+                return apply_mask(self.mask, normalized, x)
             else:
                 return x
         else:
@@ -140,7 +153,8 @@ class MinMaxNormalizer(nn.Module):
         if not isinstance(x, Mapping):
             if self.is_fit:
                 diff = (self.max - self.min).clamp(min=1e-6)
-                return (x - self.min_val) * diff / (self.max_val - self.min_val) + self.min
+                unnormalized = (x - self.min_val) * diff / (self.max_val - self.min_val) + self.min
+                return apply_mask(self.mask, unnormalized, x)
             else:
                 return x
         else:

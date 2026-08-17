@@ -41,6 +41,17 @@ class ObjectTokenizer(BaseTokenizer):
             if relative_goal
             else RELATIVE_SE3_DIM + POSE_DIM + ROLE_DIM
         )
+        # The role one-hot is the trailing ROLE_DIM block of every token, in both modes.
+        self._categorical_mask = torch.cat(
+            [
+                torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
+                torch.zeros(ROLE_DIM, dtype=torch.bool),
+            ]
+        )
+
+    @property
+    def categorical_mask(self) -> torch.Tensor:
+        return self._categorical_mask
 
     @property
     def tokens_per_step(self) -> int | None:

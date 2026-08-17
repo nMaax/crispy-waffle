@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
-from policy.algorithms.networks.utils import as_task_only, derive_task_dim, resolve_proprio_dim
+from policy.algorithms.networks.utils import as_task_only
 from policy.utils import (
     concat_leaf_tensors,
     get_batch_size,
@@ -44,7 +44,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
     def __init__(
         self,
         *args,
-        goal_horizon: int = 0,
         alpha: float = 0.5,
         beta: float = 0.5,
         sigma_min: float = 0.005,
@@ -54,10 +53,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         num_parallel_samples: int = 1,
         goal_drop_prob: float = 0.1,
         cfg_lambda: float | None = None,
-        relative_goal: bool = False,
         use_proprio_token: bool = False,
-        proprio_dim: int | None = None,
-        task_dim: int | None = None,
         **kwargs,
     ):
 
@@ -77,15 +73,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 f"Got noise_scheduler={self.noise_scheduler_config}. Please remove it."
             )
 
-        self.goal_horizon = goal_horizon
-        self.goal_conditioned = goal_horizon > 0
-
-        # For BESO++
-        self.relative_goal = relative_goal
+        # For BESO++ (relative_goal is a BaseDiffusionAgent-level option)
         self.use_proprio_token = use_proprio_token
-        if use_proprio_token or relative_goal:
-            self.proprio_dim = resolve_proprio_dim(self.obs_dim, proprio_dim)
-            self.task_dim = derive_task_dim(self.obs_dim, self.proprio_dim, task_dim)
 
         # Training
         self.alpha = alpha

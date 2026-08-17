@@ -159,9 +159,7 @@ def run_and_capture(
 
     Goes only through the network's `ConditioningEncoder`, so the diffusion loop is never invoked.
     """
-    if model.obs_normalizer is not None:
-        obs_batch = model.obs_normalizer.normalize(obs_batch)
-        goal_batch = model.obs_normalizer.normalize(goal_batch)
+    tokens = model._normalize_obs(model._tokenize(obs_batch, goal_batch))
 
     expected_batch = get_batch_size(obs_batch)
     expected_seq_len = obs_horizon * tokens_per_step
@@ -172,7 +170,7 @@ def run_and_capture(
             for name, module in target_modules.items()
         }
         with torch.no_grad():
-            require_encoder(model)(obs_batch, goal_batch)
+            require_encoder(model)(tokens)
 
     return {
         name: select_obs_capture(capture, expected_batch, expected_seq_len)

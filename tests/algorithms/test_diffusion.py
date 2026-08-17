@@ -189,31 +189,45 @@ class TestDiffusionPolicyLogic:
         kwargs = {
             "decoder": {"_target_": "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"},
             "encoder": {"_target_": "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"},
+            "tokenizer": {
+                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+            },
             "ema": {},
             "noise_scheduler": {},
             "optimizer": {},
             "act_dim": 4,
             "obs_dim": 48,
+            "proprio_dim": 18,
             "pred_horizon": 16,
             "obs_horizon": 2,
         }
         kwargs.update(overrides)
         return GoalConditionedDiffusionPolicy(**kwargs)
 
-    def test_diffusion_policy_encoder_extra_kwargs_reports_obs_dim(self):
+    def test_diffusion_policy_encoder_extra_kwargs_sizes_the_encoder_from_the_tokenizer(self):
         kwargs = {
             "decoder": {"_target_": "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"},
             "encoder": {"_target_": "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"},
+            "tokenizer": {
+                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+            },
             "ema": {},
             "noise_scheduler": {},
             "optimizer": {},
             "act_dim": 4,
             "obs_dim": 48,
+            "proprio_dim": 18,
             "pred_horizon": 16,
             "obs_horizon": 2,
         }
         policy = DiffusionPolicy(**kwargs)
-        assert policy._encoder_extra_kwargs() == {"obs_dim": 48}
+        policy._instantiate_tokenizer()
+        assert policy._encoder_extra_kwargs() == {
+            "proprio_dim": 18,
+            "token_dim": policy.tokenizer.output_dim,
+            "tokens_per_step": policy.tokenizer.tokens_per_step,
+            "relative_goal": False,
+        }
 
     def test_goal_conditioned_diffusion_policy_encoder_extra_kwargs_reports_goal_conditioned(self):
         with patch(
@@ -221,7 +235,14 @@ class TestDiffusionPolicyLogic:
             return_value=MagicMock(),
         ):
             policy = self._make_goal_policy(goal_horizon=2)
-            assert policy._encoder_extra_kwargs() == {"obs_dim": 48, "goal_conditioned": True}
+            policy._instantiate_tokenizer()
+            assert policy._encoder_extra_kwargs() == {
+                "proprio_dim": 18,
+                "token_dim": policy.tokenizer.output_dim,
+                "tokens_per_step": policy.tokenizer.tokens_per_step,
+                "relative_goal": False,
+                "goal_conditioned": True,
+            }
 
     def test_goal_conditioned_diffusion_policy_requires_goal_horizon_ge_1(self):
         with patch(
@@ -254,13 +275,13 @@ class TestDiffusionPolicyLogic:
             policy = self._make_goal_policy(goal_horizon=1)
             policy.configure_model()
             assert policy.encoder is not None
-            policy.encoder.extract_embeddings = MagicMock(
-                return_value=({"obs_embeddings": torch.zeros(2, 2, 30)}, "absolute")
-            )
+            policy.encoder.return_value = {"obs": {"task": torch.zeros(2, 2, 30)}}
+            policy.encoder.unpack_task = MagicMock(return_value=torch.zeros(2, 2, 30))
 
             obs = torch.randn(2, 2, 48)
-            result, mode = policy.extract_embeddings(obs)
-            policy.encoder.extract_embeddings.assert_called_once()
+            goal = torch.randn(2, 48)
+            result, mode = policy.extract_embeddings(obs, goal)
+            policy.encoder.unpack_task.assert_called_once()
             assert "obs_embeddings" in result
             assert mode == "absolute"
 

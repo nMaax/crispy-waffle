@@ -1,5 +1,4 @@
 from collections.abc import Mapping
-from logging import getLogger as get_logger
 from typing import Literal
 
 import hydra_zen
@@ -7,82 +6,54 @@ import torch
 import torch.nn as nn
 
 from policy.algorithms.networks.encoder.spec import ConditioningContract
-from policy.algorithms.networks.encoder.tokenizers import StateTokenizer
-from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
-from policy.utils import get_ndim, get_subtree, get_tensor, map_leaves, merge_dicts, pop_leaf_key
-from policy.utils.typing_utils import (
-    DimSpec,
-    HydraConfigFor,
-    PoolingProtocol,
-    TensorTree,
-    TokenizerProtocol,
-)
-
-logger = get_logger(__name__)
+from policy.utils import get_subtree, get_tensor, merge_dicts
+from policy.utils.typing_utils import HydraConfigFor, PoolingProtocol, TensorTree
 
 
 class ConditioningEncoder(nn.Module):
-    """Turns a canonicalized obs/goal tree into the conditioning tensors a downstream network
-    consumes."""
+    """Embeds already-tokenized, already-normalized conditioning into the tensors a downstream
+    network consumes.
+
+    Tokenization is the algorithm's job (see :meth:`BaseDiffusionAgent._tokenize`), so that
+    normalization can be fit on and applied to the tokens this encoder's learned layers actually
+    see. This class owns only the learned half: embedder, pooling, and the payload packing the
+    decoder's conditioning contract expects.
+    """
 
     def __init__(
         self,
-        obs_dim: DimSpec,
-        proprio_dim: int | None = None,
-        task_dim: int | None = None,
+        proprio_dim: int,
+        token_dim: int,
+        tokens_per_step: int | None = 1,
         goal_conditioned: bool = False,
         relative_goal: bool = False,
         decoder_type: Literal["film", "cross_attention"] = "film",
-        tokenizer: HydraConfigFor[TokenizerProtocol] | None = None,
         embedder: HydraConfigFor[nn.Module] | None = None,
         pooling: HydraConfigFor[PoolingProtocol] | None = None,
     ):
         super().__init__()
 
-        self.proprio_dim = resolve_proprio_dim(obs_dim, proprio_dim)
-        self.task_dim = derive_task_dim(obs_dim, self.proprio_dim, task_dim)
-        task_dim_spec: DimSpec = (
-            {k: v for k, v in obs_dim.items() if k != "proprio"}
-            if isinstance(obs_dim, Mapping)
-            else self.task_dim
-        )
+        self.proprio_dim = proprio_dim
+        self.token_dim = token_dim
+        self.tokens_per_step = tokens_per_step
 
         self.goal_conditioned = goal_conditioned
         self.relative_goal = relative_goal
 
         self.decoder_type = decoder_type
 
-        # Tokenizer
-        if isinstance(tokenizer, TokenizerProtocol):
-            self.tokenizer: TokenizerProtocol = tokenizer
-        elif tokenizer is not None:
-            self.tokenizer = hydra_zen.instantiate(
-                tokenizer, task_dim=task_dim_spec, relative_goal=self.relative_goal
-            )
-        else:
-            logger.warning(
-                "ConditioningEncoder built with tokenizer=None; silently defaulting to "
-                "StateTokenizer. Prefer naming it explicitly in the Hydra config (e.g. "
-                "`override tokenizer@encoder.tokenizer: state`) so the choice is visible there "
-                "instead of hidden behind this fallback."
-            )
-            self.tokenizer = StateTokenizer(
-                task_dim=task_dim_spec, relative_goal=self.relative_goal
-            )
-        self.tokens_per_step = self.tokenizer.tokens_per_step
-
         # Embedder
         if isinstance(embedder, nn.Module):
             self.embedder = embedder
         elif embedder is not None:
-            self.embedder = hydra_zen.instantiate(embedder, input_dim=self.tokenizer.output_dim)
+            self.embedder = hydra_zen.instantiate(embedder, input_dim=token_dim)
         else:
             self.embedder = None
 
         if self.embedder is not None:
             self.output_dim = self.embedder.output_dim
         else:
-            self.output_dim = self.tokenizer.output_dim
+            self.output_dim = token_dim
 
         # Pooling
         if isinstance(pooling, nn.Module | PoolingProtocol):
@@ -101,18 +72,6 @@ class ConditioningEncoder(nn.Module):
             raise ValueError(
                 "relative_goal=True requires goal_conditioned=True: there is no goal to "
                 "difference the observations against otherwise."
-            )
-
-        if not self.relative_goal and not self.tokenizer.supports_single_side:
-            raise ValueError(
-                f"{type(self.tokenizer).__name__} cannot be used with relative_goal=False: "
-                "it only produces tokens for goal deltas, so absolute conditioning isn't supported."
-            )
-
-        if not self.goal_conditioned and not self.tokenizer.supports_single_side:
-            raise ValueError(
-                f"{type(self.tokenizer).__name__} cannot tokenize a standalone observation "
-                "state (supports_single_side=False), so it cannot be used unconditioned."
             )
 
         if self.decoder_type == "cross_attention":
@@ -135,7 +94,7 @@ class ConditioningEncoder(nn.Module):
             if self.pools_objects
             else self.output_dim * (self.tokens_per_step or 1)
         )
-        goal_dim = step_task_dim if (self.goal_conditioned and not self.relative_goal) else 0
+        goal_dim = step_task_dim if self.has_standalone_goal else 0
 
         if self.decoder_type == "cross_attention":
             return ConditioningContract(
@@ -156,6 +115,15 @@ class ConditioningEncoder(nn.Module):
         )
 
     @property
+    def has_standalone_goal(self) -> bool:
+        """Whether conditioning carries its own goal token stream.
+
+        A relative goal is already folded into the task tokens as a delta, so it has no separate
+        entry to embed.
+        """
+        return self.goal_conditioned and not self.relative_goal
+
+    @property
     def is_multi_token(self) -> bool:
         """Whether the encoder processes multiple or dynamic tokens per timestep."""
         return self.tokens_per_step is None or self.tokens_per_step > 1
@@ -172,54 +140,18 @@ class ConditioningEncoder(nn.Module):
     def pools_objects(self) -> bool:
         return self.pooling.pools_objects if self.pooling is not None else False
 
-    def forward(self, obs: TensorTree, goal: TensorTree | None = None) -> dict[str, TensorTree]:
-        if not self.goal_conditioned:
-            payload = self._build_obs(obs)
-        elif goal is None:
-            raise ValueError("goal_conditioned=True, but received goal=None.")
-        elif self.relative_goal:
-            payload = self._build_delta(obs, goal)
-        else:
-            payload = merge_dicts([self._build_obs(obs), self._build_goal(goal)])
+    def forward(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
+        """Embeds a ``{"proprio", "task"[, "goal_task"]}`` token tree into the decoder payload."""
+        payload = self._pack_task(
+            get_tensor(tokens, "proprio"), self._embed_tokens(get_tensor(tokens, "task"))
+        )
+
+        if self.has_standalone_goal:
+            goal_embedded = self._embed_tokens(get_tensor(tokens, "goal_task"))
+            payload = merge_dicts([payload, {"goal": goal_embedded}])
 
         self.cond_dims.validate_payload(payload)
         return payload
-
-    def _build_obs(self, obs: TensorTree) -> dict[str, TensorTree]:
-        proprio, task_embedded = self._embed_absolute_state(obs)
-        return self._pack_task(proprio, task_embedded)
-
-    def _build_goal(self, goal: TensorTree) -> dict[str, TensorTree]:
-        _, goal_embedded = self._embed_absolute_state(goal, is_goal=True)
-        # Basically the equivalent of a _pack_task call, but for goal, which is trivial
-        return {"goal": goal_embedded}
-
-    def _build_delta(self, obs: TensorTree, goal: TensorTree) -> dict[str, TensorTree]:
-        """Conditions on the difference between the goal and each observation timestep."""
-        obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
-        _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
-        if obs_proprio is None:
-            raise ValueError("Observation mapping must contain a 'proprio' key.")
-
-        # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
-        # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
-        # across dict-of-poses and flat-tensor task trees via the first leaf tensor found.
-        if get_ndim(obs_task) != 3:
-            raise ValueError(
-                "relative_goal=True expects observations of shape [B, T, F], but got a "
-                f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
-            )
-
-        # goal_task's own missing time axis is added here, on every leaf,
-        # rather than left to the tokenizer.
-        if get_ndim(goal_task) == 2:
-            goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
-
-        task_delta = self._embed_task(obs_task, goal_task)
-
-        # The goal's own proprioception never enters conditioning: only the historical (observed)
-        # proprioception is passed through raw, same as the absolute-conditioning path.
-        return self._pack_task(obs_proprio, task_delta)
 
     def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
         if self.decoder_type == "cross_attention":
@@ -229,7 +161,8 @@ class ConditioningEncoder(nn.Module):
         else:
             return {"obs": {"proprio": proprio, "task": task}}
 
-    def _unpack_task(self, payload: dict[str, TensorTree]) -> torch.Tensor:
+    def unpack_task(self, payload: Mapping[str, TensorTree]) -> torch.Tensor:
+        """Recovers the embedded task stream from a payload built by :meth:`forward`."""
         if self.decoder_type == "cross_attention":
             return get_tensor(payload, self.cond_dims.context_key)
         elif self.pools_time:
@@ -237,31 +170,8 @@ class ConditioningEncoder(nn.Module):
         else:
             return get_tensor(get_subtree(payload, "obs"), "task")
 
-    def _embed_absolute_state(
-        self, states: TensorTree, *, is_goal: bool = False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Splits proprio/task and embeds the task components.
-
-        Only ever called when `self.tokenizer.supports_single_side` is True.
-        """
-        proprio, task = pop_leaf_key(states, "proprio", self.proprio_dim)
-        if proprio is None:
-            raise ValueError("Observation/goal mapping must contain a 'proprio' key.")
-
-        obs_task = None if is_goal else task
-        goal_task = task if is_goal else None
-        return proprio, self._embed_task(obs_task, goal_task)
-
-    def _embed_task(
-        self, obs_task: TensorTree | None, goal_task: TensorTree | None
-    ) -> torch.Tensor:
-        """Processes task components through tokenization, embedding, and pooling."""
-        task = self.tokenizer.tokenize(obs_task, goal_task)
-
-        assert isinstance(task, torch.Tensor), (
-            f"Expected task to be a torch.Tensor, got {type(task)}"
-        )
-
+    def _embed_tokens(self, task: torch.Tensor) -> torch.Tensor:
+        """Runs raw tokens through the embedder and pooling into their packed form."""
         had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
         if had_no_time_axis:
             task = task.unsqueeze(1)
@@ -288,24 +198,3 @@ class ConditioningEncoder(nn.Module):
             task_embedded = task_embedded.squeeze(1)
 
         return task_embedded
-
-    @torch.no_grad()
-    def extract_embeddings(
-        self, obs: TensorTree, goal: TensorTree | None = None
-    ) -> tuple[dict[str, torch.Tensor], Literal["absolute", "goal-relative"]]:
-        """Extracts a per-frame conditioning embedding, for visualizing the embedding space."""
-        if self.tokenizer.supports_single_side:
-            _, obs_task_embeddings = self._embed_absolute_state(obs)
-            res = {"obs_embeddings": obs_task_embeddings}
-            if goal is not None:
-                _, goal_task_embedding = self._embed_absolute_state(goal, is_goal=True)
-                res["goal_embedding"] = goal_task_embedding
-            return res, "absolute"
-
-        if goal is None:
-            raise ValueError(
-                f"{type(self.tokenizer).__name__} tokenizes only goal-relative deltas "
-                "(supports_single_side=False); goal=None has no embedding to extract."
-            )
-        payload = self._build_delta(obs, goal)
-        return {"obs_embeddings": self._unpack_task(payload)}, "goal-relative"

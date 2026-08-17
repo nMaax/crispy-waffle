@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from policy.algorithms.beso_policy import BesoPolicy
+from policy.transforms import MinMaxNormalizer
 from tests.algorithms._beso_test_utils import mock_loop_internals
 
 
@@ -77,7 +78,8 @@ class TestBesoPolicyLogic:
 
     def test_output_clip_range_clamps_with_normalizer(self, basic_kwargs):
         """With an action normalizer, clamping happens in physical space (post-unnormalize)."""
-        policy = BesoPolicy(**basic_kwargs, act_normalizer=True)
+        policy = BesoPolicy(**basic_kwargs)
+        policy.act_normalizer = MinMaxNormalizer(policy.act_dim)
         # Fit the MinMax normalizer to a known range so unnormalize is well-defined.
         policy.act_normalizer.fit(torch.linspace(-5, 5, 40).view(10, 4))
         mock_loop_internals(policy)
@@ -292,32 +294,15 @@ class TestBesoPolicyDeltaInputLogic:
         return _delta_kwargs()
 
     # ------------------------------------------------------------------ #
-    # proprio_dim / task_dim resolution and validation
+    # proprio_dim / task_dim resolution
+    #
+    # These are lazily resolved BaseDiffusionAgent properties, so a misconfigured obs_dim raises
+    # on first use rather than at construction; the validation itself belongs to (and is covered
+    # with) `resolve_proprio_dim`/`derive_task_dim` in tests/algorithms/networks/test_utils.py.
     # ------------------------------------------------------------------ #
-    def test_proprio_dim_validated_against_obs_dim(self, basic_kwargs):
-        with pytest.raises(ValueError, match="must be >= proprio_dim"):
-            BesoPolicy(**_delta_kwargs(proprio_dim=10, obs_dim=3))
-
-    def test_task_dim_validated_against_obs_dim_and_proprio_dim(self, basic_kwargs):
+    def test_explicit_task_dim_is_honoured(self, basic_kwargs):
         policy = BesoPolicy(**_delta_kwargs(proprio_dim=1, task_dim=2, obs_dim=3))
         assert policy.task_dim == 2
-
-        with pytest.raises(ValueError, match="does not match task_dim"):
-            BesoPolicy(**_delta_kwargs(proprio_dim=1, task_dim=5, obs_dim=3))
-
-    def test_flat_obs_requires_explicit_proprio_dim(self, basic_kwargs):
-        """A flat obs_dim can't auto-derive proprio_dim, so it must always be given explicitly
-        rather than silently defaulting to 0."""
-        with pytest.raises(ValueError, match="proprio_dim must be provided explicitly"):
-            BesoPolicy(**_delta_kwargs(proprio_dim=None))
-
-    def test_dict_obs_missing_proprio_key_requires_explicit_proprio_dim(self, basic_kwargs):
-        """With a dict obs_dim lacking a 'proprio' key, the same misconfiguration is still caught,
-        since there's nothing to derive from."""
-        kwargs = _delta_kwargs(proprio_dim=None)
-        kwargs["obs_dim"] = {"task": 3}
-        with pytest.raises(ValueError, match="must contain 'proprio' key"):
-            BesoPolicy(**kwargs)
 
     def test_derives_proprio_dim_from_dict_obs(self, basic_kwargs):
         """With a dict obs_dim, proprio_dim/task_dim are auto-derived from obs_dim['proprio'] when

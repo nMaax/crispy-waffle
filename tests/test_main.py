@@ -38,10 +38,8 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=BESO++__SCLR__default__train trainer.max_epochs=1",
     "experiment=BESO++__SCLR__default__test trainer.max_epochs=1",
     "experiment=BESO++__SCLR__default__test__video trainer.max_epochs=1",
-    # trained on SCCRPLR, not SCLR
-    "experiment=GCDP-MLP__SCCRPLR__default__train trainer.max_epochs=1",
-    "experiment=GCDP-MLP__SCCRPLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-MLP-AttnPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-MLP-AttnPool__SCLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-Attn__SCLR__default__train trainer.max_epochs=1",
     "experiment=GCDP-Attn__SCLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-Attn__SCLR__default__test__video trainer.max_epochs=1",
@@ -57,12 +55,8 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train trainer.max_epochs=1",
     "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test__video trainer.max_epochs=1",
-    # trained on SCCRPLR, not SCLR
-    "experiment=GCDP-Obj-Attn-AttnPool__SCCRPLR__default__train trainer.max_epochs=1",
-    "experiment=GCDP-Obj-Attn-AttnPool__SCCRPLR__default__test trainer.max_epochs=1",
-    # trained on SCCRPLR, not SCLR
-    "experiment=GCDP-Obj-Attn-CrossAttn__SCCRPLR__default__train trainer.max_epochs=1",
-    "experiment=GCDP-Obj-Attn-CrossAttn__SCCRPLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__train trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__test trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 

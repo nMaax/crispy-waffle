@@ -200,8 +200,9 @@ def run_slug(
 def build_external_cond(model: Any, obs: TensorTree, goal: TensorTree) -> Mapping[str, TensorTree]:
     """Builds the conditioning tree the network sees.
 
-    `_build_external_cond` normalizes obs/goal internally on every algorithm class; this thin
-    wrapper exists only so callers don't reach into the model's private method name directly.
+    This thin wrapper exists only so callers don't reach into the model's private method name
+    directly. Note the tree is raw for the diffusers family (normalization happens later, on the
+    tokens) and normalized for `BesoPolicy`, which has no encoder to tokenize through.
     """
     return model._build_external_cond(obs, goal)
 

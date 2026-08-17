@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from sklearn.metrics import r2_score
 
-from policy.utils import map_leaves
+from policy.utils import to_device
 from scripts.utils import cli, theme
 from scripts.utils.checkpoints import (
     describe_model_config,
@@ -118,18 +118,14 @@ def capture_from_dataset(model, cfg, split: str, num_batches: int | None, seed: 
         for index, batch in enumerate(dataloader):
             if num_batches is not None and index >= num_batches:
                 break
-            obs = map_leaves(lambda t: t.to(model.device), batch["obs_seq"])
+            obs = to_device(batch["obs_seq"], model.device)
             goal = batch.get("goal")
             if goal is not None:
-                goal = map_leaves(lambda t: t.to(model.device), goal)
-            if model.obs_normalizer is not None:
-                obs = model.obs_normalizer.normalize(obs)
-                if goal is not None:
-                    goal = model.obs_normalizer.normalize(goal)
+                goal = to_device(goal, model.device)
             # Goes through the algorithm's ConditioningEncoder directly (not
             # model._build_external_cond, which just passes obs/goal through raw now) so the
             # embedder's forward hook actually fires.
-            model.encoder(obs, goal)
+            model.encoder(model._normalize_obs(model._tokenize(obs, goal)))
 
     return capture.stacked()
 

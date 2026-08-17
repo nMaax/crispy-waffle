@@ -19,6 +19,7 @@ from .utils import (
     recursive_index,
     stack_dicts,
     subtract_leaves,
+    to_device,
     to_tensor,
 )
 
@@ -43,5 +44,6 @@ __all__ = [
     "recursive_index",
     "stack_dicts",
     "subtract_leaves",
+    "to_device",
     "to_tensor",
 ]

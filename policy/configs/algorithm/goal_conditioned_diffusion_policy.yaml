@@ -1,7 +1,6 @@
 defaults:
   - diffusion_policy
   - embedder@encoder.embedder: null
-  - tokenizer@encoder.tokenizer: state
   - pooling@encoder.pooling: null
 
 _target_: policy.algorithms.goal_conditioned_diffusion_policy.GoalConditionedDiffusionPolicy

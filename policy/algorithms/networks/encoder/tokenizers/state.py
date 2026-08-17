@@ -21,13 +21,33 @@ class StateTokenizer(BaseTokenizer):
 
     def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
         super().__init__(relative_goal=relative_goal)
-        if relative_goal and isinstance(task_dim, Mapping):
-            self.output_dim = sum(
-                RELATIVE_SE3_DIM if key.endswith("_pose") else get_total_dim(dim)
-                for key, dim in task_dim.items()
-            )
-        else:
-            self.output_dim = get_total_dim(task_dim)
+        widths = self._channel_widths(task_dim)
+        self.output_dim = sum(width for _, width in widths)
+        self._categorical_mask = torch.cat(
+            [
+                torch.full((width,), not key.endswith("_role"), dtype=torch.bool)
+                for key, width in widths
+            ]
+        )
+
+    def _channel_widths(self, task_dim: DimSpec) -> list[tuple[str, int]]:
+        """Per-key output widths, in the channel order the matching tokenize path emits."""
+        if not isinstance(task_dim, Mapping):
+            return [("task", get_total_dim(task_dim))]
+
+        if self.relative_goal:
+            # Mirrors _tokenize_relative: sorted keys, poses reduced to an SE(3) delta.
+            return [
+                (key, RELATIVE_SE3_DIM if key.endswith("_pose") else get_total_dim(task_dim[key]))
+                for key in sorted(task_dim.keys())
+            ]
+
+        # Mirrors _tokenize_absolute's concat_leaf_tensors: insertion order, full widths.
+        return [(key, get_total_dim(dim)) for key, dim in task_dim.items()]
+
+    @property
+    def categorical_mask(self) -> torch.Tensor:
+        return self._categorical_mask
 
     @property
     def tokens_per_step(self) -> int:

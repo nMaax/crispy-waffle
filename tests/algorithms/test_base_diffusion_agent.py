@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
@@ -60,23 +61,56 @@ class TestBaseDiffusionAgentLogic:
             _MinimalDiffusionAgent(**_basic_kwargs(obs_horizon=4, pred_horizon=8, act_horizon=6))
 
     # ------------------------------------------------------------------ #
-    # Normalizer building (_build_normalizer)
+    # Normalizer construction (_instantiate_normalizer), run by configure_model()
     # ------------------------------------------------------------------ #
-    def test_normalizer_bare_true_obs_zscore_action_minmax(self):
-        agent = _MinimalDiffusionAgent(**_basic_kwargs(obs_normalizer=True, act_normalizer=True))
-        assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
-        assert isinstance(agent.act_normalizer, MinMaxNormalizer)
-
-    def test_normalizer_none_default(self):
+    def test_normalizer_bare_true_uses_the_default_class(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        assert agent.obs_normalizer is None
-        assert agent.act_normalizer is None
+        assert isinstance(
+            agent._instantiate_normalizer(config=True, spec=3, default_cls=ZScoreNormalizer),
+            ZScoreNormalizer,
+        )
+        assert isinstance(
+            agent._instantiate_normalizer(config=True, spec=4, default_cls=MinMaxNormalizer),
+            MinMaxNormalizer,
+        )
+
+    def test_normalizer_none_yields_no_normalizer(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        assert agent._instantiate_normalizer(None, 3, ZScoreNormalizer) is None
+        assert agent._instantiate_normalizer(False, 3, ZScoreNormalizer) is None
 
     def test_normalizer_dict_target_instantiated(self):
-        agent = _MinimalDiffusionAgent(
-            **_basic_kwargs(obs_normalizer={"_target_": "policy.transforms.ZScoreNormalizer"})
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        normalizer = agent._instantiate_normalizer(
+            config={"_target_": "policy.transforms.ZScoreNormalizer"},
+            spec=3,
+            default_cls=MinMaxNormalizer,
         )
-        assert isinstance(agent.obs_normalizer, ZScoreNormalizer)
+        assert isinstance(normalizer, ZScoreNormalizer)
+
+    def test_normalizer_dict_target_instantiated_from_hydra_dictconfig(self):
+        """A `DictConfig` reaches `_instantiate_normalizer` under `_recursive_: false`, not a plain
+        dict."""
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        normalizer = agent._instantiate_normalizer(
+            config=OmegaConf.create({"_target_": "policy.transforms.ZScoreNormalizer"}),
+            spec=3,
+            default_cls=MinMaxNormalizer,
+        )
+        assert isinstance(normalizer, ZScoreNormalizer)
+
+    def test_normalizer_mask_is_threaded_to_the_normalizer(self):
+        agent = _MinimalDiffusionAgent(**_basic_kwargs())
+        mask = torch.tensor([True, False, True])
+        normalizer = agent._instantiate_normalizer(
+            config=True, spec=3, default_cls=ZScoreNormalizer, mask=mask
+        )
+        assert torch.equal(normalizer.mask, mask)
+
+    def test_normalizer_not_built_before_configure_model(self):
+        """The obs normalizer is sized from the tokenizer, so it cannot exist at __init__ time."""
+        agent = _MinimalDiffusionAgent(**_basic_kwargs(obs_normalizer=True))
+        assert agent.obs_normalizer is None
 
     # ------------------------------------------------------------------ #
     # _get_cond_dims / _build_external_cond / Normalization helpers
@@ -103,8 +137,8 @@ class TestBaseDiffusionAgentLogic:
         assert torch.equal(agent._normalize_obs(obs), torch.tensor([2.0, 3.0]))
         assert torch.equal(agent._normalize_act(act), torch.tensor([6.0, 8.0]))
 
-        ext_cond = agent._build_external_cond(obs)
-        assert torch.equal(ext_cond["obs"], torch.tensor([2.0, 3.0]))
+        # _build_external_cond hands the raw tree on; normalization happens later, on the tokens.
+        assert torch.equal(agent._build_external_cond(obs)["obs"], obs)
 
     # ------------------------------------------------------------------ #
     # EMA optionality
@@ -167,17 +201,20 @@ class TestBaseDiffusionAgentLogic:
         with pytest.raises(ValueError, match="must contain an 'obs' entry"):
             agent._encode({})
 
-    def test_encode_forwards_external_cond_as_kwargs_to_encoder(self):
+    def test_encode_hands_normalized_tokens_to_the_encoder(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
         agent.encoder = MagicMock()
+        tokens = {"proprio": torch.randn(2, 2, 3), "task": torch.randn(2, 2, 5)}
+        agent._tokenize = MagicMock(return_value=tokens)
+        agent.obs_normalizer = MagicMock()
+        agent.obs_normalizer.normalize.side_effect = lambda x: x
+
         obs = torch.randn(2, 2, 3)
         agent._encode({"obs": obs})
-        agent.encoder.assert_called_once_with(obs=obs)
 
-        agent.encoder.reset_mock()
-        goal = torch.randn(2, 3)
-        agent._encode({"obs": obs, "goal": goal})
-        agent.encoder.assert_called_once_with(obs=obs, goal=goal)
+        agent._tokenize.assert_called_once_with(obs=obs)
+        agent.obs_normalizer.normalize.assert_called_once_with(tokens)
+        agent.encoder.assert_called_once_with(tokens)
 
     def test_get_cond_dims_uses_encoder_cond_dims_when_present(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
@@ -227,10 +264,16 @@ class TestGoalConditionedDiffusionPolicyLogic:
             noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
             goal_horizon=1,
             obs_dim=48,
+            proprio_dim=18,
+            tokenizer={
+                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+            },
         )
+        policy._instantiate_tokenizer()
         kwargs = policy._encoder_extra_kwargs()
         assert kwargs["goal_conditioned"] is True
-        assert kwargs["obs_dim"] == 48
+        assert kwargs["proprio_dim"] == 18
+        assert kwargs["token_dim"] == policy.tokenizer.output_dim == 30
 
     def test_build_external_cond_from_batch_missing_goal_raises(self):
         from policy.algorithms.goal_conditioned_diffusion_policy import (

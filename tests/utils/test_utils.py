@@ -17,6 +17,7 @@ from policy.utils.utils import (
     print_mapping_tree,
     recursive_index,
     stack_dicts,
+    to_device,
     to_tensor,
 )
 
@@ -66,6 +67,21 @@ def test_to_tensor():
     assert isinstance(res["b"]["c"], torch.Tensor)
     assert res["a"].dtype == torch.float32
     assert torch.equal(res["a"], torch.tensor([1.0, 2.0, 3.0]))
+
+
+def test_to_device():
+    data = {
+        "a": torch.tensor([1.0, 2.0]),
+        "b": {"c": np.array([3.0, 4.0])},
+    }
+    device = torch.device("cpu")
+    res = to_device(data, device=device)
+    assert isinstance(res["a"], torch.Tensor)
+    assert isinstance(res["b"]["c"], torch.Tensor)
+    assert res["a"].device == device
+    assert res["b"]["c"].device == device
+    assert torch.equal(res["a"], torch.tensor([1.0, 2.0]))
+    assert torch.equal(res["b"]["c"], torch.tensor([3.0, 4.0]))
 
 
 def test_recursive_index():

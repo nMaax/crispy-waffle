@@ -4,6 +4,7 @@ from typing import overload
 import torch
 import torch.nn as nn
 
+from policy.transforms.normalization.mask import apply_mask, child_mask, validate_mask
 from policy.utils.typing_utils import DimSpec, TensorTree
 
 
@@ -13,6 +14,11 @@ class ZScoreNormalizer(nn.Module):
     A dict is treated as a tree; each leaf tensor gets its own independent
     normalizer, fit/applied over its last (feature) dimension. Structure of
     the tree of sub-normalizers is fixed at construction time via `spec`.
+
+    ``mask`` marks which channels are actually normalizable: ``False`` channels pass through
+    untouched, for features where an affine rescale is not meaningful (e.g. the one-hot role
+    indicators of a canonicalized observation). A mask tree may cover a subset of `spec`'s keys;
+    leaves it omits are normalized in full.
 
     Example:
         spec = {
@@ -28,8 +34,9 @@ class ZScoreNormalizer(nn.Module):
     _n: int
     _running_mean: torch.Tensor | None
     _running_M2: torch.Tensor | None
+    mask: torch.Tensor | None
 
-    def __init__(self, spec: DimSpec):
+    def __init__(self, spec: DimSpec, mask: TensorTree | None = None):
         super().__init__()
 
         if not isinstance(spec, Mapping):
@@ -41,9 +48,13 @@ class ZScoreNormalizer(nn.Module):
             self.register_buffer("mean", torch.zeros(dim))
             self.register_buffer("std", torch.ones(dim))
             self.register_buffer("_is_fit", torch.tensor(False))
+            self.register_buffer("mask", validate_mask(mask, dim), persistent=False)
         else:
             self.norms = nn.ModuleDict(
-                {key: ZScoreNormalizer(child_spec) for key, child_spec in spec.items()}
+                {
+                    key: ZScoreNormalizer(child_spec, child_mask(mask, key))
+                    for key, child_spec in spec.items()
+                }
             )
 
     @property
@@ -161,7 +172,8 @@ class ZScoreNormalizer(nn.Module):
         """Normalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
             if self.is_fit:
-                return (x - self.mean) / self.std
+                normalized = (x - self.mean) / self.std
+                return apply_mask(self.mask, normalized, x)
             else:
                 return x
         else:
@@ -177,7 +189,8 @@ class ZScoreNormalizer(nn.Module):
         """Unnormalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
             if self.is_fit:
-                return (x * self.std) + self.mean
+                unnormalized = (x * self.std) + self.mean
+                return apply_mask(self.mask, unnormalized, x)
             else:
                 return x
         else:

@@ -18,6 +18,12 @@ class BaseTokenizer(ABC):
     def __init__(self, relative_goal: bool = True):
         self.relative_goal = relative_goal
 
+    @property
+    @abstractmethod
+    def categorical_mask(self) -> torch.Tensor:
+        """``[output_dim]`` bool mask, False on channels an affine rescale would destroy."""
+        ...
+
     def tokenize(
         self,
         obs_task: TensorTree | None,

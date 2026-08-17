@@ -169,6 +169,15 @@ class TokenizerProtocol(Protocol):
         """Number of tokens ``K`` produced per observed timestep (None if dynamic/variable)."""
         ...
 
+    @property
+    def categorical_mask(self) -> torch.Tensor:
+        """``[output_dim]`` bool mask, False on channels an affine rescale would destroy.
+
+        Consumed by the algorithm's obs normalizer so that e.g. one-hot role indicators survive
+        normalization instead of being z-scored to zero.
+        """
+        ...
+
     supports_single_side: ClassVar[bool]
     """Whether :meth:`tokenize` can be called with exactly one of ``obs_task`` and
     ``goal_task)``."""
