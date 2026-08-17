@@ -227,6 +227,7 @@ class TestDiffusionPolicyLogic:
             "token_dim": policy.tokenizer.output_dim,
             "tokens_per_step": policy.tokenizer.tokens_per_step,
             "relative_goal": False,
+            "goal_conditioned": False,
         }
 
     def test_goal_conditioned_diffusion_policy_encoder_extra_kwargs_reports_goal_conditioned(self):

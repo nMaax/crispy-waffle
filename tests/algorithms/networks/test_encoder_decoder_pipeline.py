@@ -76,6 +76,7 @@ def test_film_pipeline_instantiates_and_runs():
         proprio_dim=PROPRIO_DIM,
         token_dim=tokenizer.output_dim,
         tokens_per_step=tokenizer.tokens_per_step,
+        relative_goal=False,
         goal_conditioned=False,
     )
     decoder_cfg = _compose_decoder("film_decoder1d", act_dim=act_dim, obs_horizon=horizon)
@@ -104,6 +105,7 @@ def test_film_pipeline_goal_conditioned_absolute_mode_instantiates_and_runs():
         proprio_dim=PROPRIO_DIM,
         token_dim=tokenizer.output_dim,
         tokens_per_step=tokenizer.tokens_per_step,
+        relative_goal=False,
         goal_conditioned=True,
     )
     decoder_cfg = _compose_decoder("film_decoder1d", act_dim=act_dim, obs_horizon=horizon)

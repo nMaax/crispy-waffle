@@ -19,9 +19,6 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             )
         super().__init__(*args, goal_horizon=goal_horizon, **kwargs)
 
-    def _encoder_extra_kwargs(self) -> dict[str, Any]:
-        return {**super()._encoder_extra_kwargs(), "goal_conditioned": self.goal_conditioned}
-
     def _tokenize(self, obs: TensorTree, goal: TensorTree | None = None) -> dict[str, TensorTree]:
         """Splits proprioception off and tokenizes, routing absolute vs goal-relative."""
         if self.tokenizer is None:

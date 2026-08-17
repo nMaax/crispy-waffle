@@ -302,6 +302,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             "proprio_dim": self.proprio_dim,
             "token_dim": self.tokenizer.output_dim,
             "tokens_per_step": self.tokenizer.tokens_per_step,
+            "goal_conditioned": self.goal_conditioned,
             "relative_goal": self.relative_goal,
         }
 

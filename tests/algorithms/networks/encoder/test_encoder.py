@@ -40,12 +40,14 @@ class TestConditioningEncoderLogic:
     # ------------------------------------------------------------------ #
     # Packing and cond_dims
     # ------------------------------------------------------------------ #
-    def test_default_goal_conditioned_is_false(self):
-        encoder = ConditioningEncoder(proprio_dim=18, token_dim=30)
-        assert encoder.goal_conditioned is False
-
     def test_no_embedder_and_no_pooling_passes_tokens_through(self):
-        encoder = ConditioningEncoder(proprio_dim=18, token_dim=30)
+        encoder = ConditioningEncoder(
+            proprio_dim=18,
+            token_dim=30,
+            tokens_per_step=1,
+            relative_goal=False,
+            goal_conditioned=False,
+        )
         assert encoder.embedder is None
         assert encoder.pooling is None
         assert encoder.output_dim == 30
@@ -57,7 +59,9 @@ class TestConditioningEncoderLogic:
         assert torch.equal(ext_cond["obs"]["proprio"], tokens["proprio"])
 
     def test_absolute_mode_reports_separate_goal_entry(self):
-        encoder = ConditioningEncoder(proprio_dim=18, token_dim=30, goal_conditioned=True)
+        encoder = ConditioningEncoder(
+            proprio_dim=18, token_dim=30, tokens_per_step=1, relative_goal=False, goal_conditioned=True
+        )
         assert encoder.cond_dims == ConditioningContract(step_dim=48, global_dim=30)
         assert encoder.cond_dims["obs"] == 48
         assert encoder.cond_dims["goal"] == 30
@@ -73,7 +77,9 @@ class TestConditioningEncoderLogic:
         assert torch.equal(ext_cond["goal"], tokens["goal_task"])
 
     def test_unconditioned_has_no_goal_key(self):
-        encoder = ConditioningEncoder(proprio_dim=18, token_dim=30, goal_conditioned=False)
+        encoder = ConditioningEncoder(
+            proprio_dim=18, token_dim=30, tokens_per_step=1, relative_goal=False, goal_conditioned=False
+        )
         assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
         ext_cond = encoder(_tokens())
@@ -82,7 +88,11 @@ class TestConditioningEncoderLogic:
     def test_relative_goal_folds_the_goal_into_obs(self):
         """relative_goal tokens already carry the goal, so no standalone goal entry is reported."""
         encoder = ConditioningEncoder(
-            proprio_dim=18, token_dim=30, goal_conditioned=True, relative_goal=True
+            proprio_dim=18,
+            token_dim=30,
+            tokens_per_step=1,
+            goal_conditioned=True,
+            relative_goal=True,
         )
         assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
@@ -95,18 +105,32 @@ class TestConditioningEncoderLogic:
     def test_has_standalone_goal_tracks_the_configuration(self):
         """Whether a goal stream is embedded is decided by config, not by inspecting the
         payload."""
-        assert not ConditioningEncoder(proprio_dim=18, token_dim=30).has_standalone_goal
+        assert not ConditioningEncoder(
+            proprio_dim=18,
+            token_dim=30,
+            tokens_per_step=1,
+            relative_goal=False,
+            goal_conditioned=False,
+        ).has_standalone_goal
         assert ConditioningEncoder(
-            proprio_dim=18, token_dim=30, goal_conditioned=True
+            proprio_dim=18, token_dim=30, tokens_per_step=1, relative_goal=False, goal_conditioned=True
         ).has_standalone_goal
         assert not ConditioningEncoder(
-            proprio_dim=18, token_dim=30, goal_conditioned=True, relative_goal=True
+            proprio_dim=18,
+            token_dim=30,
+            tokens_per_step=1,
+            goal_conditioned=True,
+            relative_goal=True,
         ).has_standalone_goal
 
     def test_relative_goal_requires_goal_conditioning(self):
         with pytest.raises(ValueError, match="requires goal_conditioned=True"):
             ConditioningEncoder(
-                proprio_dim=18, token_dim=30, goal_conditioned=False, relative_goal=True
+                proprio_dim=18,
+                token_dim=30,
+                tokens_per_step=1,
+                goal_conditioned=False,
+                relative_goal=True,
             )
 
     # ------------------------------------------------------------------ #
@@ -117,6 +141,7 @@ class TestConditioningEncoderLogic:
         encoder = ConditioningEncoder(
             proprio_dim=18,
             token_dim=30,
+            tokens_per_step=1,
             goal_conditioned=True,
             relative_goal=True,
             embedder={"_target_": MLP, "output_dim": 8, "hidden_dims": [16]},
@@ -144,6 +169,7 @@ class TestConditioningEncoderLogic:
         encoder = ConditioningEncoder(
             proprio_dim=18,
             token_dim=30,
+            tokens_per_step=1,
             goal_conditioned=True,
             relative_goal=True,
             embedder={"_target_": SELF_ATTENTION, "output_dim": 8, "obs_horizon": 2, "num_heads": 2},
