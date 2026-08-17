@@ -2,8 +2,6 @@ from policy.algorithms.networks.decoder import CrossAttentionDecoder1D, Diffusio
 from policy.algorithms.networks.encoder import (
     ConditioningContract,
     ConditioningEncoder,
-    ObjectTokenizer,
-    StateTokenizer,
 )
 from policy.algorithms.networks.encoder.embedders import (
     MLP,
@@ -21,6 +19,4 @@ __all__ = [
     "MLPPooling",
     "ConditioningEncoder",
     "ConditioningContract",
-    "ObjectTokenizer",
-    "StateTokenizer",
 ]

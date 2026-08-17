@@ -9,14 +9,14 @@ import pytest
 import torch
 
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.algorithms.networks.encoder.tokenizers import ObjectTokenizer, StateTokenizer
+from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.transforms.canonicalization.spec import ROLE_PICK, ROLE_TARGET, canonical_dim_spec
 
 DECODER = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
 ENCODER = "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"
-OBJECT_TOKENIZER = "policy.algorithms.networks.encoder.tokenizers.object.ObjectTokenizer"
-STATE_TOKENIZER = "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+OBJECT_TOKENIZER = "policy.algorithms.tokenizers.object.ObjectTokenizer"
+STATE_TOKENIZER = "policy.algorithms.tokenizers.state.StateTokenizer"
 
 OBS_HORIZON = 2
 NUM_OBJECTS = 2

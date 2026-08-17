@@ -155,7 +155,7 @@ class TokenizerProtocol(Protocol):
     (pre-embedder) tokens.
 
     Named with a `Protocol` suffix to avoid colliding with the concrete
-    `StateTokenizer` class (`policy/algorithms/networks/conditioning/tokenizers.py`), one of
+    `StateTokenizer` class (`policy/algorithms/tokenizers/state.py`), one of
     several implementations of this protocol.
     """
 

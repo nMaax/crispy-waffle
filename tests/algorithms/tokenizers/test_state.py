@@ -2,7 +2,7 @@ import pytest
 import torch
 from mani_skill.utils.geometry.rotation_conversions import axis_angle_to_quaternion
 
-from policy.algorithms.networks.encoder.tokenizers.state import StateTokenizer
+from policy.algorithms.tokenizers.state import StateTokenizer
 
 
 def _pose(pos: tuple[float, float, float], axis_angle: tuple[float, float, float] = (0, 0, 0)):

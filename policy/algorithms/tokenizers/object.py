@@ -4,8 +4,8 @@ from collections.abc import Mapping, Sequence
 
 import torch
 
-from policy.algorithms.networks.encoder.tokenizers.base import BaseTokenizer
-from policy.algorithms.networks.encoder.tokenizers.utils import relative_se3_pose
+from policy.algorithms.tokenizers.base import BaseTokenizer
+from policy.algorithms.tokenizers.utils import relative_se3_pose
 from policy.transforms.canonicalization.spec import (
     POSE_DIM,
     RELATIVE_SE3_DIM,

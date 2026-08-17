@@ -266,7 +266,7 @@ class TestGoalConditionedDiffusionPolicyLogic:
             obs_dim=48,
             proprio_dim=18,
             tokenizer={
-                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+                "_target_": "policy.algorithms.tokenizers.state.StateTokenizer"
             },
         )
         policy._instantiate_tokenizer()

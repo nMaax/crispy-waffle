@@ -11,7 +11,7 @@ from hydra import compose, initialize_config_module
 from omegaconf import OmegaConf
 
 from policy.algorithms.networks.encoder import ConditioningEncoder
-from policy.algorithms.networks.encoder.tokenizers import ObjectTokenizer, StateTokenizer
+from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
 from policy.utils import pop_leaf_key
 
 PROPRIO_DIM = 18

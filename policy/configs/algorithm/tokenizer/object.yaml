@@ -1,2 +1,2 @@
-_target_: policy.algorithms.networks.encoder.tokenizers.object.ObjectTokenizer
+_target_: policy.algorithms.tokenizers.object.ObjectTokenizer
 object_keys: null

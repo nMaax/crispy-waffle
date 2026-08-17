@@ -28,9 +28,10 @@ from matplotlib.image import AxesImage
 
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.algorithms.networks.encoder import ConditioningEncoder, ObjectTokenizer
+from policy.algorithms.networks.encoder import ConditioningEncoder
 from policy.algorithms.networks.encoder.embedders import SelfAttention
 from policy.algorithms.networks.encoder.pooling import AttentionPooling
+from policy.algorithms.tokenizers import ObjectTokenizer
 from policy.transforms import observation_pipeline
 from policy.utils import (
     get_batch_size,

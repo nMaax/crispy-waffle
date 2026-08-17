@@ -190,7 +190,7 @@ class TestDiffusionPolicyLogic:
             "decoder": {"_target_": "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"},
             "encoder": {"_target_": "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"},
             "tokenizer": {
-                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+                "_target_": "policy.algorithms.tokenizers.state.StateTokenizer"
             },
             "ema": {},
             "noise_scheduler": {},
@@ -209,7 +209,7 @@ class TestDiffusionPolicyLogic:
             "decoder": {"_target_": "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"},
             "encoder": {"_target_": "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"},
             "tokenizer": {
-                "_target_": "policy.algorithms.networks.encoder.tokenizers.state.StateTokenizer"
+                "_target_": "policy.algorithms.tokenizers.state.StateTokenizer"
             },
             "ema": {},
             "noise_scheduler": {},

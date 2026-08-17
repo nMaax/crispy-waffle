@@ -5,13 +5,10 @@ from policy.algorithms.networks.encoder.embedders import (
 from policy.algorithms.networks.encoder.encoder import ConditioningEncoder
 from policy.algorithms.networks.encoder.pooling import AttentionPooling, MLPPooling
 from policy.algorithms.networks.encoder.spec import ConditioningContract
-from policy.algorithms.networks.encoder.tokenizers import ObjectTokenizer, StateTokenizer
 
 __all__ = [
     "ConditioningEncoder",
     "ConditioningContract",
-    "ObjectTokenizer",
-    "StateTokenizer",
     "MLP",
     "SelfAttention",
     "AttentionPooling",
