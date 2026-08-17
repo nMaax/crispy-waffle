@@ -252,16 +252,18 @@ def build_report(
             for run in candidates:
                 report.note(styled(f"# {', '.join(reasons[run.prefix])}", "red"))
                 report.raw(
-                    f'HfApi().delete_folder(path_in_repo="{run.prefix}", '
-                    f'repo_id="{repo_id}", repo_type="model")'
+                    'uv run python -c "from huggingface_hub import HfApi; '
+                    f"HfApi().delete_folder(path_in_repo='{run.prefix}', "
+                    f"repo_id='{repo_id}', repo_type='model')\""
                 )
         if has_legacy:
             if candidates:
                 report.blank()
             report.note(styled("# .legacy/ folder found in repo (ignored from inventory)", "red"))
             report.raw(
-                f'HfApi().delete_folder(path_in_repo=".legacy", '
-                f'repo_id="{repo_id}", repo_type="model")'
+                'uv run python -c "from huggingface_hub import HfApi; '
+                f"HfApi().delete_folder(path_in_repo='.legacy', "
+                f"repo_id='{repo_id}', repo_type='model')\""
             )
     report.blank()
     report.note(
