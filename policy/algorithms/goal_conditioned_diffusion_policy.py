@@ -3,9 +3,8 @@ from typing import Any, Literal
 
 import torch
 
-from policy.algorithms.base_diffusion_agent import _as_batch
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import get_ndim, map_leaves, pop_leaf_key, to_device
+from policy.utils import as_batch, get_ndim, map_leaves, pop_leaf_key, to_device
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
@@ -65,7 +64,7 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         return {"proprio": obs_proprio, "task": self.tokenizer.tokenize(obs_task, goal_task)}
 
     def _obs_normalizer_view(self, item: dict[str, Any]) -> TensorTree:
-        return self._tokenize(_as_batch(item["obs_seq"]), _as_batch(item["goal"]))
+        return self._tokenize(as_batch(item["obs_seq"]), as_batch(item["goal"]))
 
     def extract_embeddings(
         self,

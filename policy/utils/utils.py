@@ -290,6 +290,11 @@ def map_leaves(
     return {k: map_leaves(fn, v) for k, v in tree.items()}
 
 
+def as_batch(tree: TensorTree) -> TensorTree:
+    """Adds a singleton batch axis to every leaf of an unbatched dataset item."""
+    return map_leaves(lambda t: t.unsqueeze(0), tree)
+
+
 def subtract_leaves(minuend: TensorTree, subtrahend: TensorTree) -> TensorTree:
     """Per-leaf ``minuend - subtrahend``, preserving tree structure."""
     if isinstance(subtrahend, Mapping) or isinstance(minuend, Mapping):

@@ -13,7 +13,7 @@ from torch.optim.optimizer import Optimizer
 from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.transforms.canonicalization.spec import canonical_normalization_mask
-from policy.utils import cat_dicts, get_total_dim, map_leaves, pop_leaf_key
+from policy.utils import as_batch, cat_dicts, get_total_dim, pop_leaf_key
 from policy.utils.typing_utils import (
     DiffusionSchedulerProtocol,
     DimSpec,
@@ -22,11 +22,6 @@ from policy.utils.typing_utils import (
     TensorTree,
     TokenizerProtocol,
 )
-
-
-def _as_batch(tree: TensorTree) -> TensorTree:
-    """Adds a singleton batch axis to every leaf of an unbatched dataset item."""
-    return map_leaves(lambda t: t.unsqueeze(0), tree)
 
 
 class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
@@ -283,7 +278,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Maps one training-set item into :meth:`_obs_normalizer_spec`'s space."""
         if self.tokenizer is None:
             return item["obs_seq"]
-        return self._tokenize(_as_batch(item["obs_seq"]))
+        return self._tokenize(as_batch(item["obs_seq"]))
 
     def _tokenize(self, obs: TensorTree) -> dict[str, TensorTree]:
         """Splits proprioception off and turns the task tree into raw, pre-normalization tokens."""

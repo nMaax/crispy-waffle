@@ -1,5 +1,6 @@
 from .functional_utils import compose
 from .utils import (
+    as_batch,
     cat_dicts,
     concat_leaf_tensors,
     flatten_and_concat_leaf_tensors,
@@ -24,6 +25,7 @@ from .utils import (
 )
 
 __all__ = [
+    "as_batch",
     "cat_dicts",
     "compose",
     "concat_leaf_tensors",
