@@ -2241,22 +2241,22 @@ encoder.embedder.attn.out_proj.weight:
 encoder.embedder.input_proj.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.2520191967487335
-  mean: 0.011590800248086452
-  min: -0.2508927881717682
+  max: 0.24401652812957764
+  mean: 0.01122274436056614
+  min: -0.24292589724063873
   shape:
   - 64
-  sum: 0.741811215877533
+  sum: 0.7182556390762329
 encoder.embedder.input_proj.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.2580575942993164
-  mean: -0.004426329396665096
-  min: -0.2576677203178406
+  max: 0.24986320734024048
+  mean: -0.004744440317153931
+  min: -0.24948568642139435
   shape:
   - 64
-  - 15
-  sum: -4.249276161193848
+  - 16
+  sum: -4.858306884765625
 encoder.embedder.mlp.0.bias:
   device: cpu
   dtype: torch.float32

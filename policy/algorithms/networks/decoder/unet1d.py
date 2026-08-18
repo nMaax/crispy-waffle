@@ -174,16 +174,22 @@ class CrossAttentionBlock1D(nn.Module):
             nn.Linear(4 * channels, channels),
         )
 
-    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        context: torch.Tensor,
+        context_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         shapes:
             x: [B, channels, horizon]
             context: [B, S, context_dim]
+            context_mask: [B, S] bool, True on context tokens to ignore (e.g. absent objects)
             returns: [B, channels, horizon]
         """
         h = self.norm1(x).moveaxis(-1, -2)  # [B, horizon, channels]
         ctx = self.context_proj(context)  # [B, S, channels]
-        attn_out, _ = self.attn(h, ctx, ctx, need_weights=False)
+        attn_out, _ = self.attn(h, ctx, ctx, key_padding_mask=context_mask, need_weights=False)
         x = x + attn_out.moveaxis(-1, -2)
 
         h = self.norm2(x).moveaxis(-1, -2)  # [B, horizon, channels]
@@ -374,6 +380,7 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
                 "CrossAttentionDecoder1D requires context_dim to be set in ConditioningContract."
             )
         self.context_key = cond_dims.context_key
+        self.context_mask_key = cond_dims.context_mask_key
         context_dim = cond_dims.context_dim
         film_dim = dsed + cond_dims.get_film_width(obs_horizon)
 
@@ -492,6 +499,8 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
             raise ValueError(
                 f"CrossAttentionDecoder1D expected a {self.context_key!r} entry in external_cond."
             )
+        # Popped rather than read: anything left in encoded_cond is concatenated into FiLM below.
+        context_mask = encoded_cond.pop(self.context_mask_key, None)
 
         cond_flat = flatten_and_concat_leaf_tensors(encoded_cond, device=sample.device)
         global_feature = torch.cat([global_feature, cond_flat], dim=-1)
@@ -503,20 +512,20 @@ class CrossAttentionDecoder1D(nn.Module, DiffusionNetworkProtocol):
             resnet1, resnet2, cross_attn, downsample = stage  # type: ignore[misc]
             x = resnet1(x, global_feature)
             x = resnet2(x, global_feature)
-            x = cross_attn(x, context)
+            x = cross_attn(x, context, context_mask)
             h.append(x)
             x = downsample(x)
 
         for mid_module in self.mid_modules:
             x = mid_module(x, global_feature)
-        x = self.mid_cross_attn(x, context)
+        x = self.mid_cross_attn(x, context, context_mask)
 
         for stage in self.up_modules:
             resnet1, resnet2, cross_attn, upsample = stage  # type: ignore[misc]
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet1(x, global_feature)
             x = resnet2(x, global_feature)
-            x = cross_attn(x, context)
+            x = cross_attn(x, context, context_mask)
             x = upsample(x)
 
         x = self.final_conv(x)

@@ -1,0 +1,114 @@
+import pytest
+import torch
+
+from policy.algorithms.networks.encoder.embedders.graph_transformer import (
+    EDGE_GOAL,
+    EDGE_NONE,
+    EDGE_SPATIAL,
+    EDGE_TEMPORAL,
+    GraphTransformer,
+)
+
+B, T, G, K, IN, OUT = 2, 2, 1, 4, 10, 8
+SEQ = (T + G) * K
+
+
+def _embedder(**overrides):
+    kwargs = dict(
+        input_dim=IN, output_dim=OUT, obs_horizon=T, goal_horizon=G, num_heads=2, num_layers=2
+    )
+    kwargs.update(overrides)
+    return GraphTransformer(**kwargs)
+
+
+def _task(valid=None):
+    return {
+        "nodes": torch.randn(B, T + G, K, IN),
+        "valid": torch.ones(B, T + G, K) if valid is None else valid,
+        "edge_feat": torch.randn(B, SEQ, SEQ, 6),
+    }
+
+
+class TestEdgeTopology:
+    """The three relation kinds, and their directionality."""
+
+    @pytest.fixture
+    def kinds(self):
+        return _embedder()._edge_kinds(T + G, K, torch.device("cpu"))
+
+    def test_every_pair_in_a_timestep_is_connected_both_ways(self, kinds):
+        for step in range(T + G):
+            block = kinds[step * K : (step + 1) * K, step * K : (step + 1) * K]
+            assert (block == EDGE_SPATIAL).all()
+
+    def test_temporal_edges_run_present_to_past_on_the_same_slot_only(self, kinds):
+        for slot in range(K):
+            assert kinds[1 * K + slot, 0 * K + slot] == EDGE_TEMPORAL
+            # The past must not see the future.
+            assert kinds[0 * K + slot, 1 * K + slot] == EDGE_NONE
+            # A different object at a different timestep is never connected.
+            other = (slot + 1) % K
+            assert kinds[1 * K + slot, 0 * K + other] == EDGE_NONE
+
+    def test_only_the_most_recent_observation_attends_to_its_own_goal(self, kinds):
+        goal_step = T  # goal frames are the trailing timesteps
+        for slot in range(K):
+            assert kinds[(T - 1) * K + slot, goal_step * K + slot] == EDGE_GOAL
+            # Older observations do not reach the goal, ...
+            assert kinds[0 * K + slot, goal_step * K + slot] == EDGE_NONE
+            # ... and a goal node never queries the observations.
+            assert kinds[goal_step * K + slot, (T - 1) * K + slot] == EDGE_NONE
+
+    def test_goal_nodes_are_keys_but_never_queries_of_the_past(self, kinds):
+        goal_rows = kinds[T * K :, : T * K]
+        assert (goal_rows == EDGE_NONE).all()
+
+
+class TestGraphTransformer:
+    def test_preserves_the_node_grid_and_widens_the_features(self):
+        out = _embedder()(_task())
+        assert out.shape == (B, T + G, K, OUT)
+
+    def test_rejects_a_window_that_does_not_match_its_horizons(self):
+        task = _task()
+        task["nodes"] = torch.randn(B, T + G + 1, K, IN)
+        with pytest.raises(ValueError, match="obs_horizon"):
+            _embedder()(task)
+
+    def test_all_inactive_slots_do_not_produce_nans(self):
+        """A row with no permitted key would make softmax emit NaN; self-loops prevent that."""
+        valid = torch.ones(B, T + G, K)
+        valid[0, :, 1:] = 0.0  # only the TCP survives in this sample
+        out = _embedder()(_task(valid))
+        assert torch.isfinite(out).all()
+
+    def test_inactive_slots_cannot_influence_active_ones(self):
+        """The whole point of the validity mask: an absent object is parked off-table, and its
+        stale pose must not leak into any real node's representation."""
+        torch.manual_seed(0)
+        embedder = _embedder().eval()
+
+        valid = torch.ones(B, T + G, K)
+        valid[:, :, 3:] = 0.0
+        task = _task(valid)
+
+        with torch.no_grad():
+            before = embedder(task)
+            # Corrupt everything about the inactive slots: features and their edges alike.
+            task["nodes"][:, :, 3:] = torch.randn_like(task["nodes"][:, :, 3:]) * 100
+            slot_index = torch.arange(SEQ) % K
+            inactive = slot_index >= 3
+            task["edge_feat"][:, inactive, :] = torch.randn_like(task["edge_feat"][:, inactive, :])
+            task["edge_feat"][:, :, inactive] = torch.randn_like(task["edge_feat"][:, :, inactive])
+            after = embedder(task)
+
+        assert torch.allclose(before[:, :, :3], after[:, :, :3], atol=1e-6)
+
+    def test_gradients_reach_the_edge_encoder(self):
+        embedder = _embedder()
+        embedder(_task()).sum().backward()
+
+        for name in ("edge_kind_emb.weight", "edge_bias.0.weight", "pos_emb"):
+            param = dict(embedder.named_parameters())[name]
+            assert param.grad is not None, name
+            assert torch.isfinite(param.grad).all(), name

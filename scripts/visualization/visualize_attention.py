@@ -187,8 +187,9 @@ def build_token_labels(model: GoalConditionedDiffusionPolicy, obs_horizon: int) 
     """Token names in `t * K + k` order, matching `SelfAttention`'s flattening."""
     tokenizer = require_encoder(model).tokenizer
     if isinstance(tokenizer, ObjectTokenizer):
-        keys = tokenizer.object_keys or ("obj_0_pose", "obj_1_pose")
-        return [f"t{t}/{key}" for t in range(obs_horizon) for key in keys]
+        # Pool slot 0 is the TCP; the rest are scene objects in canonical slot order.
+        slots = ["tcp"] + [f"obj{k}" for k in range(1, tokenizer.tokens_per_step)]
+        return [f"t{t}/{slot}" for t in range(obs_horizon) for slot in slots]
     return [f"t{t}" for t in range(obs_horizon)]
 
 

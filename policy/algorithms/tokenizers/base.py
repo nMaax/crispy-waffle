@@ -3,9 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-import torch
-
-from policy.utils.typing_utils import TensorTree
+from policy.utils.typing_utils import DimSpec, TensorTree
 
 
 class BaseTokenizer(ABC):
@@ -20,15 +18,24 @@ class BaseTokenizer(ABC):
 
     @property
     @abstractmethod
-    def categorical_mask(self) -> torch.Tensor:
-        """``[output_dim]`` bool mask, False on channels an affine rescale would destroy."""
+    def categorical_mask(self) -> TensorTree:
+        """``[output_dim]`` bool mask, False on channels an affine rescale would destroy.
+
+        Mirrors :attr:`token_spec`'s structure: a tokenizer emitting a token subtree masks it
+        with a matching subtree.
+        """
         ...
+
+    @property
+    def token_spec(self) -> DimSpec:
+        """Dim spec of what :meth:`tokenize` emits, i.e. the space normalization is fit in."""
+        return self.output_dim
 
     def tokenize(
         self,
         obs_task: TensorTree | None,
         goal_task: TensorTree | None = None,
-    ) -> torch.Tensor:
+    ) -> TensorTree:
         if obs_task is not None and goal_task is not None:
             return self._tokenize_relative(obs_task, goal_task)
         state = obs_task if obs_task is not None else goal_task
@@ -37,7 +44,7 @@ class BaseTokenizer(ABC):
         return self._tokenize_absolute(state)
 
     @abstractmethod
-    def _tokenize_relative(self, obs_task: Any, goal_task: Any) -> torch.Tensor: ...
+    def _tokenize_relative(self, obs_task: Any, goal_task: Any) -> TensorTree: ...
 
     @abstractmethod
-    def _tokenize_absolute(self, task: Any) -> torch.Tensor: ...
+    def _tokenize_absolute(self, task: Any) -> TensorTree: ...

@@ -6,6 +6,7 @@ from omegaconf import OmegaConf
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
+from policy.transforms.canonicalization.spec import canonical_dim_spec
 from policy.utils import get_batch_size
 from policy.utils.typing_utils import TensorTree
 
@@ -263,7 +264,7 @@ class TestGoalConditionedDiffusionPolicyLogic:
             ema={"_target_": "diffusers.training_utils.EMAModel"},
             noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
             goal_horizon=1,
-            obs_dim=48,
+            obs_dim=canonical_dim_spec(2),
             proprio_dim=18,
             tokenizer={
                 "_target_": "policy.algorithms.tokenizers.state.StateTokenizer"
@@ -273,7 +274,7 @@ class TestGoalConditionedDiffusionPolicyLogic:
         kwargs = policy._encoder_extra_kwargs()
         assert kwargs["goal_conditioned"] is True
         assert kwargs["proprio_dim"] == 18
-        assert kwargs["token_dim"] == policy.tokenizer.output_dim == 30
+        assert kwargs["token_dim"] == policy.tokenizer.output_dim == 36
 
     def test_build_external_cond_from_batch_missing_goal_raises(self):
         from policy.algorithms.goal_conditioned_diffusion_policy import (

@@ -178,11 +178,13 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         )
         self._validate_tokenizer()
 
-    def _tokenizer_task_dim(self) -> DimSpec:
+    def _tokenizer_task_dim(self) -> Mapping[str, DimSpec]:
         """The task-only dim spec handed to the tokenizer, with proprioception split off."""
-        if isinstance(self.obs_dim, Mapping):
-            return {key: dim for key, dim in self.obs_dim.items() if key != "proprio"}
-        return self.task_dim
+        if not isinstance(self.obs_dim, Mapping):
+            raise TypeError(
+                f"Tokenizers require a canonical dict obs_dim tree, got {type(self.obs_dim).__name__}. "
+            )
+        return {key: dim for key, dim in self.obs_dim.items() if key != "proprio"}
 
     def _validate_tokenizer(self) -> None:
         if self.encoder_config is not None and self.tokenizer is None:
@@ -230,7 +232,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """The space the obs normalizer is fit in: tokens when tokenizing, else the raw tree."""
         if self.tokenizer is None:
             return self.obs_dim
-        return {"proprio": self.proprio_dim, "task": self.tokenizer.output_dim}
+        else:
+            return {"proprio": self.proprio_dim, "task": self.tokenizer.token_spec}
 
     def _obs_normalizer_mask(self) -> TensorTree | None:
         """Channels of :meth:`_obs_normalizer_spec` that an affine rescale would destroy."""

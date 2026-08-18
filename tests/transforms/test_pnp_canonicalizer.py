@@ -3,6 +3,13 @@ import torch
 
 from policy.transforms.canonicalization.canonicalizer import Canonicalizer
 
+ROLE_TCP = torch.tensor([1.0, 0.0, 0.0, 0.0])
+ROLE_PICK = torch.tensor([0.0, 1.0, 0.0, 0.0])
+ROLE_TARGET = torch.tensor([0.0, 0.0, 1.0, 0.0])
+ROLE_CLUTTER = torch.tensor([0.0, 0.0, 0.0, 1.0])
+
+EXPECTED_KEYS = {"proprio", "obj_pose", "obj_role", "obj_valid"}
+
 
 def _shape(d, batch=False):
     return (2, d) if batch else (d,)
@@ -29,35 +36,20 @@ def _stack_cube_obs(batch=False):
     }
 
 
-EXPECTED_KEYS = {
-    "proprio",
-    "tcp_pose",
-    "obj_0_pose",
-    "obj_0_role",
-    "obj_1_pose",
-    "obj_1_role",
-}
-
-
 class TestCanonicalizerDimSpec:
-    def test_dim_spec_default_covers_two_objects(self):
+    def test_dim_spec_default_covers_two_objects_plus_the_tcp(self):
         spec = Canonicalizer.dim_spec(2)
         assert spec["proprio"] == 18
-        assert spec["tcp_pose"] == 7
-        assert spec["obj_0_pose"] == 7
-        assert spec["obj_0_role"] == 3
-        assert spec["obj_1_pose"] == 7
-        assert spec["obj_1_role"] == 3
-        assert "obj_2_pose" not in spec
+        assert spec["obj_pose"] == (3, 7)
+        assert spec["obj_role"] == (3, 4)
+        assert spec["obj_valid"] == (3,)
 
     def test_dim_spec_generalizes_to_object_count(self):
         spec = Canonicalizer.dim_spec(8)
         assert spec["proprio"] == 18
-        assert spec["tcp_pose"] == 7
-        for i in range(8):
-            assert spec[f"obj_{i}_pose"] == 7
-            assert spec[f"obj_{i}_role"] == 3
-        assert "obj_8_pose" not in spec
+        assert spec["obj_pose"] == (9, 7)
+        assert spec["obj_role"] == (9, 4)
+        assert spec["obj_valid"] == (9,)
 
 
 class TestCanonicalizer:
@@ -73,15 +65,20 @@ class TestCanonicalizer:
             canon({"agent": {}})
 
     def test_parse_stack_cube(self):
-        canon = Canonicalizer("StackCube-v1")
-        out = canon(_stack_cube_obs())
+        obs = _stack_cube_obs()
+        out = Canonicalizer("StackCube-v1")(obs)
+
         assert set(out.keys()) == EXPECTED_KEYS
         assert out["proprio"].shape[-1] == 18  # qpos(9) + qvel(9)
-        assert out["tcp_pose"].shape[-1] == 7
-        assert out["obj_0_pose"].shape[-1] == 7
-        assert out["obj_1_pose"].shape[-1] == 7
-        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
+        # Slot 0 is the TCP, then pick, then target.
+        assert out["obj_pose"].shape == (3, 7)
+        assert torch.equal(out["obj_pose"][0], obs["extra"]["tcp_pose"])
+        assert torch.equal(out["obj_pose"][1], obs["extra"]["cubeA_pose"])
+        assert torch.equal(out["obj_pose"][2], obs["extra"]["cubeB_pose"])
+        assert torch.equal(out["obj_role"][0], ROLE_TCP)
+        assert torch.equal(out["obj_role"][1], ROLE_PICK)
+        assert torch.equal(out["obj_role"][2], ROLE_TARGET)
+        assert torch.equal(out["obj_valid"], torch.ones(3))
 
     @pytest.mark.parametrize(
         "env_id",
@@ -111,50 +108,50 @@ class TestCanonicalizer:
         out_base = Canonicalizer("StackCube-v1")(obs)
         out_swapped = Canonicalizer(env_id)(obs)
 
-        assert torch.equal(out_swapped["obj_0_pose"], out_base["obj_1_pose"])
-        assert torch.equal(out_swapped["obj_1_pose"], out_base["obj_0_pose"])
-        assert torch.equal(out_swapped["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out_swapped["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
+        assert torch.equal(out_swapped["obj_pose"][1], out_base["obj_pose"][2])
+        assert torch.equal(out_swapped["obj_pose"][2], out_base["obj_pose"][1])
+        assert torch.equal(out_swapped["obj_role"][1], ROLE_PICK)
+        assert torch.equal(out_swapped["obj_role"][2], ROLE_TARGET)
 
     def test_batched_input(self):
-        canon = Canonicalizer("StackCube-v1")
-        out = canon(_stack_cube_obs(batch=True))
+        out = Canonicalizer("StackCube-v1")(_stack_cube_obs(batch=True))
         for key in EXPECTED_KEYS:
             assert out[key].shape[0] == 2
 
-    def test_parse_stack_cube_clutter(self):
+    def test_parse_stack_cube_clutter_keeps_every_slot(self):
         obs = _stack_cube_obs()
-        obs["extra"]["obj_0_pose"] = torch.randn(7)
-        obs["extra"]["obj_0_active"] = torch.tensor(True)
-        obs["extra"]["obj_1_pose"] = torch.randn(7)
-        obs["extra"]["obj_1_active"] = torch.tensor(False)
-        obs["extra"]["obj_2_pose"] = torch.randn(7)
-        obs["extra"]["obj_2_active"] = torch.tensor(True)
+        for i, active in enumerate([True, False, True]):
+            obs["extra"][f"obj_{i}_pose"] = torch.randn(7)
+            obs["extra"][f"obj_{i}_active"] = torch.tensor(active)
 
-        canon = Canonicalizer("StackCubeClutter-v1")
-        out = canon(obs)
-        assert EXPECTED_KEYS.issubset(out.keys())
-        assert "obj_0_pose" in out
-        assert "obj_1_pose" in out
-        assert "obj_2_pose" in out
-        assert "obj_3_pose" in out
-        assert "obj_4_pose" not in out
-        assert torch.equal(out["obj_2_pose"], obs["extra"]["obj_0_pose"])
-        assert torch.equal(out["obj_3_pose"], obs["extra"]["obj_2_pose"])
-        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
-        assert torch.equal(out["obj_2_role"], torch.tensor([0.0, 0.0, 1.0]))
-        assert torch.equal(out["obj_3_role"], torch.tensor([0.0, 0.0, 1.0]))
+        out = Canonicalizer("StackCubeClutter-v1")(obs)
+
+        # tcp + pick + target + 3 clutter slots: inactive slots are kept, not dropped.
+        assert out["obj_pose"].shape == (6, 7)
+        assert torch.equal(out["obj_valid"], torch.tensor([1.0, 1.0, 1.0, 1.0, 0.0, 1.0]))
+        # Slot index still names the same physical object, so no renumbering happened.
+        for i in range(3):
+            assert torch.equal(out["obj_pose"][3 + i], obs["extra"][f"obj_{i}_pose"])
+            assert torch.equal(out["obj_role"][3 + i], ROLE_CLUTTER)
+
+    def test_clutter_activity_is_per_sample_not_collapsed_across_the_batch(self):
+        # A batched tree carries one activity flag per env; folding them together (e.g. with
+        # torch.any) would leak a parked, off-table object into the envs where it is inactive.
+        obs = _stack_cube_obs(batch=True)
+        active = torch.tensor([[True, False], [False, True]])
+        for i in range(2):
+            obs["extra"][f"obj_{i}_pose"] = torch.randn(2, 7)
+            obs["extra"][f"obj_{i}_active"] = active[:, i]
+
+        out = Canonicalizer("StackCubeClutter-v1")(obs)
+
+        assert out["obj_valid"].shape == (2, 5)
+        assert torch.equal(out["obj_valid"][:, 3:], active.float())
 
     def test_parse_stack_cube_clutter_random_pick(self):
         obs = {
-            "agent": {
-                "qpos": torch.randn(9),
-                "qvel": torch.randn(9),
-            },
-            "extra": {
-                "tcp_pose": torch.randn(7),
-            },
+            "agent": {"qpos": torch.randn(9), "qvel": torch.randn(9)},
+            "extra": {"tcp_pose": torch.randn(7)},
         }
         for i in range(8):
             obs["extra"][f"obj_{i}_pose"] = torch.randn(7)
@@ -162,19 +159,22 @@ class TestCanonicalizer:
             obs["extra"][f"obj_{i}_is_target"] = torch.tensor(i == 6)
             obs["extra"][f"obj_{i}_active"] = torch.tensor(i != 7)  # slot 7 inactive
 
-        canon = Canonicalizer("StackCubeClutterRandomPick-v1")
-        out = canon(obs)
-        assert "proprio" in out
-        assert "tcp_pose" in out
-        # 7 active objects: obj_0 .. obj_6
-        for i in range(7):
-            assert f"obj_{i}_pose" in out
-            assert f"obj_{i}_role" in out
-            assert torch.equal(out[f"obj_{i}_pose"], obs["extra"][f"obj_{i}_pose"])
-        assert "obj_7_pose" not in out
+        out = Canonicalizer("StackCubeClutterRandomPick-v1")(obs)
 
-        # Check role vectors: obj_3 is pick [1,0,0], obj_6 is target [0,1,0], others are [0,0,1]
-        assert torch.equal(out["obj_3_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_6_role"], torch.tensor([0.0, 1.0, 0.0]))
-        assert torch.equal(out["obj_0_role"], torch.tensor([0.0, 0.0, 1.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 0.0, 1.0]))
+        # tcp + the whole 8-slot pool; no fixed pick/target pair is prepended here.
+        assert out["obj_pose"].shape == (9, 7)
+        assert torch.equal(out["obj_role"][0], ROLE_TCP)
+        for i in range(8):
+            assert torch.equal(out["obj_pose"][1 + i], obs["extra"][f"obj_{i}_pose"])
+        assert torch.equal(out["obj_role"][1 + 3], ROLE_PICK)
+        assert torch.equal(out["obj_role"][1 + 6], ROLE_TARGET)
+        assert torch.equal(out["obj_role"][1 + 0], ROLE_CLUTTER)
+        assert torch.equal(out["obj_valid"], torch.tensor([1.0] * 8 + [0.0]))
+
+    def test_random_pick_without_any_pool_slot_raises(self):
+        obs = {
+            "agent": {"qpos": torch.randn(9), "qvel": torch.randn(9)},
+            "extra": {"tcp_pose": torch.randn(7)},
+        }
+        with pytest.raises(KeyError, match="No object pose keys"):
+            Canonicalizer("StackCubeClutterRandomPick-v1")(obs)

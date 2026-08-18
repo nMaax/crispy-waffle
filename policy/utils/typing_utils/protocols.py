@@ -9,7 +9,7 @@ import torch
 if typing.TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
-    from policy.utils.typing_utils import TensorTree
+    from policy.utils.typing_utils import DimSpec, TensorTree
 
 BatchType = TypeVar("BatchType", covariant=True)
 
@@ -170,7 +170,12 @@ class TokenizerProtocol(Protocol):
         ...
 
     @property
-    def categorical_mask(self) -> torch.Tensor:
+    def token_spec(self) -> DimSpec:
+        """Dim spec of what :meth:`tokenize` emits, i.e. the space normalization is fit in."""
+        ...
+
+    @property
+    def categorical_mask(self) -> TensorTree:
         """``[output_dim]`` bool mask, False on channels an affine rescale would destroy.
 
         Consumed by the algorithm's obs normalizer so that e.g. one-hot role indicators survive
@@ -182,7 +187,7 @@ class TokenizerProtocol(Protocol):
     """Whether :meth:`tokenize` can be called with exactly one of ``obs_task`` and
     ``goal_task)``."""
 
-    def tokenize(self, obs_task: TensorTree | None, goal_task: TensorTree | None) -> torch.Tensor:
+    def tokenize(self, obs_task: TensorTree | None, goal_task: TensorTree | None) -> TensorTree:
         """Builds the raw (pre-embedder) token tensor for an observation window and/or a goal.
 
         Args:
@@ -198,6 +203,10 @@ class TokenizerProtocol(Protocol):
 
             A single-side call without a ``T`` axis drops the leading
             ``T`` too (``[B, output_dim]`` / ``[B, K, output_dim]``).
+
+            A tokenizer may also emit a subtree matching :attr:`token_spec`, when tokens alone
+            do not carry everything the embedder needs (e.g. ``GraphTokenizer`` adds per-node validity
+            and pairwise edge features).
         """
         ...
 

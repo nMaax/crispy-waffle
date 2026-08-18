@@ -7,13 +7,12 @@ pred_horizon: 16
 
 canonicalize: true
 
+# Pool slot 0 is the TCP, so a 2-object task has 3 slots.
 obs_dim:
   proprio: 18
-  tcp_pose: 7
-  obj_0_pose: 7
-  obj_0_role: 3
-  obj_1_pose: 7
-  obj_1_role: 3
+  obj_pose: [3, 7]
+  obj_role: [3, 4]
+  obj_valid: [3]
 act_dim: 4
 
 batch_size: 256

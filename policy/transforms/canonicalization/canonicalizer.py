@@ -6,6 +6,7 @@ from policy.transforms.canonicalization.spec import (
     ROLE_CLUTTER,
     ROLE_PICK,
     ROLE_TARGET,
+    ROLE_TCP,
     canonical_dim_spec,
 )
 from policy.transforms.canonicalization.utils import match_shape, role_tensor
@@ -72,20 +73,19 @@ class Canonicalizer:
         qpos = get_tensor(agent, "qpos")
         qvel = get_tensor(agent, "qvel")
         proprio = torch.cat([qpos, qvel], dim=-1)
-        tcp_pose = get_tensor(extra, "tcp_pose")
 
-        res: dict[str, torch.Tensor] = {"proprio": proprio, "tcp_pose": tcp_pose}
-        next_idx = 0
+        tcp_pose = get_tensor(extra, "tcp_pose")
+        poses: list[torch.Tensor] = [tcp_pose]
+        roles: list[torch.Tensor] = [role_tensor(ROLE_TCP, tcp_pose)]
+        # The TCP is always present, so its validity is unconditional.
+        valids: list[torch.Tensor] = [torch.ones_like(tcp_pose[..., :1])]
 
         if not is_random_pick:
-            pick_pose = get_tensor(extra, f"{pick_key}_pose")
-            target_pose = get_tensor(extra, f"{target_key}_pose")
-            res[f"obj_{next_idx}_pose"] = pick_pose
-            res[f"obj_{next_idx}_role"] = role_tensor(ROLE_PICK, pick_pose)
-            next_idx += 1
-            res[f"obj_{next_idx}_pose"] = target_pose
-            res[f"obj_{next_idx}_role"] = role_tensor(ROLE_TARGET, target_pose)
-            next_idx += 1
+            for key, role in ((pick_key, ROLE_PICK), (target_key, ROLE_TARGET)):
+                pose = get_tensor(extra, f"{key}_pose")
+                poses.append(pose)
+                roles.append(role_tensor(role, pose))
+                valids.append(torch.ones_like(pose[..., :1]))
 
         # [obj_0_pose, obj_1_pose, ...] -> [0, 1, ...]
         obj_indices = sorted(
@@ -95,32 +95,36 @@ class Canonicalizer:
         )
 
         for i in obj_indices:
-            active_k = f"obj_{i}_active"
-            # Check if object i is active or not, if not, skip it and don't pass it to the algorithm.
-            if active_k in extra and not bool(torch.any(get_tensor(extra, active_k))):
-                continue
-
-            pose_tensor = get_tensor(extra, f"obj_{i}_pose")
-            res[f"obj_{next_idx}_pose"] = pose_tensor
+            pose = get_tensor(extra, f"obj_{i}_pose")
+            poses.append(pose)
 
             if is_random_pick:
                 # Every pool member (cubeA, cubeB, and clutter alike) carries its own per-episode
                 # role. Read it directly instead of guessing.
-                is_pick_t = match_shape(get_tensor(extra, f"obj_{i}_is_pick"), pose_tensor)
-                is_target_t = match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose_tensor)
+                is_pick_t = match_shape(get_tensor(extra, f"obj_{i}_is_pick"), pose)
+                is_target_t = match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose)
                 # An object is clutter if it is neither pick nor target
                 is_clutter_t = 1.0 - torch.clamp(is_pick_t + is_target_t, 0.0, 1.0)
-                res[f"obj_{next_idx}_role"] = torch.cat(
-                    [is_pick_t, is_target_t, is_clutter_t], dim=-1
-                )
+                is_tcp_t = torch.zeros_like(is_pick_t)
+                roles.append(torch.cat([is_tcp_t, is_pick_t, is_target_t, is_clutter_t], dim=-1))
             else:
                 # obj_i here is always decorative clutter: the fixed pair above already claimed
                 # the pick/target roles.
-                res[f"obj_{next_idx}_role"] = role_tensor(ROLE_CLUTTER, pose_tensor)
+                roles.append(role_tensor(ROLE_CLUTTER, pose))
 
-            next_idx += 1
+            active_k = f"obj_{i}_active"
+            valids.append(
+                match_shape(get_tensor(extra, active_k), pose)
+                if active_k in extra
+                else torch.ones_like(pose[..., :1])
+            )
 
-        if next_idx == 0:
+        if not obj_indices and is_random_pick:
             raise KeyError("No object pose keys found in observation extra subtree.")
 
-        return res
+        return {
+            "proprio": proprio,
+            "obj_pose": torch.stack(poses, dim=-2),
+            "obj_role": torch.stack(roles, dim=-2),
+            "obj_valid": torch.cat(valids, dim=-1),
+        }

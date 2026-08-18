@@ -37,6 +37,11 @@ class ConditioningContract:
         self.context_dim = context_dim
         self.context_key = context_key
 
+    @property
+    def context_mask_key(self) -> str:
+        """Payload key holding the cross-attention key-padding mask, when one is supplied."""
+        return f"{self.context_key}_mask"
+
     def get_film_width(self, obs_horizon: int) -> int:
         """Calculates total 1D FiLM vector dimension for a given observation horizon."""
         return self.step_dim * obs_horizon + self.global_dim

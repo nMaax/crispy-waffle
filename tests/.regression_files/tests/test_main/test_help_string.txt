@@ -3,19 +3,19 @@ main is powered by Hydra.
 == Configuration groups ==
 Compose your configuration from those groups (group=option)
 
-algorithm: beso_policy, beso_policy_delta_input, diffusion_policy, goal_conditioned_diffusion_policy, goal_conditioned_diffusion_policy_attention, goal_conditioned_diffusion_policy_attention_attn_pool, goal_conditioned_diffusion_policy_attention_mlp_pool, goal_conditioned_diffusion_policy_cross_attention, goal_conditioned_diffusion_policy_mlp, goal_conditioned_diffusion_policy_mlp_attn_pool, goal_conditioned_diffusion_policy_per_object_attention, goal_conditioned_diffusion_policy_per_object_attention_attn_pool, goal_conditioned_diffusion_policy_per_object_attention_mlp_pool, no_op
+algorithm: beso_policy, beso_policy_delta_input, diffusion_policy, goal_conditioned_diffusion_policy, goal_conditioned_diffusion_policy_attention, goal_conditioned_diffusion_policy_attention_attn_pool, goal_conditioned_diffusion_policy_attention_mlp_pool, goal_conditioned_diffusion_policy_cross_attention, goal_conditioned_diffusion_policy_graph, goal_conditioned_diffusion_policy_mlp, goal_conditioned_diffusion_policy_mlp_attn_pool, goal_conditioned_diffusion_policy_per_object_attention, goal_conditioned_diffusion_policy_per_object_attention_attn_pool, goal_conditioned_diffusion_policy_per_object_attention_mlp_pool, no_op
 algorithm/decoder: cross_attention_decoder1d, diffusion_gpt, film_decoder1d
 algorithm/ema: default
-algorithm/embedder: linear, mlp, self_attention
+algorithm/embedder: graph_transformer, linear, mlp, self_attention
 algorithm/encoder: default
 algorithm/lr_scheduler: CosineAnnealingLR, StepLR, cosine_with_warmup
 algorithm/noise_scheduler: ddpm, edm
 algorithm/normalizer: min_max, z_score
 algorithm/optimizer: Adam, AdamW, SGD
 algorithm/pooling: attention, mlp
-algorithm/tokenizer: object, state
+algorithm/tokenizer: graph, object, state
 datamodule: goal_conditioned_trajectory_datamodule, trajectory_datamodule
-experiment: BESO++__SCLR__default__test, BESO++__SCLR__default__test__video, BESO++__SCLR__default__train, GCDP-Attn-AttnPool__SCLR__default__test, GCDP-Attn-AttnPool__SCLR__default__test__video, GCDP-Attn-AttnPool__SCLR__default__train, GCDP-Attn-MLPPool__SCLR__default__test, GCDP-Attn-MLPPool__SCLR__default__test__video, GCDP-Attn-MLPPool__SCLR__default__train, GCDP-Attn__SCLR__default__test, GCDP-Attn__SCLR__default__test__video, GCDP-Attn__SCLR__default__train, GCDP-MLP-AttnPool__SCLR__default__test, GCDP-MLP-AttnPool__SCLR__default__train, GCDP-Obj-Attn-AttnPool__SCLR__default__test, GCDP-Obj-Attn-AttnPool__SCLR__default__train, GCDP-Obj-Attn-MLPPool__SCLR__default__test, GCDP-Obj-Attn-MLPPool__SCLR__default__test__video, GCDP-Obj-Attn-MLPPool__SCLR__default__train, GCDP-Obj-Attn__SCLR__default__test, GCDP-Obj-Attn__SCLR__default__test__video, GCDP-Obj-Attn__SCLR__default__train
+experiment: BESO++__SCLR__default__test, BESO++__SCLR__default__test__video, BESO++__SCLR__default__train, GCDP-Attn-AttnPool__SCLR__default__test, GCDP-Attn-AttnPool__SCLR__default__test__video, GCDP-Attn-AttnPool__SCLR__default__train, GCDP-Attn-MLPPool__SCLR__default__test, GCDP-Attn-MLPPool__SCLR__default__test__video, GCDP-Attn-MLPPool__SCLR__default__train, GCDP-Attn__SCLR__default__test, GCDP-Attn__SCLR__default__test__video, GCDP-Attn__SCLR__default__train, GCDP-Graph__SCLR__default__test, GCDP-Graph__SCLR__default__train, GCDP-MLP-AttnPool__SCLR__default__test, GCDP-MLP-AttnPool__SCLR__default__train, GCDP-Obj-Attn-AttnPool__SCLR__default__test, GCDP-Obj-Attn-AttnPool__SCLR__default__train, GCDP-Obj-Attn-MLPPool__SCLR__default__test, GCDP-Obj-Attn-MLPPool__SCLR__default__test__video, GCDP-Obj-Attn-MLPPool__SCLR__default__train, GCDP-Obj-Attn__SCLR__default__test, GCDP-Obj-Attn__SCLR__default__test__video, GCDP-Obj-Attn__SCLR__default__train
 render: live, video
 trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, differential_lr, early_stopping, finetune_planner, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation, test_stack_cube_clutter_locked_rotation, test_stack_cube_clutter_random_pick_locked_rotation, test_stack_cube_locked_rotation, tqdm_progress_bar, zero_shot_stack_cube_clutter_random_pick_locked_rotation, zero_shot_stack_cube_locked_rotation

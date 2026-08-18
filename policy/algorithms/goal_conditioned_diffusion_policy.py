@@ -4,7 +4,8 @@ from typing import Any, Literal
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import as_batch, get_ndim, map_leaves, pop_leaf_key, to_device
+from policy.transforms.canonicalization.spec import dim_shape
+from policy.utils import as_batch, get_tensor, pop_leaf_key, to_device
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
@@ -37,6 +38,12 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
         # proprioception is used, on both the absolute and the relative path.
         _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
 
+        if not isinstance(obs_task, Mapping) or not isinstance(goal_task, Mapping):
+            raise TypeError(
+                "Tokenized conditioning requires canonical dict observation and goal trees, got "
+                f"{type(obs_task).__name__} and {type(goal_task).__name__}."
+            )
+
         if not self.relative_goal:
             return {
                 "proprio": obs_proprio,
@@ -44,21 +51,36 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
                 "goal_task": self.tokenizer.tokenize(None, goal_task),
             }
 
-        # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
-        # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
-        # across dict-of-poses and flat-tensor task trees via the first leaf tensor found.
-        if get_ndim(obs_task) != 3:
-            raise ValueError(
-                "relative_goal=True expects observations of shape [B, T, F], but got a "
-                f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
-            )
+        # An obs without a time axis would not raise below: it would broadcast against the
+        # unsqueezed goal into [B, B, ...], silently mistaking the batch axis for the time axis.
+        self._validate_obs_time_axis(obs_task)
 
-        # goal_task's own missing time axis is added here, on every leaf,
-        # rather than left to the tokenizer.
-        if get_ndim(goal_task) == 2:
-            goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
+        # goal_task's own missing time axis must be added on every leaf,
+        goal_task = self._add_goal_time_axis(goal_task)
 
         return {"proprio": obs_proprio, "task": self.tokenizer.tokenize(obs_task, goal_task)}
+
+    def _validate_obs_time_axis(self, obs_task: Mapping[str, TensorTree]) -> None:
+        """Requires a [B, T, ...] prefix on every task leaf."""
+        for key, spec_ndim in self._task_leaf_ndims().items():
+            ndim = get_tensor(obs_task, key).ndim
+            if ndim != spec_ndim + 2:
+                raise ValueError(
+                    "relative_goal=True expects observations of shape [B, T, F], but task leaf "
+                    f"{key!r} has {ndim} axes where {spec_ndim + 2} were expected."
+                )
+
+    def _add_goal_time_axis(self, goal_task: Mapping[str, TensorTree]) -> TensorTree:
+        """Inserts the goal's missing time axis, leaving an already-timed goal untouched."""
+        return {
+            key: leaf.unsqueeze(1) if leaf.ndim == spec_ndim + 1 else leaf
+            for key, spec_ndim in self._task_leaf_ndims().items()
+            for leaf in (get_tensor(goal_task, key),)
+        }
+
+    def _task_leaf_ndims(self) -> dict[str, int]:
+        """Per-key axis counts before the [B, T] prefix."""
+        return {key: len(dim_shape(dim)) for key, dim in self._tokenizer_task_dim().items()}
 
     def _obs_normalizer_view(self, item: dict[str, Any]) -> TensorTree:
         return self._tokenize(as_batch(item["obs_seq"]), as_batch(item["goal"]))

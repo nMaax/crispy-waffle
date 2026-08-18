@@ -11,7 +11,14 @@ import torch
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
-from policy.transforms.canonicalization.spec import ROLE_PICK, ROLE_TARGET, canonical_dim_spec
+from policy.transforms.canonicalization.spec import (
+    CATEGORICAL_KEYS,
+    ROLE_PICK,
+    ROLE_TARGET,
+    ROLE_TCP,
+    canonical_dim_spec,
+    dim_shape,
+)
 
 DECODER = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
 ENCODER = "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"
@@ -20,7 +27,8 @@ STATE_TOKENIZER = "policy.algorithms.tokenizers.state.StateTokenizer"
 
 OBS_HORIZON = 2
 NUM_OBJECTS = 2
-ROLES = (ROLE_PICK, ROLE_TARGET)
+# Pool slot order: the TCP first, then the pick and target objects.
+ROLES = (ROLE_TCP, ROLE_PICK, ROLE_TARGET)
 
 
 def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overrides):
@@ -38,11 +46,7 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
         goal_horizon=1,
     )
     if tokenizer is not None:
-        kwargs["tokenizer"] = (
-            {"_target_": tokenizer, "object_keys": ["obj_0_pose", "obj_1_pose"]}
-            if tokenizer == OBJECT_TOKENIZER
-            else {"_target_": tokenizer}
-        )
+        kwargs["tokenizer"] = {"_target_": tokenizer}
     if encoder:
         kwargs["encoder"] = {"_target_": ENCODER, "_recursive_": False}
     kwargs.update(overrides)
@@ -52,15 +56,20 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
 def _canonical_tree(batch_size=4, time_axis=True):
     """A canonicalized obs/goal tree with genuine unit quaternions and constant role one-hots."""
     tree = {}
+    lead = (batch_size, OBS_HORIZON) if time_axis else (batch_size,)
     for key, dim in canonical_dim_spec(NUM_OBJECTS).items():
-        shape = (batch_size, OBS_HORIZON) if time_axis else (batch_size,)
+        shape = lead + dim_shape(dim)
         if key.endswith("_pose"):
-            quat = torch.randn(*shape, 4)
-            tree[key] = torch.cat([torch.randn(*shape, 3), quat / quat.norm(dim=-1, keepdim=True)], -1)
+            quat = torch.randn(*shape[:-1], 4)
+            tree[key] = torch.cat(
+                [torch.randn(*shape[:-1], 3), quat / quat.norm(dim=-1, keepdim=True)], -1
+            )
         elif key.endswith("_role"):
-            tree[key] = torch.tensor(ROLES[int(key.split("_")[1])]).expand(*shape, 3).clone()
+            tree[key] = torch.tensor(ROLES).expand(*shape).clone()
+        elif key == "obj_valid":
+            tree[key] = torch.ones(*shape)
         else:
-            tree[key] = torch.randn(*shape, dim)
+            tree[key] = torch.randn(*shape)
     return tree
 
 
@@ -201,8 +210,9 @@ class TestNormalizationHappensOnTokens:
         policy = _policy(tokenizer=None, encoder=False)
 
         mask = policy._obs_normalizer_mask()
-        assert not mask["obj_0_role"].any()
-        assert mask["obj_0_pose"].all()
+        assert not mask["obj_role"].any()
+        assert not mask["obj_valid"].any()
+        assert mask["obj_pose"].all()
         assert mask["proprio"].all()
 
     def test_masked_channels_are_untouched_by_the_round_trip(self):
@@ -215,8 +225,8 @@ class TestNormalizationHappensOnTokens:
         policy.obs_normalizer.fit(obs)
         normalized = policy._normalize_obs(obs)
 
-        assert torch.equal(normalized["obj_0_role"], obs["obj_0_role"])
-        assert torch.equal(normalized["obj_1_role"], obs["obj_1_role"])
+        assert torch.equal(normalized["obj_role"], obs["obj_role"])
+        assert torch.equal(normalized["obj_valid"], obs["obj_valid"])
         assert not torch.allclose(normalized["proprio"], obs["proprio"])
 
 
@@ -228,7 +238,7 @@ class TestCategoricalMaskLayout:
     def _sentinel_tree(self, time_axis=True):
         tree = _canonical_tree(time_axis=time_axis)
         for key in tree:
-            if key.endswith("_role"):
+            if key in CATEGORICAL_KEYS:
                 tree[key] = torch.full_like(tree[key], self.SENTINEL)
         return tree
 
@@ -251,9 +261,8 @@ class TestCategoricalMaskLayout:
 
     @pytest.mark.parametrize("relative_goal", [True, False])
     def test_object_tokenizer_mask_matches_emitted_channels(self, relative_goal):
-        tokenizer = ObjectTokenizer(
-            object_keys=["obj_0_pose", "obj_1_pose"], relative_goal=relative_goal
-        )
+        task_dim = {k: v for k, v in canonical_dim_spec(NUM_OBJECTS).items() if k != "proprio"}
+        tokenizer = ObjectTokenizer(task_dim=task_dim, relative_goal=relative_goal)
 
         obs = self._sentinel_tree()
         goal = self._sentinel_tree(time_axis=False)

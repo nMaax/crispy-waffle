@@ -142,9 +142,13 @@ class ConditioningEncoder(nn.Module):
 
     def forward(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
         """Embeds a ``{"proprio", "task"[, "goal_task"]}`` token tree into the decoder payload."""
-        payload = self._pack_task(
-            get_tensor(tokens, "proprio"), self._embed_tokens(get_tensor(tokens, "task"))
-        )
+        proprio = get_tensor(tokens, "proprio")
+        task = tokens["task"]
+
+        if not isinstance(task, Mapping):
+            payload = self._pack_task(proprio, self._embed_tokens(task))
+        else:
+            payload = self._pack_graph(proprio, task)
 
         if self.has_standalone_goal:
             goal_embedded = self._embed_tokens(get_tensor(tokens, "goal_task"))
@@ -152,6 +156,31 @@ class ConditioningEncoder(nn.Module):
 
         self.cond_dims.validate_payload(payload)
         return payload
+
+    def _pack_graph(
+        self, proprio: torch.Tensor, task: Mapping[str, TensorTree]
+    ) -> dict[str, TensorTree]:
+        """Packs a graph token subtree: nodes become the attended sequence, validity its key mask.
+
+        The embedder consumes the whole subtree (it needs the edges and the mask to attend at
+        all), so this bypasses ``_embed_tokens``' single-tensor path entirely.
+        """
+        if self.embedder is None:
+            raise ValueError(
+                "A graph token subtree requires an embedder that consumes it (e.g. "
+                "GraphTransformer); got embedder=None."
+            )
+
+        embedded = self.embedder(task)  # [B, T_all, K, output_dim]
+        batch, time, num_slots, dim = embedded.shape
+        valid = get_tensor(task, "valid").reshape(batch, time * num_slots).bool()
+
+        return {
+            "obs": {"proprio": proprio},
+            self.cond_dims.context_key: embedded.reshape(batch, time * num_slots, dim),
+            # key_padding_mask semantics: True marks a token to ignore.
+            self.cond_dims.context_mask_key: ~valid,
+        }
 
     def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
         if self.decoder_type == "cross_attention":
