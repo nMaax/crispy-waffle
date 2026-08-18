@@ -10,9 +10,6 @@ from policy.transforms.canonicalization.spec import RELATIVE_SE3_DIM
 from policy.utils import concat_leaf_tensors, get_tensor, get_total_dim, match_shapes
 from policy.utils.typing_utils import DimSpec, TensorTree
 
-# The TCP frame is ablated out of the tokens, which carry only goal and role information.
-TCP_KEY = "tcp_pose"
-
 
 class StateTokenizer(BaseTokenizer):
     """Tokenizes the state mapping into one flat vector per timestep.
@@ -39,14 +36,14 @@ class StateTokenizer(BaseTokenizer):
             return [("task", get_total_dim(task_dim))]
 
         if self.relative_goal:
-            # Mirrors _tokenize_relative: poses reduced to an SE(3) delta.
+            # Mirrors _tokenize_relative: sorted keys, poses reduced to an SE(3) delta.
             return [
                 (key, RELATIVE_SE3_DIM if key.endswith("_pose") else get_total_dim(task_dim[key]))
-                for key in self._keys(task_dim)
+                for key in sorted(task_dim.keys())
             ]
 
-        # Mirrors _tokenize_absolute's concat_leaf_tensors: full widths.
-        return [(key, get_total_dim(task_dim[key])) for key in self._keys(task_dim)]
+        # Mirrors _tokenize_absolute's concat_leaf_tensors: insertion order, full widths.
+        return [(key, get_total_dim(dim)) for key, dim in task_dim.items()]
 
     @property
     def categorical_mask(self) -> torch.Tensor:
@@ -60,7 +57,7 @@ class StateTokenizer(BaseTokenizer):
         self, obs_task: Mapping[str, TensorTree], goal_task: Mapping[str, TensorTree]
     ) -> torch.Tensor:
         deltas = []
-        for key in self._keys(obs_task):
+        for key in sorted(obs_task.keys()):
             o = get_tensor(obs_task, key)
             g = match_shapes(get_tensor(goal_task, key), o)
             if key.endswith("_pose"):
@@ -72,9 +69,4 @@ class StateTokenizer(BaseTokenizer):
         return torch.cat(deltas, dim=-1)
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
-        return concat_leaf_tensors({key: task[key] for key in self._keys(task)}, dim=-1)
-
-    def _keys(self, task: Mapping[str, object]) -> list[str]:
-        """Token keys in the order the matching tokenize path emits them, minus the TCP frame."""
-        keys = [key for key in task if key != TCP_KEY]
-        return sorted(keys) if self.relative_goal else keys
+        return concat_leaf_tensors(task, dim=-1)

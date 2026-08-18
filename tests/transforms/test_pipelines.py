@@ -30,6 +30,7 @@ class TestObservationPipeline:
         assert set(out.keys()) == {
             "proprio",
             "tcp_pose",
+            "tcp_role",
             "obj_0_pose",
             "obj_0_role",
             "obj_1_pose",
@@ -39,5 +40,5 @@ class TestObservationPipeline:
         assert out["tcp_pose"].shape[-1] == 7
         assert out["obj_0_pose"].shape[-1] == 7
         assert out["obj_1_pose"].shape[-1] == 7
-        assert torch.equal(out["obj_0_role"], torch.tensor([1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 1.0, 0.0]))
+        assert torch.equal(out["obj_0_role"], torch.tensor([0.0, 1.0, 0.0, 0.0]))
+        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 0.0, 1.0, 0.0]))

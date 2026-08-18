@@ -1,9 +1,9 @@
 import torch
 
-from policy.transforms.canonicalization.spec import ROLE_DIM
+from policy.transforms.canonicalization.spec import ROLE_DIM, Role
 
 
-def role_tensor(role: tuple[float, float, float], like: torch.Tensor) -> torch.Tensor:
+def role_tensor(role: Role, like: torch.Tensor) -> torch.Tensor:
     return torch.tensor(role, dtype=like.dtype, device=like.device).expand(
         *like.shape[:-1], ROLE_DIM
     )

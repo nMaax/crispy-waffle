@@ -4,5 +4,5 @@ defaults:
 
 encoder:
   pooling:
-    tokens_per_step: 2
+    tokens_per_step: 3  # TCP + 2 objects
     obs_horizon: ${...obs_horizon}

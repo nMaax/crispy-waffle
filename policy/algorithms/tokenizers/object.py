@@ -14,16 +14,18 @@ from policy.transforms.canonicalization.spec import (
 from policy.utils import get_tensor, match_shapes
 from policy.utils.typing_utils import DimSpec, TensorTree
 
+TCP_POSE_KEY = "tcp_pose"
+
 
 class ObjectTokenizer(BaseTokenizer):
     """Tokenizes each object entity in a state as a standalone token.
 
     - In relative mode (``relative_goal=True``):
         1. SE(3) pose delta from current state to goal (6D)
-        2. One-hot role indicator [is_pick, is_target, is_clutter] (3D)
+        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
     - In absolute mode (``relative_goal=False``):
         1. Absolute SE(3) pose (7D)
-        2. One-hot role indicator [is_pick, is_target, is_clutter] (3D)
+        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
     """
 
     def __init__(
@@ -65,7 +67,8 @@ class ObjectTokenizer(BaseTokenizer):
                 f"No canonical object pose keys ('obj_i_pose') found in task dict. "
                 f"Available keys: {list(task_dict.keys())}. Ensure Canonicalizer transform was applied."
             )
-        return keys
+        # The TCP is an entity like any other object, carrying its own goal delta.
+        return [TCP_POSE_KEY, *keys]
 
     def _tokenize_relative(
         self, obs_task: Mapping[str, TensorTree], goal_task: Mapping[str, TensorTree]

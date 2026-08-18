@@ -12,6 +12,13 @@ from omegaconf import OmegaConf
 
 from policy.algorithms.networks.encoder import ConditioningEncoder
 from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
+from policy.transforms.canonicalization.spec import (
+    ROLE_CLUTTER,
+    ROLE_DIM,
+    ROLE_PICK,
+    ROLE_TARGET,
+    ROLE_TCP,
+)
 from policy.utils import pop_leaf_key
 
 PROPRIO_DIM = 18
@@ -30,11 +37,15 @@ def _compose_decoder(config_name, **overrides):
 
 def _obs_tree(batch_size, obs_horizon, num_objects=2, time_axis=True):
     shape = (batch_size, obs_horizon) if time_axis else (batch_size,)
-    tree = {"proprio": torch.randn(*shape, PROPRIO_DIM), "tcp_pose": torch.randn(*shape, 7)}
+    tree = {
+        "proprio": torch.randn(*shape, PROPRIO_DIM),
+        "tcp_pose": torch.randn(*shape, 7),
+        "tcp_role": torch.tensor(ROLE_TCP).expand(*shape, ROLE_DIM).clone(),
+    }
     for i in range(num_objects):
         tree[f"obj_{i}_pose"] = torch.randn(*shape, 7)
-        role = [0.0, 0.0, 1.0] if i > 1 else [float(i == 0), float(i == 1), 0.0]
-        tree[f"obj_{i}_role"] = torch.tensor(role).expand(*shape, 3).clone()
+        role = ROLE_CLUTTER if i > 1 else (ROLE_PICK if i == 0 else ROLE_TARGET)
+        tree[f"obj_{i}_role"] = torch.tensor(role).expand(*shape, ROLE_DIM).clone()
     return tree
 
 
@@ -164,7 +175,8 @@ def test_cross_attention_pipeline_instantiates_and_runs():
     obs_c = _obs_tree(batch_size, obs_horizon, num_objects=4)
     goal_c = _obs_tree(batch_size, obs_horizon, num_objects=4, time_axis=False)
     encoded = encoder(_tokenize(tokenizer, obs_c, goal_c))
-    assert encoded["context"].shape == (batch_size, obs_horizon * 4, context_dim)
+    # 5 tokens per step: the TCP plus 4 objects.
+    assert encoded["context"].shape == (batch_size, obs_horizon * 5, context_dim)
     assert decoder(sample, timestep, external_cond=encoded).shape == sample.shape
 
 
