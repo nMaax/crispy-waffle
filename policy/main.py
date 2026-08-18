@@ -16,11 +16,11 @@ import hydra
 import lightning
 import rich
 import torch
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from rich.panel import Panel
 
 import policy
+import wandb
 from policy.configs.config import Config
 from policy.experiment import instantiate_algorithm, train_and_validate
 from policy.utils.hf_hub_utils import ensure_checkpoint
