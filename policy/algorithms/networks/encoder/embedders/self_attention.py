@@ -21,15 +21,16 @@ class SelfAttention(nn.Module):
 
         self.input_proj = nn.Linear(input_dim, output_dim)
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon, output_dim))
+        self.ln1 = nn.LayerNorm(output_dim)
         self.attn = nn.MultiheadAttention(output_dim, num_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(output_dim)
+        self.ln2 = nn.LayerNorm(output_dim)
         self.mlp = nn.Sequential(
             nn.Linear(output_dim, 4 * output_dim),
             nn.GELU(),
             nn.Linear(4 * output_dim, output_dim),
             nn.Dropout(dropout),
         )
-        self.norm2 = nn.LayerNorm(output_dim)
+        self.ln_f = nn.LayerNorm(output_dim)
 
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
 
@@ -58,11 +59,11 @@ class SelfAttention(nn.Module):
         pos = self.pos_emb[:, :T, :].unsqueeze(2)  # [1, T, 1, output_dim]
         tokens = (self.input_proj(x) + pos).reshape(B, T * K, self.output_dim)
 
-        attn_out, _ = self.attn(tokens, tokens, tokens, need_weights=False)
-        out = self.norm(tokens + attn_out)
+        normed = self.ln1(tokens)
+        attn_out, _ = self.attn(normed, normed, normed, need_weights=False)
+        tokens = tokens + attn_out
 
-        ffn_out = self.mlp(out)
-        out = self.norm2(out + ffn_out)
+        tokens = tokens + self.mlp(self.ln2(tokens))
 
-        out = out.reshape(B, T, K, self.output_dim)
+        out = self.ln_f(tokens).reshape(B, T, K, self.output_dim)
         return out.squeeze(2) if squeeze_k else out

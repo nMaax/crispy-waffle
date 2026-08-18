@@ -19,6 +19,7 @@ class AttentionPooling(BasePooling):
         super().__init__(mode=mode)
         self.query = nn.Parameter(torch.zeros(1, 1, dim))
         self.attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm = nn.LayerNorm(dim)
 
         nn.init.normal_(self.query, mean=0.0, std=0.02)
 
@@ -30,4 +31,4 @@ class AttentionPooling(BasePooling):
         """
         query = self.query.expand(x.shape[0], -1, -1)
         pooled, _ = self.attn(query, x, x, need_weights=False)
-        return pooled.squeeze(1)
+        return self.norm(pooled).squeeze(1)

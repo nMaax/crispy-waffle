@@ -1,5 +1,5 @@
 _target_: policy.algorithms.networks.encoder.pooling.mlp.MLPPooling
 mode: all
-hidden_dims: []
+hidden_dims: [64]
 tokens_per_step: 1
 activation: Mish
