@@ -45,8 +45,9 @@ def test_self_attention_instantiates_and_runs():
 
 
 def test_self_attention_has_a_feed_forward_sublayer():
-    """Regression guard: this is a full (post-norm) transformer block -- attention then FFN --
-    not attention-only. Guards against the FFN sublayer silently disappearing later."""
+    """Regression guard: this is a full (pre-norm) transformer block -- attention then FFN,
+    each normed on the way in and the block normed on the way out, mirroring DiffusionGPT's
+    Block. Guards against the FFN sublayer or either norm silently disappearing later."""
     embedder_cfg = _load_embedder_cfg("self_attention")
     output_dim = 12
     embedder_cfg.input_dim = 16
@@ -56,7 +57,9 @@ def test_self_attention_has_a_feed_forward_sublayer():
 
     assert isinstance(embedder.mlp[0], torch.nn.Linear)
     assert embedder.mlp[0].out_features == 4 * output_dim
-    assert isinstance(embedder.norm2, torch.nn.LayerNorm)
+    assert isinstance(embedder.ln1, torch.nn.LayerNorm)
+    assert isinstance(embedder.ln2, torch.nn.LayerNorm)
+    assert isinstance(embedder.ln_f, torch.nn.LayerNorm)
 
 
 def test_self_attention_rejects_a_longer_window_than_configured():
