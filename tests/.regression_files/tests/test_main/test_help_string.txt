@@ -103,6 +103,7 @@ trainer:
 log_level: info
 seed: 123
 name: default
+branch: main
 debug: false
 verbose: false
 ckpt_path: null

@@ -10,6 +10,7 @@ def test_resolve_dictconfig_valid():
     dict_cfg = OmegaConf.structured(cfg)
     resolved = resolve_dictconfig(dict_cfg)
     assert isinstance(resolved, Config)
+    assert resolved.branch is not None
 
 
 def test_resolve_dictconfig_invalid():
