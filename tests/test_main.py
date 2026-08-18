@@ -156,8 +156,8 @@ def test_can_run_experiment(
 
 def test_help_string(file_regression: FileRegressionFixture) -> None:
     help_string = subprocess.run(
-        # Pass a seed so it isn't selected randomly, which would make the regression file change.
-        shlex.split("python policy/main.py seed=123 --help"),
+        # Pass seed and branch so they don't vary across runs/branches, making the regression file change.
+        shlex.split("python policy/main.py seed=123 branch=main --help"),
         text=True,
         capture_output=True,
     ).stdout

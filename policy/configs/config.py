@@ -1,9 +1,25 @@
 import random
+import subprocess
 from dataclasses import dataclass, field
 from logging import getLogger as get_logger
 from typing import Any
 
 logger = get_logger(__name__)
+
+
+def get_git_branch() -> str | None:
+    """Returns the name of the current active git branch, or None."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        branch = result.stdout.strip()
+        return branch if branch and branch != "HEAD" else None
+    except Exception:
+        return None
 
 
 @dataclass
@@ -44,6 +60,9 @@ class Config:
 
     name: str = "default"
     """Name for the experiment."""
+
+    branch: str | None = field(default_factory=get_git_branch)
+    """Git branch name for tracking ablations and experiment variations."""
 
     debug: bool = False
     """Debug mode flag."""
