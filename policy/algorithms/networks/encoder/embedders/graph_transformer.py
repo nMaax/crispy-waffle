@@ -17,19 +17,18 @@ NUM_EDGE_KINDS = 4
 class GraphTransformer(nn.Module):
     """Attends over a scene graph, with the topology applied as an attention mask.
 
-    The node grid ``[B, T_all, K, D]`` is flattened t-major/k-minor (``index = t * K + k``) into
-    one sequence, exactly as :class:`SelfAttention` does, and a mask decides which of those pairs
-    are genuine edges:
+    The node tensor, of shape [B, T_all, K, D] (T_all= T + G horizons), is flattened (index = t * K + k)
+    into one sequence, and a mask decides which of those pairs are edges:
 
-    - **spatial**: every pair sharing a timestep, in both directions (self-loops included).
-    - **temporal**: a node attending to *itself one step earlier*; the present may look at the
-      past, never the reverse.
-    - **goal**: only the most recent observed node attends to its own goal node -- the goal is a
-      known future, so it is read by the present rather than updated by it.
+    - one edge for every object/tcp in the same timestep, in both directions (self-loops included).
+    - one edge for a node attending to itself one step earlier, one direction only (future to past).
+    - one edge between the most recent observed object attending toward itself in the goal, one direction
+      only (past to goal)
 
-    Goal nodes are therefore keys but never queries. Each edge carries its endpoints' SE(3) delta,
-    which -- with a learned per-kind embedding added -- becomes a per-head additive attention bias,
-    so one attention stack sees both the geometry and the relation type.
+    Goal nodes are therefore keys but never queries.
+
+    Each node carries categorial features indicating its ROLE.
+    Each edge carries its endpoints' SE(3) delta.
     """
 
     def __init__(
@@ -81,8 +80,13 @@ class GraphTransformer(nn.Module):
     def forward(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
         """Shapes:
 
-        task: ``{"nodes": [B, T_all, K, input_dim], "valid": [B, T_all, K],
-            "edge_feat": [B, S, S, edge_dim]}`` with ``S = T_all * K``.
+        task:
+        {
+            "nodes": [B, T_all, K, input_dim],
+            "valid": [B, T_all, K],
+            "edge_feat": [B, S, S, edge_dim]
+        } with ``S = T_all * K``
+
         returns: ``[B, T_all, K, output_dim]``.
         """
         nodes = get_tensor(task, "nodes")

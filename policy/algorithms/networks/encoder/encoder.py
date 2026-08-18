@@ -11,14 +11,7 @@ from policy.utils.typing_utils import HydraConfigFor, PoolingProtocol, TensorTre
 
 
 class ConditioningEncoder(nn.Module):
-    """Embeds already-tokenized, already-normalized conditioning into the tensors a downstream
-    network consumes.
-
-    Tokenization is the algorithm's job (see :meth:`BaseDiffusionAgent._tokenize`), so that
-    normalization can be fit on and applied to the tokens this encoder's learned layers actually
-    see. This class owns only the learned half: embedder, pooling, and the payload packing the
-    decoder's conditioning contract expects.
-    """
+    """Embeds conditioning into the tensors a downstream network consumes."""
 
     def __init__(
         self,

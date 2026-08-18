@@ -175,7 +175,7 @@ class TokenizerProtocol(Protocol):
         ...
 
     @property
-    def categorical_mask(self) -> TensorTree:
+    def normalization_mask(self) -> TensorTree:
         """``[output_dim]`` bool mask, False on channels an affine rescale would destroy.
 
         Consumed by the algorithm's obs normalizer so that e.g. one-hot role indicators survive

@@ -9,7 +9,7 @@ from policy.transforms.canonicalization.spec import (
     ROLE_TCP,
     canonical_dim_spec,
 )
-from policy.transforms.canonicalization.utils import match_shape, role_tensor
+from policy.transforms.canonicalization.utils import as_flag_channel, role_tensor
 from policy.utils import get_subtree, get_tensor
 from policy.utils.typing_utils import TensorTree
 
@@ -73,9 +73,7 @@ class Canonicalizer:
         # The TCP is always present, so its validity is unconditional.
         valids: list[torch.Tensor] = [torch.ones_like(tcp_pose[..., :1])]
 
-        if not is_random_pick:
-            # cubeA is always the pick and cubeB the target, by key name -- the swapped tasks
-            # deliberately keep that labelling so the policy has to re-identify from the goal.
+        if not is_random_pick:  # cubeA is always the pick and cubeB the target
             for key, role in (("cubeA", ROLE_PICK), ("cubeB", ROLE_TARGET)):
                 pose = get_tensor(extra, f"{key}_pose")
                 poses.append(pose)
@@ -94,22 +92,20 @@ class Canonicalizer:
             poses.append(pose)
 
             if is_random_pick:
-                # Every pool member (cubeA, cubeB, and clutter alike) carries its own per-episode
-                # role. Read it directly instead of guessing.
-                is_pick_t = match_shape(get_tensor(extra, f"obj_{i}_is_pick"), pose)
-                is_target_t = match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose)
+                # Every scene member carries its own per-episode role.
+                is_pick_t = as_flag_channel(get_tensor(extra, f"obj_{i}_is_pick"), pose)
+                is_target_t = as_flag_channel(get_tensor(extra, f"obj_{i}_is_target"), pose)
                 # An object is clutter if it is neither pick nor target
                 is_clutter_t = 1.0 - torch.clamp(is_pick_t + is_target_t, 0.0, 1.0)
                 is_tcp_t = torch.zeros_like(is_pick_t)
                 roles.append(torch.cat([is_tcp_t, is_pick_t, is_target_t, is_clutter_t], dim=-1))
             else:
-                # obj_i here is always decorative clutter: the fixed pair above already claimed
-                # the pick/target roles.
+                # If not random pick, obj_i is always clutter
                 roles.append(role_tensor(ROLE_CLUTTER, pose))
 
             active_k = f"obj_{i}_active"
             valids.append(
-                match_shape(get_tensor(extra, active_k), pose)
+                as_flag_channel(get_tensor(extra, active_k), pose)
                 if active_k in extra
                 else torch.ones_like(pose[..., :1])
             )

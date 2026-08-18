@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import torch
 
@@ -37,7 +37,7 @@ def canonical_dim_spec(num_objects: int = 2) -> dict[str, DimSpec]:
     }
 
 
-# Roles are one-hot indicators and validity is a boolean flag
+# Roles are one-hot and valid is a bool flag
 CATEGORICAL_KEYS: frozenset[str] = frozenset({"obj_role", "obj_valid"})
 
 
@@ -47,9 +47,10 @@ def dim_shape(dim: DimSpec) -> tuple[int, ...]:
         return (dim,)
     if isinstance(dim, torch.Tensor):
         return tuple(dim.shape)
-    if isinstance(dim, Mapping):
-        raise TypeError("dim_shape does not accept a nested spec.")
-    return tuple(int(d) for d in dim)
+    if isinstance(dim, Sequence):
+        return tuple(int(d) for d in dim)
+
+    raise TypeError("dim_shape does not accept a nested spec.")
 
 
 def canonical_normalization_mask(spec: DimSpec) -> dict[str, torch.Tensor]:

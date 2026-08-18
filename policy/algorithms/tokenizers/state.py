@@ -33,7 +33,7 @@ class StateTokenizer(BaseTokenizer):
         self._spec_ndims = self._task_leaf_ndims(task_dim)
         widths = self._channel_widths(task_dim)
         self.output_dim = sum(width for _, width in widths)
-        self._categorical_mask = torch.cat(
+        self._normalization_mask = torch.cat(
             [
                 torch.full((width,), key not in CATEGORICAL_KEYS, dtype=torch.bool)
                 for key, width in widths
@@ -58,8 +58,12 @@ class StateTokenizer(BaseTokenizer):
         raise ValueError(self._no_reduction_message(key))
 
     @property
-    def categorical_mask(self) -> torch.Tensor:
-        return self._categorical_mask
+    def token_spec(self) -> DimSpec:
+        return self.output_dim
+
+    @property
+    def normalization_mask(self) -> torch.Tensor:
+        return self._normalization_mask
 
     @property
     def tokens_per_step(self) -> int:
@@ -87,11 +91,6 @@ class StateTokenizer(BaseTokenizer):
         )
 
     def _flatten(self, key: str, tensor: torch.Tensor) -> torch.Tensor:
-        """Folds a key's own trailing axes (e.g. a pool's slot axis) into the feature axis.
-
-        Counted from the right, so it holds whether or not the leading time axis is present: a
-        standalone goal arrives as [B, *] where an observation window arrives as [B, T, *].
-        """
         spec_ndim = self._spec_ndims[key]
         return tensor.flatten(start_dim=tensor.ndim - spec_ndim) if spec_ndim > 1 else tensor
 

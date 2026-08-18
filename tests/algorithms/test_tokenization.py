@@ -170,7 +170,7 @@ class TestNormalizationHappensOnTokens:
         policy.obs_normalizer.fit(tokens)
         normalized = policy.obs_normalizer.normalize(tokens)
 
-        mask = policy.tokenizer.categorical_mask
+        mask = policy.tokenizer.normalization_mask
         assert torch.equal(normalized["task"][..., ~mask], tokens["task"][..., ~mask])
         assert not torch.allclose(normalized["task"][..., mask], tokens["task"][..., mask])
 
@@ -253,7 +253,7 @@ class TestCategoricalMaskLayout:
         goal = {k: v.unsqueeze(1) for k, v in goal.items()}
 
         tokens = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
-        mask = tokenizer.categorical_mask
+        mask = tokenizer.normalization_mask
 
         assert tokens.shape[-1] == tokenizer.output_dim == mask.shape[0]
         assert (tokens[..., ~mask] == self.SENTINEL).all(), "mask misses a role channel"
@@ -270,7 +270,7 @@ class TestCategoricalMaskLayout:
         goal = {k: v.unsqueeze(1) for k, v in goal.items()}
 
         tokens = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
-        mask = tokenizer.categorical_mask
+        mask = tokenizer.normalization_mask
 
         assert tokens.shape[-1] == tokenizer.output_dim == mask.shape[0]
         assert (tokens[..., ~mask] == self.SENTINEL).all()

@@ -13,7 +13,7 @@ from .spec import (
     Role,
     canonical_dim_spec,
 )
-from .utils import match_shape, role_tensor
+from .utils import role_tensor
 
 __all__ = [
     "Canonicalizer",
@@ -29,6 +29,5 @@ __all__ = [
     "TCP_SLOT",
     "CATEGORICAL_KEYS",
     "canonical_dim_spec",
-    "match_shape",
     "role_tensor",
 ]

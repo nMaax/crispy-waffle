@@ -9,27 +9,7 @@ from policy.utils.typing_utils import DimSpec, TensorTree
 
 
 class ZScoreNormalizer(nn.Module):
-    """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors.
-
-    A dict is treated as a tree; each leaf tensor gets its own independent
-    normalizer, fit/applied over its last (feature) dimension. Structure of
-    the tree of sub-normalizers is fixed at construction time via `spec`.
-
-    ``mask`` marks which channels are actually normalizable: ``False`` channels pass through
-    untouched, for features where an affine rescale is not meaningful (e.g. the one-hot role
-    indicators of a canonicalized observation). A mask tree may cover a subset of `spec`'s keys;
-    leaves it omits are normalized in full.
-
-    Example:
-        spec = {
-            "proprio": {"qpos": 9, "qvel": 9},
-            "states": 30,
-        }
-        normalizer = ZScoreNormalizer(spec)
-        normalizer.fit(batch)          # batch matches the tree structure
-        normed = normalizer(batch)     # same tree structure, normalized leaves
-        original = normalizer.unnormalize(normed)
-    """
+    """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors."""
 
     _n: int
     _running_mean: torch.Tensor | None

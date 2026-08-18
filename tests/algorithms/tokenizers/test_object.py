@@ -40,7 +40,7 @@ class TestObjectTokenizer:
         assert ObjectTokenizer(_task_dim(3), relative_goal=True).output_dim == 16
         assert ObjectTokenizer(_task_dim(3), relative_goal=False).output_dim == 17
 
-    def test_tokens_per_step_matches_the_pool_size(self):
+    def test_tokens_per_step_matches_num_slots(self):
         assert ObjectTokenizer(_task_dim(3)).tokens_per_step == 3
         assert ObjectTokenizer(_task_dim(9)).tokens_per_step == 9
 

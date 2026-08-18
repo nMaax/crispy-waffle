@@ -41,16 +41,16 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         encoder: HydraConfigFor[nn.Module] | None = None,
         tokenizer: HydraConfigFor[TokenizerProtocol] | None = None,
-        relative_goal: bool = False,
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         ema: HydraConfigFor[EMAModel] | None = None,
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol] | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         act_horizon: int = 8,
+        goal_horizon: int = 0,
+        relative_goal: bool = False,
         obs_dim: DimSpec = 48,
         act_dim: int = 4,
-        goal_horizon: int = 0,
         proprio_dim: int | None = None,
         task_dim: int | None = None,
         obs_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
@@ -63,15 +63,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.decoder_config = decoder
         self.decoder: torch.nn.Module | None = None
 
+        self.optimizer_config = optimizer
+        self.optimizer: Optimizer | None = None
+
         self.encoder_config = encoder
         self.encoder: torch.nn.Module | None = None
 
         self.tokenizer_config = tokenizer
         self.tokenizer: TokenizerProtocol | None = None
-        self.relative_goal = relative_goal
-
-        self.optimizer_config = optimizer
-        self.optimizer: Optimizer | None = None
 
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
@@ -86,6 +85,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
         self.goal_horizon = goal_horizon
+        self.relative_goal = relative_goal
+
         self._validate_horizons()
 
         self.act_dim = act_dim
@@ -115,6 +116,12 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 f"It must be at least {self.obs_horizon + self.act_horizon - 1} "
                 f"to contain the past actions ({self.obs_horizon - 1}) plus "
                 f"the actions to execute ({self.act_horizon})."
+            )
+
+        if self.relative_goal and self.goal_horizon == 0:
+            raise ValueError(
+                "Relative goal conditioning requires a nonzero goal_horizon. "
+                "Set goal_horizon > 0 or relative_goal=False."
             )
 
     @property
@@ -238,7 +245,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
     def _obs_normalizer_mask(self) -> TensorTree | None:
         """Channels of :meth:`_obs_normalizer_spec` that an affine rescale would destroy."""
         if self.tokenizer is not None:
-            return {"task": self.tokenizer.categorical_mask}
+            return {"task": self.tokenizer.normalization_mask}
         if isinstance(self.obs_dim, Mapping):
             return canonical_normalization_mask(self.obs_dim)
         return None

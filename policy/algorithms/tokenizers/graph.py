@@ -35,7 +35,7 @@ class GraphTokenizer(BaseTokenizer):
 
     def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
         super().__init__(relative_goal=relative_goal)
-        self._tokens_per_step = self._pool_size(task_dim)
+        self._tokens_per_step = self._num_slots(task_dim)
         self.output_dim = RELATIVE_SE3_DIM + ROLE_DIM
         self.edge_dim = RELATIVE_SE3_DIM
 
@@ -52,9 +52,8 @@ class GraphTokenizer(BaseTokenizer):
         }
 
     @property
-    def categorical_mask(self) -> dict[str, torch.Tensor]:
+    def normalization_mask(self) -> dict[str, torch.Tensor]:
         return {
-            # The trailing role one-hot would z-score to zero; the SE(3) blocks are real geometry.
             "nodes": torch.cat(
                 [
                     torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
@@ -104,7 +103,7 @@ class GraphTokenizer(BaseTokenizer):
         return torch.cat([get_tensor(obs_task, key), get_tensor(goal_task, key)], dim=1)
 
     @staticmethod
-    def _pool_size(task_dim: DimSpec) -> int:
+    def _num_slots(task_dim: DimSpec) -> int:
         if not isinstance(task_dim, Mapping):
             raise TypeError(
                 f"GraphTokenizer expects a canonical dict task_dim, got {type(task_dim).__name__}."

@@ -38,14 +38,14 @@ class ObjectTokenizer(BaseTokenizer):
         relative_goal: bool = True,
     ):
         super().__init__(relative_goal=relative_goal)
-        self._tokens_per_step = self._pool_size(task_dim)
+        self._tokens_per_step = self._num_slots(task_dim)
         self.output_dim = (
             RELATIVE_SE3_DIM + RELATIVE_SE3_DIM + ROLE_DIM
             if relative_goal
             else RELATIVE_SE3_DIM + POSE_DIM + ROLE_DIM
         )
         # The role one-hot is the trailing ROLE_DIM block of every token, in both modes.
-        self._categorical_mask = torch.cat(
+        self._normalization_mask = torch.cat(
             [
                 torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
                 torch.zeros(ROLE_DIM, dtype=torch.bool),
@@ -53,8 +53,12 @@ class ObjectTokenizer(BaseTokenizer):
         )
 
     @property
-    def categorical_mask(self) -> torch.Tensor:
-        return self._categorical_mask
+    def token_spec(self) -> DimSpec:
+        return self.output_dim
+
+    @property
+    def normalization_mask(self) -> torch.Tensor:
+        return self._normalization_mask
 
     @property
     def tokens_per_step(self) -> int:
@@ -86,7 +90,7 @@ class ObjectTokenizer(BaseTokenizer):
         return pose[..., TCP_SLOT : TCP_SLOT + 1, :].expand_as(pose)
 
     @staticmethod
-    def _pool_size(task_dim: DimSpec) -> int:
+    def _num_slots(task_dim: DimSpec) -> int:
         if not isinstance(task_dim, Mapping):
             raise TypeError(
                 f"ObjectTokenizer expects a canonical dict task_dim, got {type(task_dim).__name__}."

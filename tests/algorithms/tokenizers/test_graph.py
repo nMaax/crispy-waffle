@@ -78,9 +78,9 @@ class TestGraphTokenizer:
             out["edge_feat"][:, t_i * K + k_i, t_j * K + k_j, :3], expected, atol=1e-5
         )
 
-    def test_token_spec_and_categorical_mask_mirror_each_other(self):
+    def test_token_spec_and_normalization_mask_mirror_each_other(self):
         tokenizer = GraphTokenizer(_task_dim())
-        spec, mask = tokenizer.token_spec, tokenizer.categorical_mask
+        spec, mask = tokenizer.token_spec, tokenizer.normalization_mask
 
         assert set(spec) == set(mask)
         for key, width in spec.items():
@@ -91,7 +91,7 @@ class TestGraphTokenizer:
         assert not mask["valid"].any()
         assert mask["edge_feat"].all()
 
-    def test_pool_size_drives_tokens_per_step(self):
+    def test_num_slots_drives_tokens_per_step(self):
         assert GraphTokenizer(_task_dim(5)).tokens_per_step == 5
         assert GraphTokenizer(_task_dim(9)).tokens_per_step == 9
 

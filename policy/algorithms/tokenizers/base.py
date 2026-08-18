@@ -18,18 +18,15 @@ class BaseTokenizer(ABC):
 
     @property
     @abstractmethod
-    def categorical_mask(self) -> TensorTree:
-        """``[output_dim]`` bool mask, False on channels an affine rescale would destroy.
-
-        Mirrors :attr:`token_spec`'s structure: a tokenizer emitting a token subtree masks it
-        with a matching subtree.
-        """
+    def normalization_mask(self) -> TensorTree:
+        """Mask mirroring :attr:`token_spec`, False on channels an affine rescale would destroy."""
         ...
 
     @property
+    @abstractmethod
     def token_spec(self) -> DimSpec:
-        """Dim spec of what :meth:`tokenize` emits, i.e. the space normalization is fit in."""
-        return self.output_dim
+        """Dim spec of what :meth:`tokenize` emits."""
+        ...
 
     def tokenize(
         self,
