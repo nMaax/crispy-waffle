@@ -101,17 +101,16 @@ class TestCanonicalizer:
     @pytest.mark.parametrize(
         "env_id", ["StackCubeSwapped-v1", "StackCubeSwappedLockedRotation-v1"]
     )
-    def test_stack_cube_swapped_reverses_pick_and_target(self, env_id):
-        # StackCubeSwapped picks cubeB and targets cubeA -- the opposite of every other
-        # stack_cube-family task, so its roles (not just its poses) must be swapped too.
+    def test_stack_cube_swapped_is_not_relabelled(self, env_id):
+        # StackCubeSwapped really picks cubeB, but canonicalization deliberately keeps the
+        # cubeA=pick labelling of every other task: re-identifying the right cube from the goal
+        # is the zero-shot generalization being measured, so it must not be given away here.
         obs = _stack_cube_obs()
         out_base = Canonicalizer("StackCube-v1")(obs)
         out_swapped = Canonicalizer(env_id)(obs)
 
-        assert torch.equal(out_swapped["obj_pose"][1], out_base["obj_pose"][2])
-        assert torch.equal(out_swapped["obj_pose"][2], out_base["obj_pose"][1])
-        assert torch.equal(out_swapped["obj_role"][1], ROLE_PICK)
-        assert torch.equal(out_swapped["obj_role"][2], ROLE_TARGET)
+        assert torch.equal(out_swapped["obj_pose"], out_base["obj_pose"])
+        assert torch.equal(out_swapped["obj_role"], out_base["obj_role"])
 
     def test_batched_input(self):
         out = Canonicalizer("StackCube-v1")(_stack_cube_obs(batch=True))

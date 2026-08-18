@@ -36,8 +36,8 @@ class Canonicalizer:
             "StackCubeClutterRandomPickLockedRotation-v1": (
                 self._parse_stack_cube_clutter_random_pick_dict
             ),
-            "StackCubeSwapped-v1": self._parse_stack_cube_swapped_dict,
-            "StackCubeSwappedLockedRotation-v1": self._parse_stack_cube_swapped_dict,
+            "StackCubeSwapped-v1": self._parse_pool_dict,
+            "StackCubeSwappedLockedRotation-v1": self._parse_pool_dict,
         }
 
     def __call__(self, obs: TensorTree) -> dict[str, torch.Tensor]:
@@ -48,11 +48,6 @@ class Canonicalizer:
         parser = self._parsers[self.task_id]
         return parser(obs)
 
-    def _parse_stack_cube_swapped_dict(
-        self, obs: Mapping[str, TensorTree]
-    ) -> dict[str, torch.Tensor]:
-        return self._parse_pool_dict(obs, pick_key="cubeB", target_key="cubeA")
-
     def _parse_stack_cube_clutter_random_pick_dict(
         self, obs: Mapping[str, TensorTree]
     ) -> dict[str, torch.Tensor]:
@@ -62,8 +57,6 @@ class Canonicalizer:
         self,
         obs: Mapping[str, TensorTree],
         *,
-        pick_key: str = "cubeA",
-        target_key: str = "cubeB",
         is_random_pick: bool = False,
     ) -> dict[str, torch.Tensor]:
         """Parses any stack_cube-family task into the standardized object-pool format."""
@@ -81,7 +74,9 @@ class Canonicalizer:
         valids: list[torch.Tensor] = [torch.ones_like(tcp_pose[..., :1])]
 
         if not is_random_pick:
-            for key, role in ((pick_key, ROLE_PICK), (target_key, ROLE_TARGET)):
+            # cubeA is always the pick and cubeB the target, by key name -- the swapped tasks
+            # deliberately keep that labelling so the policy has to re-identify from the goal.
+            for key, role in (("cubeA", ROLE_PICK), ("cubeB", ROLE_TARGET)):
                 pose = get_tensor(extra, f"{key}_pose")
                 poses.append(pose)
                 roles.append(role_tensor(role, pose))
