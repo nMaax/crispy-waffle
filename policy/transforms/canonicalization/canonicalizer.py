@@ -6,6 +6,7 @@ from policy.transforms.canonicalization.spec import (
     ROLE_CLUTTER,
     ROLE_PICK,
     ROLE_TARGET,
+    ROLE_TCP,
     canonical_dim_spec,
 )
 from policy.transforms.canonicalization.utils import match_shape, role_tensor
@@ -74,7 +75,11 @@ class Canonicalizer:
         proprio = torch.cat([qpos, qvel], dim=-1)
         tcp_pose = get_tensor(extra, "tcp_pose")
 
-        res: dict[str, torch.Tensor] = {"proprio": proprio, "tcp_pose": tcp_pose}
+        res: dict[str, torch.Tensor] = {
+            "proprio": proprio,
+            "tcp_pose": tcp_pose,
+            "tcp_role": role_tensor(ROLE_TCP, tcp_pose),
+        }
         next_idx = 0
 
         if not is_random_pick:
@@ -110,8 +115,9 @@ class Canonicalizer:
                 is_target_t = match_shape(get_tensor(extra, f"obj_{i}_is_target"), pose_tensor)
                 # An object is clutter if it is neither pick nor target
                 is_clutter_t = 1.0 - torch.clamp(is_pick_t + is_target_t, 0.0, 1.0)
+                is_tcp_t = torch.zeros_like(is_pick_t)
                 res[f"obj_{next_idx}_role"] = torch.cat(
-                    [is_pick_t, is_target_t, is_clutter_t], dim=-1
+                    [is_tcp_t, is_pick_t, is_target_t, is_clutter_t], dim=-1
                 )
             else:
                 # obj_i here is always decorative clutter: the fixed pair above already claimed

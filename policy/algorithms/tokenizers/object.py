@@ -14,6 +14,8 @@ from policy.transforms.canonicalization.spec import (
 from policy.utils import get_tensor, match_shapes
 from policy.utils.typing_utils import DimSpec, TensorTree
 
+TCP_POSE_KEY = "tcp_pose"
+
 
 class ObjectTokenizer(BaseTokenizer):
     """Tokenizes each object entity in a state as a standalone token.
@@ -69,13 +71,14 @@ class ObjectTokenizer(BaseTokenizer):
                 f"No canonical object pose keys ('obj_i_pose') found in task dict. "
                 f"Available keys: {list(task_dict.keys())}. Ensure Canonicalizer transform was applied."
             )
-        return keys
+        # The TCP is an entity like any other object, carrying its own goal delta.
+        return [TCP_POSE_KEY, *keys]
 
     def _tokenize_relative(
         self, obs_task: Mapping[str, TensorTree], goal_task: Mapping[str, TensorTree]
     ) -> torch.Tensor:
         keys = self._keys(obs_task)
-        tcp_pose = get_tensor(obs_task, "tcp_pose")
+        tcp_pose = get_tensor(obs_task, TCP_POSE_KEY)
 
         tokens = []
         for key in keys:
@@ -92,7 +95,7 @@ class ObjectTokenizer(BaseTokenizer):
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
         keys = self._keys(task)
-        tcp_pose = get_tensor(task, "tcp_pose")
+        tcp_pose = get_tensor(task, TCP_POSE_KEY)
 
         tokens = []
         for key in keys:

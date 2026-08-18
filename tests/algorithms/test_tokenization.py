@@ -11,7 +11,13 @@ import torch
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
-from policy.transforms.canonicalization.spec import ROLE_PICK, ROLE_TARGET, canonical_dim_spec
+from policy.transforms.canonicalization.spec import (
+    ROLE_DIM,
+    ROLE_PICK,
+    ROLE_TARGET,
+    ROLE_TCP,
+    canonical_dim_spec,
+)
 
 DECODER = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
 ENCODER = "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"
@@ -20,7 +26,8 @@ STATE_TOKENIZER = "policy.algorithms.tokenizers.state.StateTokenizer"
 
 OBS_HORIZON = 2
 NUM_OBJECTS = 2
-ROLES = (ROLE_PICK, ROLE_TARGET)
+OBJECT_KEYS = ["tcp_pose", "obj_0_pose", "obj_1_pose"]
+ROLES = {"tcp_role": ROLE_TCP, "obj_0_role": ROLE_PICK, "obj_1_role": ROLE_TARGET}
 
 
 def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overrides):
@@ -39,7 +46,7 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
     )
     if tokenizer is not None:
         kwargs["tokenizer"] = (
-            {"_target_": tokenizer, "object_keys": ["obj_0_pose", "obj_1_pose"]}
+            {"_target_": tokenizer, "object_keys": OBJECT_KEYS}
             if tokenizer == OBJECT_TOKENIZER
             else {"_target_": tokenizer}
         )
@@ -58,7 +65,7 @@ def _canonical_tree(batch_size=4, time_axis=True):
             quat = torch.randn(*shape, 4)
             tree[key] = torch.cat([torch.randn(*shape, 3), quat / quat.norm(dim=-1, keepdim=True)], -1)
         elif key.endswith("_role"):
-            tree[key] = torch.tensor(ROLES[int(key.split("_")[1])]).expand(*shape, 3).clone()
+            tree[key] = torch.tensor(ROLES[key]).expand(*shape, ROLE_DIM).clone()
         else:
             tree[key] = torch.randn(*shape, dim)
     return tree
@@ -252,7 +259,7 @@ class TestCategoricalMaskLayout:
     @pytest.mark.parametrize("relative_goal", [True, False])
     def test_object_tokenizer_mask_matches_emitted_channels(self, relative_goal):
         tokenizer = ObjectTokenizer(
-            object_keys=["obj_0_pose", "obj_1_pose"], relative_goal=relative_goal
+            object_keys=OBJECT_KEYS, relative_goal=relative_goal
         )
 
         obs = self._sentinel_tree()

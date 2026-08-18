@@ -10,18 +10,20 @@ from policy.utils.typing_utils import DimSpec
 # Dimensionality constants
 POSE_DIM: int = 7  # 3D position + 4D quaternion [x, y, z, qw, qx, qy, qz]
 RELATIVE_SE3_DIM: int = 6  # 3D position delta + 3D axis-angle rotation vector
-ROLE_DIM: int = 3  # 3D one-hot vector [is_pick, is_target, is_clutter]
+ROLE_DIM: int = 4  # 4D one-hot vector [is_tcp, is_pick, is_target, is_clutter]
 PROPRIO_DIM: int = 18  # 9D joint positions (qpos) + 9D joint velocities (qvel)
 
 # Role one-hot vectors
-ROLE_PICK: tuple[float, float, float] = (1.0, 0.0, 0.0)
-ROLE_TARGET: tuple[float, float, float] = (0.0, 1.0, 0.0)
-ROLE_CLUTTER: tuple[float, float, float] = (0.0, 0.0, 1.0)
+Role = tuple[float, float, float, float]
+ROLE_TCP: Role = (1.0, 0.0, 0.0, 0.0)
+ROLE_PICK: Role = (0.0, 1.0, 0.0, 0.0)
+ROLE_TARGET: Role = (0.0, 0.0, 1.0, 0.0)
+ROLE_CLUTTER: Role = (0.0, 0.0, 0.0, 1.0)
 
 
 def canonical_dim_spec(num_objects: int = 2) -> dict[str, int]:
     """Generates the canonical dimension specification dictionary for a given object count."""
-    spec: dict[str, int] = {"proprio": PROPRIO_DIM, "tcp_pose": POSE_DIM}
+    spec: dict[str, int] = {"proprio": PROPRIO_DIM, "tcp_pose": POSE_DIM, "tcp_role": ROLE_DIM}
     for i in range(num_objects):
         spec[f"obj_{i}_pose"] = POSE_DIM
         spec[f"obj_{i}_role"] = ROLE_DIM
