@@ -2241,22 +2241,76 @@ encoder.embedder.attn.out_proj.weight:
 encoder.embedder.input_proj.bias:
   device: cpu
   dtype: torch.float32
-  max: 0.3086591958999634
-  mean: 0.014195773750543594
-  min: -0.30727964639663696
+  max: 0.24401652812957764
+  mean: 0.01122274436056614
+  min: -0.24292589724063873
   shape:
   - 64
-  sum: 0.90852952003479
+  sum: 0.7182556390762329
 encoder.embedder.input_proj.weight:
   device: cpu
   dtype: torch.float32
-  max: 0.31605473160743713
-  mean: -0.0024232170544564724
-  min: -0.3155772089958191
+  max: 0.24986320734024048
+  mean: -0.004744440317153931
+  min: -0.24948568642139435
   shape:
   - 64
-  - 10
-  sum: -1.5508588552474976
+  - 16
+  sum: -4.858306884765625
+encoder.embedder.ln1.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0
+  mean: 0.0
+  min: 0.0
+  shape:
+  - 64
+  sum: 0.0
+encoder.embedder.ln1.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 1.0
+  mean: 1.0
+  min: 1.0
+  shape:
+  - 64
+  sum: 64.0
+encoder.embedder.ln2.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0
+  mean: 0.0
+  min: 0.0
+  shape:
+  - 64
+  sum: 0.0
+encoder.embedder.ln2.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 1.0
+  mean: 1.0
+  min: 1.0
+  shape:
+  - 64
+  sum: 64.0
+encoder.embedder.ln_f.bias:
+  device: cpu
+  dtype: torch.float32
+  max: 0.0
+  mean: 0.0
+  min: 0.0
+  shape:
+  - 64
+  sum: 0.0
+encoder.embedder.ln_f.weight:
+  device: cpu
+  dtype: torch.float32
+  max: 1.0
+  mean: 1.0
+  min: 1.0
+  shape:
+  - 64
+  sum: 64.0
 encoder.embedder.mlp.0.bias:
   device: cpu
   dtype: torch.float32
@@ -2295,42 +2349,6 @@ encoder.embedder.mlp.2.weight:
   - 64
   - 256
   sum: 2.2031495571136475
-encoder.embedder.norm.bias:
-  device: cpu
-  dtype: torch.float32
-  max: 0.0
-  mean: 0.0
-  min: 0.0
-  shape:
-  - 64
-  sum: 0.0
-encoder.embedder.norm.weight:
-  device: cpu
-  dtype: torch.float32
-  max: 1.0
-  mean: 1.0
-  min: 1.0
-  shape:
-  - 64
-  sum: 64.0
-encoder.embedder.norm2.bias:
-  device: cpu
-  dtype: torch.float32
-  max: 0.0
-  mean: 0.0
-  min: 0.0
-  shape:
-  - 64
-  sum: 0.0
-encoder.embedder.norm2.weight:
-  device: cpu
-  dtype: torch.float32
-  max: 1.0
-  mean: 1.0
-  min: 1.0
-  shape:
-  - 64
-  sum: 64.0
 encoder.embedder.pos_emb:
   device: cpu
   dtype: torch.float32
