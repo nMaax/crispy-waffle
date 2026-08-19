@@ -1,0 +1,5 @@
+defaults:
+  - beso_policy_delta_input
+  - override tokenizer: object
+
+_target_: policy.algorithms.beso_policy.BesoPolicy

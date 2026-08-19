@@ -1,7 +1,7 @@
 """End-to-end tokenizer -> encoder -> decoder wiring, without going through an algorithm class.
 
 Mirrors what ``BaseDiffusionAgent._encode()`` + ``self.decoder(...)`` run: the algorithm tokenizes,
-normalizes, and hands the encoder a ``{"proprio", "task"[, "goal_task"]}`` tree.
+normalizes, and hands the encoder an ``{"obs"[, "goal"]}`` tree of ``{"proprio", "task"}``.
 """
 
 import hydra_zen
@@ -51,18 +51,20 @@ def _tokenize(tokenizer, obs, goal=None, relative_goal=True):
     """The algorithm-side half of the pipeline, inlined so this test stays network-scoped."""
     proprio, obs_task = pop_leaf_key(obs, "proprio", PROPRIO_DIM)
     if goal is None:
-        return {"proprio": proprio, "task": tokenizer.tokenize(obs_task, None)}
+        return {"obs": {"proprio": proprio, "task": tokenizer.tokenize(obs_task, None)}}
 
-    _, goal_task = pop_leaf_key(goal, "proprio", PROPRIO_DIM)
+    goal_proprio, goal_task = pop_leaf_key(goal, "proprio", PROPRIO_DIM)
     if not relative_goal:
         return {
-            "proprio": proprio,
-            "task": tokenizer.tokenize(obs_task, None),
-            "goal_task": tokenizer.tokenize(None, goal_task),
+            "obs": {"proprio": proprio, "task": tokenizer.tokenize(obs_task, None)},
+            "goal": {
+                "proprio": goal_proprio,
+                "task": tokenizer.tokenize(None, goal_task),
+            },
         }
 
     goal_task = {k: v.unsqueeze(1) for k, v in goal_task.items()}  # add the goal's time axis
-    return {"proprio": proprio, "task": tokenizer.tokenize(obs_task, goal_task)}
+    return {"obs": {"proprio": proprio, "task": tokenizer.tokenize(obs_task, goal_task)}}
 
 
 def _assert_gradients_flow(*modules):
@@ -121,7 +123,7 @@ def test_film_pipeline_goal_conditioned_absolute_mode_instantiates_and_runs():
     sample = torch.randn(batch_size, horizon, act_dim)
     timestep = torch.randint(0, 100, (batch_size,))
     tokens = _tokenize(tokenizer, obs, goal, relative_goal=False)
-    assert "goal_task" in tokens
+    assert "goal" in tokens
 
     output = decoder(sample, timestep, external_cond=encoder(tokens))
     assert output.shape == sample.shape
