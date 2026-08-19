@@ -22,6 +22,10 @@ class TestObjectTokenizer:
         assert ObjectTokenizer(relative_goal=True).output_dim == 10
         assert ObjectTokenizer(relative_goal=False).output_dim == 11
 
+    def test_include_role_false_drops_the_trailing_one_hot(self):
+        assert ObjectTokenizer(relative_goal=True, include_role=False).output_dim == 6
+        assert ObjectTokenizer(relative_goal=False, include_role=False).output_dim == 7
+
     def test_tokens_per_step_matches_object_keys_length(self):
         assert ObjectTokenizer().tokens_per_step is None
         assert ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose")).tokens_per_step == 2
@@ -73,6 +77,17 @@ class TestObjectTokenizer:
         tok_1 = tokens[0, 0, 2]
         assert torch.allclose(tok_1[:6], torch.zeros(6), atol=1e-6)
         assert torch.allclose(tok_1[6:10], TARGET)
+
+    def test_role_free_tokens_keep_only_the_goal_delta(self):
+        tokenizer = ObjectTokenizer(relative_goal=True, include_role=False)
+        obs, goal = self._obs_goal()
+
+        tokens = tokenizer.tokenize(obs, goal)
+        assert tokens.shape == (1, 1, 3, 6)
+        assert tokenizer.categorical_mask.all()
+
+        with_role = ObjectTokenizer(relative_goal=True).tokenize(obs, goal)
+        assert torch.allclose(tokens, with_role[..., :6])
 
     def test_dynamic_clutter_tokens(self):
         tokenizer = ObjectTokenizer(relative_goal=True)

@@ -1,2 +1,3 @@
 _target_: policy.algorithms.tokenizers.object.ObjectTokenizer
 object_keys: null
+include_role: true

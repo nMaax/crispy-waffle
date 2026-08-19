@@ -22,28 +22,34 @@ class ObjectTokenizer(BaseTokenizer):
 
     - In relative mode (``relative_goal=True``):
         1. SE(3) pose delta from current state to goal (6D)
-        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
+        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
+           ``include_role``
     - In absolute mode (``relative_goal=False``):
         1. Absolute SE(3) pose (7D)
-        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
+        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
+           ``include_role``
+
+    The role one-hot is constant per slot in every fixed-role env, so it carries information only
+    where the pick/target assignment varies per episode (``*RandomPick-v1``).
     """
 
     def __init__(
         self,
         object_keys: Sequence[str] | None = None,
         relative_goal: bool = True,
+        include_role: bool = True,
         task_dim: DimSpec | None = None,  # for API consistency
     ):
         super().__init__(relative_goal=relative_goal)
         self.object_keys = tuple(object_keys) if object_keys is not None else None
-        self.output_dim = (
-            RELATIVE_SE3_DIM + ROLE_DIM if relative_goal else POSE_DIM + ROLE_DIM
-        )
-        # The role one-hot is the trailing ROLE_DIM block of every token, in both modes.
+        self.include_role = include_role
+        role_dim = ROLE_DIM if include_role else 0
+        self.output_dim = (RELATIVE_SE3_DIM if relative_goal else POSE_DIM) + role_dim
+        # The role one-hot is the trailing block of every token, in both modes.
         self._categorical_mask = torch.cat(
             [
-                torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
-                torch.zeros(ROLE_DIM, dtype=torch.bool),
+                torch.ones(self.output_dim - role_dim, dtype=torch.bool),
+                torch.zeros(role_dim, dtype=torch.bool),
             ]
         )
 
@@ -79,11 +85,12 @@ class ObjectTokenizer(BaseTokenizer):
         for key in keys:
             o_k = get_tensor(obs_task, key)
             g_k = match_shapes(get_tensor(goal_task, key), o_k)
-            role = match_shapes(get_tensor(obs_task, key.replace("_pose", "_role")), o_k)
 
-            goal_delta = relative_se3_pose(g_k, o_k)
+            parts = [relative_se3_pose(g_k, o_k)]
+            if self.include_role:
+                parts.append(self._role(obs_task, key, o_k))
 
-            tokens.append(torch.cat([goal_delta, role], dim=-1))
+            tokens.append(torch.cat(parts, dim=-1))
 
         return torch.stack(tokens, dim=2)
 
@@ -93,9 +100,17 @@ class ObjectTokenizer(BaseTokenizer):
         tokens = []
         for key in keys:
             o_k = get_tensor(task, key)
-            role = match_shapes(get_tensor(task, key.replace("_pose", "_role")), o_k)
 
-            tokens.append(torch.cat([o_k, role], dim=-1))
+            parts = [o_k]
+            if self.include_role:
+                parts.append(self._role(task, key, o_k))
+
+            tokens.append(torch.cat(parts, dim=-1))
 
         stack_dim = 2 if tokens[0].ndim >= 3 else 1
         return torch.stack(tokens, dim=stack_dim)
+
+    def _role(
+        self, task: Mapping[str, TensorTree], key: str, o_k: torch.Tensor
+    ) -> torch.Tensor:
+        return match_shapes(get_tensor(task, key.replace("_pose", "_role")), o_k)

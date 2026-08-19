@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - GCDP-Obj-Attn-MLPPool__SCLR__default__train
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  tokenizer:
+    include_role: false

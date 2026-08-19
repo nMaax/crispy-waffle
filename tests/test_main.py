@@ -57,6 +57,10 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test__video trainer.max_epochs=1",
     "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__train trainer.max_epochs=1",
     "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__test trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train__NoRole trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test__NoRole trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__train__NoRole trainer.max_epochs=1",
+    "experiment=GCDP-Obj-Attn-AttnPool__SCLR__default__test__NoRole trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 
