@@ -133,12 +133,14 @@ class MinMaxNormalizer(nn.Module):
     def normalize(self, x: TensorTree) -> TensorTree:
         """Normalizes the input tensor or mapping of tensors using the fitted min and max."""
         if not isinstance(x, Mapping):
-            if self.is_fit:
-                diff = (self.max - self.min).clamp(min=1e-6)
-                normalized = self.min_val + (self.max_val - self.min_val) * (x - self.min) / diff
-                return apply_mask(self.mask, normalized, x)
-            else:
-                return x
+            if not self.is_fit:
+                raise ValueError(
+                    "MinMaxNormalizer.normalize called before fit; a configured normalizer must carry "
+                    "statistics (leave the normalizer config null to disable normalization)."
+                )
+            diff = (self.max - self.min).clamp(min=1e-6)
+            normalized = self.min_val + (self.max_val - self.min_val) * (x - self.min) / diff
+            return apply_mask(self.mask, normalized, x)
         else:
             return {key: norm.normalize(x[key]) for key, norm in self.norms.items()}
 
@@ -151,12 +153,14 @@ class MinMaxNormalizer(nn.Module):
     def unnormalize(self, x: TensorTree) -> TensorTree:
         """Unnormalizes the input tensor or dict of tensors using the fitted min and max."""
         if not isinstance(x, Mapping):
-            if self.is_fit:
-                diff = (self.max - self.min).clamp(min=1e-6)
-                unnormalized = (x - self.min_val) * diff / (self.max_val - self.min_val) + self.min
-                return apply_mask(self.mask, unnormalized, x)
-            else:
-                return x
+            if not self.is_fit:
+                raise ValueError(
+                    "MinMaxNormalizer.unnormalize called before fit; a configured normalizer must carry "
+                    "statistics (leave the normalizer config null to disable normalization)."
+                )
+            diff = (self.max - self.min).clamp(min=1e-6)
+            unnormalized = (x - self.min_val) * diff / (self.max_val - self.min_val) + self.min
+            return apply_mask(self.mask, unnormalized, x)
         else:
             return {key: norm.unnormalize(x[key]) for key, norm in self.norms.items()}
 
