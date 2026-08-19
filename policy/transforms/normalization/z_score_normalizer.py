@@ -171,11 +171,13 @@ class ZScoreNormalizer(nn.Module):
     def normalize(self, x: TensorTree) -> TensorTree:
         """Normalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
-            if self.is_fit:
-                normalized = (x - self.mean) / self.std
-                return apply_mask(self.mask, normalized, x)
-            else:
-                return x
+            if not self.is_fit:
+                raise ValueError(
+                    "ZScoreNormalizer.normalize called before fit; a configured normalizer must carry "
+                    "statistics (leave the normalizer config null to disable normalization)."
+                )
+            normalized = (x - self.mean) / self.std
+            return apply_mask(self.mask, normalized, x)
         else:
             return {key: norm.normalize(x[key]) for key, norm in self.norms.items()}
 
@@ -188,11 +190,13 @@ class ZScoreNormalizer(nn.Module):
     def unnormalize(self, x: TensorTree) -> TensorTree:
         """Unnormalizes the input tensor or mapping of tensors using the fitted mean and std."""
         if not isinstance(x, Mapping):
-            if self.is_fit:
-                unnormalized = (x * self.std) + self.mean
-                return apply_mask(self.mask, unnormalized, x)
-            else:
-                return x
+            if not self.is_fit:
+                raise ValueError(
+                    "ZScoreNormalizer.unnormalize called before fit; a configured normalizer must carry "
+                    "statistics (leave the normalizer config null to disable normalization)."
+                )
+            unnormalized = (x * self.std) + self.mean
+            return apply_mask(self.mask, unnormalized, x)
         else:
             return {key: norm.unnormalize(x[key]) for key, norm in self.norms.items()}
 
