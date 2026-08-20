@@ -194,12 +194,23 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         side = {
             "proprio": self.proprio_dim,
-            "task": (self.tokenizer.tokens_per_step, self.tokenizer.output_dim),
+            "task": self._with_tokens_axis(self.tokenizer.token_spec, self.tokenizer.tokens_per_step),
         }
         if not self.has_standalone_goal:
             return {"obs": side}
         else:
             return {"obs": side, "goal": side}
+
+    @staticmethod
+    def _with_tokens_axis(spec: DimSpec, tokens_per_step: int) -> DimSpec:
+        """Folds ``tokens_per_step`` into every leaf of a tokenizer's ``token_spec``."""
+        if isinstance(spec, Mapping):
+            return {
+                key: BesoPolicy._with_tokens_axis(leaf, tokens_per_step)
+                for key, leaf in spec.items()
+            }
+        assert isinstance(spec, int), f"Expected a scalar token width leaf, got {spec!r}."
+        return (tokens_per_step, spec)
 
     def _decoder_extra_kwargs(self) -> dict[str, Any]:
         kwargs = super()._decoder_extra_kwargs()  # {"cond_dims": self._get_cond_dims()}

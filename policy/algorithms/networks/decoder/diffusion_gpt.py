@@ -315,9 +315,10 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
     """DiffusionGPT variant giving proprioception and every object token its own sequence slot.
 
     The context becomes ``[sigma, g_1, ..., g_{G*K}, p_1, o_1^1, ..., o_1^K, a_1, p_2, ...]``,
-    where ``K`` is the tokenizer's ``tokens_per_step`` -- 1 for ``StateTokenizer`` (one flat
-    task token per step, which reproduces the original per-timestep layout plus a proprioception
-    token), one token per object for ``ObjectTokenizer``.
+    where ``K`` is the tokenizer's ``tokens_per_step`` (one token per object, for
+    ``ObjectTokenizer``). Each object token's role is injected as an ``nn.Embedding`` added
+    alongside ``obj_emb``'s projection, additively, mirroring how ``pos_emb`` is added afterward
+    for the whole frame.
     """
 
     def __init__(
@@ -350,7 +351,7 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
             )
 
         self.proprio_dim = get_total_dim(obs_dims["proprio"])
-        self.tokens_per_step, self.token_dim = self._token_shape(obs_dims["task"])
+        self.tokens_per_step, self.token_dim, role_dim = self._token_shape(obs_dims["task"])
 
         if "goal" in cond_dims:
             goal_dims = cond_dims["goal"]
@@ -359,11 +360,15 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
                     "ObjectDiffusionGPT requires a cond_dims['goal'] mapping with a 'task' entry, "
                     f"got {type(goal_dims).__name__}."
                 )
-            if self._token_shape(goal_dims["task"]) != (self.tokens_per_step, self.token_dim):
+            if self._token_shape(goal_dims["task"]) != (
+                self.tokens_per_step,
+                self.token_dim,
+                role_dim,
+            ):
                 raise ValueError(
                     f"cond_dims['goal']['task'] {self._token_shape(goal_dims['task'])} must match "
-                    f"the observation's ({self.tokens_per_step}, {self.token_dim}), since goal "
-                    "tokens share obj_emb with observation tokens."
+                    f"the observation's ({self.tokens_per_step}, {self.token_dim}, {role_dim}), "
+                    "since goal tokens share obj_emb/role_emb with observation tokens."
                 )
 
         self.act_dim = act_dim
@@ -387,8 +392,9 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         self.act_emb = nn.Linear(act_dim, embed_dim)
         self.sigma_emb = nn.Linear(1, embed_dim)
 
-        # Positional Embedding
-        self.pos_emb = nn.Parameter(torch.zeros(1, self.seq_len, embed_dim))
+        # Positional Embeddings
+        self.time_emb = nn.Parameter(torch.zeros(1, self.seq_len, embed_dim))
+        self.role_emb = nn.Embedding(role_dim, embed_dim)
         self.drop = nn.Dropout(embed_pdrop)
 
         # Transformer Blocks
@@ -409,7 +415,7 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
 
     def _init_weights(self, module):
         if module is self:
-            torch.nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
+            torch.nn.init.normal_(self.time_emb, mean=0.0, std=0.02)
         else:
             init_gpt_weights(module)
 
@@ -423,17 +429,17 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         Args:
             sample: [B, pred_horizon, act_dim] (Noisy actions)
             timestep: [B] (Continuous sigma values in BESO)
-            external_cond: ``{"obs": {"proprio": [B, T, proprio_dim], "task": task tokens}}``, plus
-                a ``"goal"`` entry of the same shape when goal-conditioned. Task tokens are
-                ``[B, T, K, token_dim]``, or ``[B, T, token_dim]`` when the tokenizer emits a
-                single token per step. A ``"proprio"`` entry on the goal side is ignored: goal
-                tokens are task-only, since proprioception has its own token stream.
+            external_cond: ``{"obs": {"proprio": [B, T, proprio_dim], "task": {"tokens": [B, T,
+                K, token_dim], "role": [B, T, K, role_dim]}}}``, plus a ``"goal"`` entry of the
+                same shape when goal-conditioned. A ``"proprio"`` entry on the goal side is
+                ignored: goal tokens are task-only, since proprioception has its own token stream.
         """
         obs = get_subtree(external_cond, "obs")
         proprio = get_tensor(obs, "proprio")
-        task = self._as_token_sequence(get_tensor(obs, "task"))
+        task = get_subtree(obs, "task")
 
-        B, cur_obs_horizon = task.shape[0], task.shape[1]
+        task_tokens = get_tensor(task, "tokens")
+        B, cur_obs_horizon = task_tokens.shape[0], task_tokens.shape[1]
 
         cur_pred_horizon = sample.shape[1]
         if cur_obs_horizon != cur_pred_horizon:
@@ -446,17 +452,20 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         sigma_token = self.drop(self.sigma_emb(sigma_log.to(torch.float32)))
 
         # Assemble each frame as [proprio, obj_1, ..., obj_K, action], action always last so its
-        # output token attends over everything else in the frame.
+        # output token attends over everything else in the frame. Role is folded into the object
+        # slice here (obj_emb + role_emb), before pos_emb_sa below is added to the whole frame --
+        # pos_emb_sa also covers proprio/action tokens, which have no role, so it can't be fused
+        # into that one addition the way role is fused with obj_emb.
         frame = torch.cat(
             [
                 self.proprio_emb(proprio).unsqueeze(2),
-                self.obj_emb(task),
+                self._embed_task(task),
                 self.act_emb(sample).unsqueeze(2),
             ],
             dim=2,
         )  # [B, T, K + 2, embed_dim]
 
-        pos_emb_sa = self.pos_emb[
+        pos_emb_sa = self.time_emb[
             :, self.goal_horizon : self.goal_horizon + cur_obs_horizon, :
         ].unsqueeze(2)
         frame = self.drop(frame + pos_emb_sa)
@@ -484,28 +493,42 @@ class ObjectDiffusionGPT(nn.Module, DiffusionNetworkProtocol):
         if "goal" not in external_cond:
             raise ValueError("goal must be provided for goal-conditioned ObjectDiffusionGPT")
 
-        goal_task = self._as_token_sequence(get_tensor(get_subtree(external_cond, "goal"), "task"))
-        if goal_task.shape[1] != self.goal_horizon:
+        goal_task = get_subtree(get_subtree(external_cond, "goal"), "task")
+        goal_horizon = self._as_token_sequence(get_tensor(goal_task, "tokens")).shape[1]
+        if goal_horizon != self.goal_horizon:
             raise ValueError(
-                f"Expected goal sequence length {self.goal_horizon}, but got {goal_task.shape[1]}"
+                f"Expected goal sequence length {self.goal_horizon}, but got {goal_horizon}"
             )
 
-        tokens = self.obj_emb(goal_task) + self.pos_emb[:, : self.goal_horizon, :].unsqueeze(2)
+        tokens = self._embed_task(goal_task) + self.time_emb[:, : self.goal_horizon, :].unsqueeze(
+            2
+        )
         return self.drop(
             tokens.reshape(batch_size, self.goal_horizon * self.tokens_per_step, self.embed_dim)
         )
 
-    def _as_token_sequence(self, task: torch.Tensor) -> torch.Tensor:
+    def _embed_task(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
+        """Embeds object tokens with their role added additively, mirroring ``pos_emb``."""
+        tokens = self._as_token_sequence(get_tensor(task, "tokens"))
+        role = self._as_token_sequence(get_tensor(task, "role"))
+        return self.obj_emb(tokens) + self.role_emb(role.argmax(dim=-1))
+
+    def _as_token_sequence(self, tensor: torch.Tensor) -> torch.Tensor:
         """Restores the slot axis a single-token-per-step tokenizer does not emit."""
-        return task.unsqueeze(-2) if self.tokens_per_step == 1 else task
+        return tensor.unsqueeze(-2) if self.tokens_per_step == 1 else tensor
 
     @staticmethod
-    def _token_shape(spec: DimSpec) -> tuple[int, int]:
-        """Reads ``(tokens_per_step, token_dim)`` off a task dim spec."""
-        shape = dim_shape(spec)
-        if len(shape) != 2:
+    def _token_shape(spec: DimSpec) -> tuple[int, int, int]:
+        """Reads ``(tokens_per_step, token_dim, role_dim)`` off a task dim spec."""
+        if not isinstance(spec, Mapping) or "tokens" not in spec or "role" not in spec:
             raise ValueError(
-                "ObjectDiffusionGPT expects a (tokens_per_step, token_dim) task dim spec, got "
-                f"{spec!r}."
+                "ObjectDiffusionGPT expects a task dim spec with 'tokens': (tokens_per_step, "
+                f"token_dim) and 'role': (tokens_per_step, role_dim) entries, got {spec!r}."
             )
-        return shape[0], shape[1]
+        token_shape, role_shape = dim_shape(spec["tokens"]), dim_shape(spec["role"])
+        if len(token_shape) != 2 or len(role_shape) != 2 or token_shape[0] != role_shape[0]:
+            raise ValueError(
+                "ObjectDiffusionGPT expects 'tokens' and 'role' to share the same "
+                f"tokens_per_step, got {spec!r}."
+            )
+        return token_shape[0], token_shape[1], role_shape[1]

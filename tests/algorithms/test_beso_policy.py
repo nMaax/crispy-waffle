@@ -400,16 +400,15 @@ class TestBesoPolicyObjectTokenLogic:
             "goal_horizon": 0,
         }
 
-    @pytest.mark.parametrize(
-        ("tokenizer", "tokens_per_step"), [(STATE_TOKENIZER, 1), (OBJECT_TOKENIZER, 3)]
-    )
-    def test_cond_dims_carry_the_tokenizers_slot_count(self, tokenizer, tokens_per_step):
-        policy = BesoPolicy(**_delta_kwargs(tokenizer={"_target_": tokenizer}))
+    def test_cond_dims_carry_the_tokenizers_slot_count(self):
+        """ObjectDiffusionGPT always pairs with a role-carrying tokenizer, so ``task`` is a
+        ``{"tokens", "role"}`` dict, each leaf sized by ``(tokens_per_step, width)``."""
+        policy = BesoPolicy(**_delta_kwargs(tokenizer={"_target_": OBJECT_TOKENIZER}))
         policy._instantiate_tokenizer()
-        assert policy._get_cond_dims()["obs"]["task"] == (
-            tokens_per_step,
-            policy.tokenizer.output_dim,
-        )
+        assert policy._get_cond_dims()["obs"]["task"] == {
+            "tokens": (3, policy.tokenizer.output_dim),
+            "role": (3, 4),
+        }
 
     # ------------------------------------------------------------------ #
     # Delta conditioning (g - s_t)
@@ -439,7 +438,6 @@ class TestBesoPolicyOnCanonicalObservations:
 
     CASES = [
         pytest.param(DIFFUSION_GPT, STATE_TOKENIZER, False, id="vanilla-beso"),
-        pytest.param(OBJECT_DIFFUSION_GPT, STATE_TOKENIZER, True, id="beso++-delta"),
         pytest.param(OBJECT_DIFFUSION_GPT, OBJECT_TOKENIZER, True, id="beso++-object-delta"),
         pytest.param(OBJECT_DIFFUSION_GPT, OBJECT_TOKENIZER, False, id="beso++-object-absolute"),
     ]

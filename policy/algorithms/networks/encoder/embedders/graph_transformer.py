@@ -5,7 +5,7 @@ from collections.abc import Mapping
 import torch
 import torch.nn as nn
 
-from policy.transforms.canonicalization.spec import RELATIVE_SE3_DIM
+from policy.transforms.canonicalization.spec import RELATIVE_SE3_DIM, ROLE_DIM
 from policy.utils import get_tensor
 from policy.utils.typing_utils import TensorTree
 
@@ -26,9 +26,13 @@ class GraphTransformer(nn.Module):
 
     Goal nodes are therefore keys but never queries.
 
-    Each node carries categorial features indicating its ROLE. This is mathematically equivalent to a positional embedding.
+    Each node's role (TCP/pick/target/clutter) is injected as an ``nn.Embedding`` added after the
+    input projection, the same way ``pos_emb`` is -- role is a per-node identity signal, so it is
+    additive rather than concatenated into the node features.
     Each edge carries its endpoints' SE(3) delta as features.
     """
+
+    ROLE_AWARE = True
 
     def __init__(
         self,
@@ -50,6 +54,7 @@ class GraphTransformer(nn.Module):
 
         self.input_proj = nn.Linear(input_dim, output_dim)
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon + goal_horizon, output_dim))
+        self.role_emb = nn.Embedding(ROLE_DIM, output_dim)
 
         self.edge_kind_emb = nn.Embedding(NUM_EDGE_KINDS, edge_dim)
         self.edge_bias = nn.Sequential(
@@ -82,6 +87,7 @@ class GraphTransformer(nn.Module):
         task:
         {
             "nodes": [B, T_all, K, input_dim],
+            "role": [B, T_all, K, ROLE_DIM],
             "valid": [B, T_all, K],
             "edge_feat": [B, S, S, edge_dim]
         } with ``S = T_all * K``
@@ -89,6 +95,7 @@ class GraphTransformer(nn.Module):
         returns: ``[B, T_all, K, output_dim]``.
         """
         nodes = get_tensor(task, "nodes")
+        role = get_tensor(task, "role")
         valid = get_tensor(task, "valid")
         edge_feat = get_tensor(task, "edge_feat")
 
@@ -99,9 +106,11 @@ class GraphTransformer(nn.Module):
                 f"obs_horizon={self.obs_horizon} + goal_horizon={self.goal_horizon}."
             )
 
-        # All K nodes of a timestep share that time's positional embedding.
+        # All K nodes of a timestep share that time's positional embedding; each node's own role
+        # is added the same way, as a learned per-role embedding.
         pos = self.pos_emb[:, :time, :].unsqueeze(2)
-        x = (self.input_proj(nodes) + pos).reshape(batch, time * num_slots, self.output_dim)
+        role_term = self.role_emb(role.argmax(dim=-1))
+        x = (self.input_proj(nodes) + pos + role_term).reshape(batch, time * num_slots, self.output_dim)
 
         attn_mask = self._attention_mask(edge_feat, valid, time, num_slots)
 

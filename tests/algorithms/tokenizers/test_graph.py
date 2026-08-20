@@ -27,13 +27,14 @@ def _tree(time, valid=None, num_slots=K):
 
 
 class TestGraphTokenizer:
-    def test_emits_nodes_validity_and_pairwise_edges(self):
+    def test_emits_nodes_role_validity_and_pairwise_edges(self):
         tokenizer = GraphTokenizer(_task_dim())
         out = tokenizer.tokenize(_tree(T), _tree(G))
 
         seq = (T + G) * K
-        assert set(out) == {"nodes", "valid", "edge_feat"}
+        assert set(out) == {"nodes", "role", "valid", "edge_feat"}
         assert out["nodes"].shape == (B, T + G, K, tokenizer.output_dim)
+        assert out["role"].shape == (B, T + G, K, 4)
         assert out["valid"].shape == (B, T + G, K)
         assert out["edge_feat"].shape == (B, seq, seq, tokenizer.edge_dim)
 
@@ -52,8 +53,8 @@ class TestGraphTokenizer:
         tokenizer = GraphTokenizer(_task_dim())
         out = tokenizer.tokenize(_tree(T), _tree(G))
 
-        assert torch.allclose(out["nodes"][:, :, 0, :6], torch.zeros(1), atol=1e-6)
-        assert torch.allclose(out["nodes"][:, :, 0, 6:], torch.tensor(ROLE_TCP).float())
+        assert torch.allclose(out["nodes"][:, :, 0, :], torch.zeros(1), atol=1e-6)
+        assert torch.allclose(out["role"][:, :, 0, :], torch.tensor(ROLE_TCP).float())
 
     def test_edges_carry_the_se3_delta_between_endpoints(self):
         tokenizer = GraphTokenizer(_task_dim())
@@ -86,8 +87,8 @@ class TestGraphTokenizer:
         for key, width in spec.items():
             assert mask[key].shape == (width,)
         # Roles would z-score to zero and validity is a flag; the geometry is normalizable.
-        assert not mask["nodes"][-4:].any()
-        assert mask["nodes"][:-4].all()
+        assert mask["nodes"].all()
+        assert not mask["role"].any()
         assert not mask["valid"].any()
         assert mask["edge_feat"].all()
 

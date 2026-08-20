@@ -392,12 +392,16 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.tokenizer is None:
             raise ValueError("Cannot size an encoder without a tokenizer.")
 
+        token_spec = self.tokenizer.token_spec
+        role_dim = token_spec["role"] if isinstance(token_spec, Mapping) and "role" in token_spec else None
+
         return {
             "proprio_dim": self.proprio_dim,
             "token_dim": self.tokenizer.output_dim,
             "tokens_per_step": self.tokenizer.tokens_per_step,
             "goal_conditioned": self.goal_conditioned,
             "relative_goal": self.relative_goal,
+            "role_dim": role_dim,
         }
 
     def _decoder_extra_kwargs(self) -> dict[str, Any]:

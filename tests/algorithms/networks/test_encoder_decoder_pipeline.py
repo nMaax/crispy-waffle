@@ -15,6 +15,7 @@ from policy.algorithms.tokenizers import GraphTokenizer, ObjectTokenizer, StateT
 from policy.utils import pop_leaf_key
 
 PROPRIO_DIM = 18
+ROLE_DIM = 4
 ROLES = ([1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
 CLUTTER_ROLE = [0.0, 0.0, 0.0, 1.0]
 
@@ -152,6 +153,7 @@ def test_cross_attention_pipeline_instantiates_and_runs():
             "obs_horizon": obs_horizon,
             "num_heads": 2,
         },
+        role_dim=ROLE_DIM,
     )
     decoder_cfg = _compose_decoder(
         "cross_attention_decoder1d", act_dim=act_dim, obs_horizon=obs_horizon
@@ -204,6 +206,7 @@ def test_film_pipeline_with_object_tokenizer_and_attention_pooling():
             "mode": "objects",
             "num_heads": 2,
         },
+        role_dim=ROLE_DIM,
     )
     decoder_cfg = _compose_decoder("film_decoder1d", act_dim=act_dim, obs_horizon=obs_horizon)
     decoder = hydra_zen.instantiate(decoder_cfg, cond_dims=encoder.cond_dims)
@@ -235,6 +238,7 @@ def test_film_pipeline_rejects_variable_objects_without_pooling():
             tokens_per_step=None,
             goal_conditioned=True,
             relative_goal=True,
+            role_dim=ROLE_DIM,
         )
 
 
@@ -261,6 +265,7 @@ def test_graph_pipeline_masks_absent_objects_out_of_the_decoder():
             "goal_horizon": goal_horizon,
             "num_heads": 2,
         },
+        role_dim=ROLE_DIM,
     )
     decoder_cfg = _compose_decoder(
         "cross_attention_decoder1d", act_dim=act_dim, obs_horizon=obs_horizon

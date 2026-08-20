@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from policy.algorithms.networks.decoder.diffusion_gpt import ObjectDiffusionGPT
+from policy.transforms.canonicalization.spec import ROLE_DIM
 from policy.utils.typing_utils import DiffusionNetworkProtocol
 
 # Small architecture dims for fast unit tests
@@ -14,10 +15,14 @@ N_HEADS = 4
 HORIZON = 4
 
 
+def _task_spec(tokens_per_step):
+    return {"tokens": (tokens_per_step, TOKEN_DIM), "role": (tokens_per_step, ROLE_DIM)}
+
+
 def _make_network(
     goal_horizon: int = 0, tokens_per_step: int = 3, **overrides
 ) -> ObjectDiffusionGPT:
-    side = {"proprio": PROPRIO_DIM, "task": (tokens_per_step, TOKEN_DIM)}
+    side = {"proprio": PROPRIO_DIM, "task": _task_spec(tokens_per_step)}
     cond_dims = {"obs": side} if goal_horizon == 0 else {"obs": side, "goal": side}
 
     kw = dict(
@@ -34,13 +39,25 @@ def _make_network(
     return ObjectDiffusionGPT(**kw)
 
 
-def _obs(batch_size=4, tokens_per_step=3, horizon=HORIZON):
-    task = (
-        torch.randn(batch_size, horizon, TOKEN_DIM)
+def _task(batch_size, horizon, tokens_per_step):
+    shape = (
+        (batch_size, horizon, TOKEN_DIM)
         if tokens_per_step == 1
-        else torch.randn(batch_size, horizon, tokens_per_step, TOKEN_DIM)
+        else (batch_size, horizon, tokens_per_step, TOKEN_DIM)
     )
-    return {"proprio": torch.randn(batch_size, horizon, PROPRIO_DIM), "task": task}
+    role_shape = (
+        (batch_size, horizon, ROLE_DIM)
+        if tokens_per_step == 1
+        else (batch_size, horizon, tokens_per_step, ROLE_DIM)
+    )
+    return {"tokens": torch.randn(*shape), "role": torch.randn(*role_shape)}
+
+
+def _obs(batch_size=4, tokens_per_step=3, horizon=HORIZON):
+    return {
+        "proprio": torch.randn(batch_size, horizon, PROPRIO_DIM),
+        "task": _task(batch_size, horizon, tokens_per_step),
+    }
 
 
 def _goal(goal_horizon, batch_size=4, tokens_per_step=3):
@@ -94,7 +111,7 @@ class TestObjectDiffusionGPT:
         sample = torch.randn(4, HORIZON, ACT_DIM)
         timestep = torch.rand(4)
         obs = _obs()
-        goal_task = torch.randn(4, goal_horizon, 3, TOKEN_DIM)
+        goal_task = _task(4, goal_horizon, 3)
 
         def predict(goal_proprio):
             return net(
@@ -129,8 +146,11 @@ class TestObjectDiffusionGPT:
             ObjectDiffusionGPT(
                 act_dim=ACT_DIM,
                 cond_dims={
-                    "obs": {"proprio": PROPRIO_DIM, "task": (3, TOKEN_DIM)},
-                    "goal": {"proprio": PROPRIO_DIM, "task": (3, TOKEN_DIM + 1)},
+                    "obs": {"proprio": PROPRIO_DIM, "task": _task_spec(3)},
+                    "goal": {
+                        "proprio": PROPRIO_DIM,
+                        "task": {"tokens": (3, TOKEN_DIM + 1), "role": (3, ROLE_DIM)},
+                    },
                 },
                 embed_dim=EMBED_DIM,
                 n_layers=N_LAYERS,
@@ -141,8 +161,8 @@ class TestObjectDiffusionGPT:
             )
 
     def test_flat_task_spec_raises(self):
-        """The task spec must declare (tokens_per_step, token_dim), not a bare width."""
-        with pytest.raises(ValueError, match=r"\(tokens_per_step, token_dim\)"):
+        """The task spec must declare {'tokens', 'role'} entries, not a bare width."""
+        with pytest.raises(ValueError, match="'tokens':"):
             ObjectDiffusionGPT(
                 act_dim=ACT_DIM,
                 cond_dims={"obs": {"proprio": PROPRIO_DIM, "task": TOKEN_DIM}},
@@ -162,3 +182,30 @@ class TestObjectDiffusionGPT:
         for name, param in net.named_parameters():
             assert param.grad is not None, f"{name} has no gradient"
             assert torch.isfinite(param.grad).all(), f"{name} has non-finite gradients"
+
+    def test_role_is_added_additively(self):
+        """Permuting which slot holds which role changes that slot's output token, and role_emb's
+        weight receives a gradient -- role is actually consumed, not silently dropped."""
+        net = _make_network(goal_horizon=0, tokens_per_step=3).eval()
+        sample = torch.randn(4, HORIZON, ACT_DIM)
+        timestep = torch.rand(4)
+
+        obs = _obs(tokens_per_step=3)
+        obs_permuted = {
+            "proprio": obs["proprio"],
+            "task": {
+                "tokens": obs["task"]["tokens"],
+                "role": obs["task"]["role"][:, :, [1, 0, 2]],
+            },
+        }
+
+        with torch.no_grad():
+            out = net(sample, timestep, external_cond={"obs": obs})
+            out_permuted = net(sample, timestep, external_cond={"obs": obs_permuted})
+
+        assert not torch.equal(out, out_permuted)
+
+        net.train()
+        net(sample, timestep, external_cond={"obs": obs}).sum().backward()
+        assert net.role_emb.weight.grad is not None
+        assert torch.isfinite(net.role_emb.weight.grad).all()

@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from typing import Literal
 
+import hydra.utils
 import hydra_zen
 import torch
 import torch.nn as nn
@@ -24,12 +25,14 @@ class ConditioningEncoder(nn.Module):
         decoder_type: Literal["film", "cross_attention"] = "film",
         embedder: HydraConfigFor[nn.Module] | None = None,
         pooling: HydraConfigFor[PoolingProtocol] | None = None,
+        role_dim: int | None = None,
     ):
         super().__init__()
 
         self.proprio_dim = proprio_dim
         self.token_dim = token_dim
         self.tokens_per_step = tokens_per_step
+        self.role_dim = role_dim
 
         self.goal_conditioned = goal_conditioned
         self.relative_goal = relative_goal
@@ -39,15 +42,30 @@ class ConditioningEncoder(nn.Module):
         # Embedder
         if isinstance(embedder, nn.Module):
             self.embedder = embedder
+            role_aware = bool(getattr(type(embedder), "ROLE_AWARE", False))
         elif embedder is not None:
-            self.embedder = hydra_zen.instantiate(embedder, input_dim=token_dim)
+            target_path = (
+                embedder["_target_"] if isinstance(embedder, Mapping) else embedder._target_
+            )
+            target = hydra.utils.get_class(target_path) if isinstance(target_path, str) else target_path
+            role_aware = bool(getattr(target, "ROLE_AWARE", False))
+            input_dim = token_dim if role_aware or role_dim is None else token_dim + role_dim
+            self.embedder = hydra_zen.instantiate(embedder, input_dim=input_dim)
         else:
             self.embedder = None
+            role_aware = False
+
+        # Whether ``_embed_tokens`` must reconcatenate tokens+role into one tensor before handing
+        # it to the embedder: role-aware embedders (e.g. SelfAttention, GraphTransformer) consume
+        # role additively themselves, everything else (MLP, AttentionPooling, or no embedder)
+        # needs role folded back into the token width, exactly as it was before role became a
+        # separate tokenizer output.
+        self._reconcat_role = role_dim is not None and not role_aware
 
         if self.embedder is not None:
             self.output_dim = self.embedder.output_dim
         else:
-            self.output_dim = token_dim
+            self.output_dim = token_dim + (role_dim or 0) if self._reconcat_role else token_dim
 
         # Pooling
         if isinstance(pooling, nn.Module | PoolingProtocol):
@@ -178,9 +196,10 @@ class ConditioningEncoder(nn.Module):
             context, key_padding_mask = self._embed_graph_tokens(self.embedder, task)
             payload = self._pack_graph(proprio, context, key_padding_mask)
         else:
-            if not isinstance(task, torch.Tensor):
+            if not isinstance(task, torch.Tensor | Mapping):
                 raise ValueError(
-                    f"Non-Graph embedder requires a torch.Tensor for task, but got {type(task)}."
+                    f"Non-Graph embedder requires a torch.Tensor or a {{'tokens', 'role'}} "
+                    f"Mapping for task, but got {type(task)}."
                 )
             embedded_task = self._embed_tokens(task)
             payload = self._pack_task(proprio, embedded_task)
@@ -188,7 +207,7 @@ class ConditioningEncoder(nn.Module):
             if self.has_standalone_goal:
                 # The goal's own proprioception never enters conditioning, only the observed
                 # history's.
-                goal_task = get_tensor(get_subtree(tokens, "goal"), "task")
+                goal_task = get_subtree(tokens, "goal")["task"]
                 payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
 
         self.cond_dims.validate_payload(payload)
@@ -233,13 +252,27 @@ class ConditioningEncoder(nn.Module):
         else:
             return get_tensor(get_subtree(payload, "obs"), "task")
 
-    def _embed_tokens(self, task: torch.Tensor) -> torch.Tensor:
+    def _embed_tokens(self, task: torch.Tensor | Mapping[str, TensorTree]) -> torch.Tensor:
         """Runs raw tokens through the embedder and pooling into their packed form."""
-        had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
-        if had_no_time_axis:
-            task = task.unsqueeze(1)
+        if isinstance(task, Mapping):
+            tokens, role = get_tensor(task, "tokens"), get_tensor(task, "role")
+            had_no_time_axis = tokens.ndim == (3 if self.is_multi_token else 2)
+            if had_no_time_axis:
+                tokens, role = tokens.unsqueeze(1), role.unsqueeze(1)
+            task = torch.cat([tokens, role], dim=-1) if self._reconcat_role else {
+                "tokens": tokens,
+                "role": role,
+            }
+        else:
+            had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
+            if had_no_time_axis:
+                task = task.unsqueeze(1)
 
         task_embedded = self.embedder(task) if self.embedder is not None else task
+        # A dict-shaped task only arises when role is left for the embedder to consume (see
+        # `_reconcat_role` above), which only happens when `self.embedder` is role-aware and
+        # therefore not None; every embedder returns a plain tensor.
+        assert isinstance(task_embedded, torch.Tensor)
 
         if self.pooling is not None:
             task_embedded = self.pooling(task_embedded)

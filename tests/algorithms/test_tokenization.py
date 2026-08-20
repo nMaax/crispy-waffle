@@ -175,15 +175,15 @@ class TestNormalizationHappensOnTokens:
         policy.obs_normalizer.fit(tokens)
         normalized = policy.obs_normalizer.normalize(tokens)
 
-        mask = policy.tokenizer.normalization_mask
-        assert torch.equal(normalized["task"][..., ~mask], tokens["task"][..., ~mask])
-        assert not torch.allclose(normalized["task"][..., mask], tokens["task"][..., mask])
+        # "role" is excluded from normalization entirely; "tokens" (geometry) is fully normalized.
+        assert torch.equal(normalized["task"]["role"], tokens["task"]["role"])
+        assert not torch.allclose(normalized["task"]["tokens"], tokens["task"]["tokens"])
 
         # Without the mask the one-hot is destroyed -- the behaviour being fixed.
         unmasked = type(policy.obs_normalizer)(policy._obs_normalizer_spec())
         unmasked.fit(tokens)
-        mangled = unmasked.normalize(tokens)["task"][..., ~mask]
-        assert not torch.equal(mangled, tokens["task"][..., ~mask])
+        mangled = unmasked.normalize(tokens)["task"]["role"]
+        assert not torch.equal(mangled, tokens["task"]["role"])
         assert not torch.isin(mangled, torch.tensor([0.0, 1.0])).all(), "still a valid one-hot"
 
     def test_obs_normalizer_does_not_drop_the_standalone_goal(self):
@@ -209,9 +209,11 @@ class TestNormalizationHappensOnTokens:
 
         assert policy._obs_normalizer_spec() == {
             "proprio": policy.proprio_dim,
-            "task": policy.tokenizer.output_dim,
+            "task": {"tokens": policy.tokenizer.output_dim, "role": 4},
         }
-        assert policy.obs_normalizer.norms["task"].mean.shape == (policy.tokenizer.output_dim,)
+        assert policy.obs_normalizer.norms["task"].norms["tokens"].mean.shape == (
+            policy.tokenizer.output_dim,
+        )
 
     def test_configure_model_wires_zscore_to_obs_and_minmax_to_act(self):
         """The bare-``True`` defaults, asserted through the real construction path."""
@@ -283,6 +285,7 @@ class TestCategoricalMaskLayout:
 
     @pytest.mark.parametrize("relative_goal", [True, False])
     def test_object_tokenizer_mask_matches_emitted_channels(self, relative_goal):
+        """Role is a separate, non-normalizable leaf; the geometry leaf is fully normalizable."""
         task_dim = {k: v for k, v in canonical_dim_spec(NUM_OBJECTS).items() if k != "proprio"}
         tokenizer = ObjectTokenizer(task_dim=task_dim, relative_goal=relative_goal)
 
@@ -291,12 +294,16 @@ class TestCategoricalMaskLayout:
         obs.pop("proprio"), goal.pop("proprio")
         goal = {k: v.unsqueeze(1) for k, v in goal.items()}
 
-        tokens = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
+        out = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
         mask = tokenizer.normalization_mask
 
-        assert tokens.shape[-1] == tokenizer.output_dim == mask.shape[0]
-        assert (tokens[..., ~mask] == self.SENTINEL).all()
-        assert (tokens[..., mask] != self.SENTINEL).all()
+        assert out["tokens"].shape[-1] == tokenizer.output_dim == mask["tokens"].shape[0]
+        assert mask["tokens"].all()
+        assert (out["tokens"] != self.SENTINEL).all(), "geometry leaf should never be the role sentinel"
+
+        assert out["role"].shape[-1] == mask["role"].shape[0]
+        assert not mask["role"].any()
+        assert (out["role"] == self.SENTINEL).all(), "role leaf misses the sentinel"
 
 
 class TestNormalizerFitting:
@@ -317,7 +324,9 @@ class TestNormalizerFitting:
         policy.on_fit_start()
 
         assert bool(policy.obs_normalizer.is_fit)
-        assert policy.obs_normalizer.norms["task"].mean.shape == (policy.tokenizer.output_dim,)
+        assert policy.obs_normalizer.norms["task"].norms["tokens"].mean.shape == (
+            policy.tokenizer.output_dim,
+        )
 
     def test_fitting_one_normalizer_does_not_depend_on_the_other(self):
         """The old gate skipped fitting entirely unless BOTH normalizers were configured."""

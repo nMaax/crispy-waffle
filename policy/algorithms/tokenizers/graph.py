@@ -23,7 +23,7 @@ class GraphTokenizer(BaseTokenizer):
     def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
         super().__init__(relative_goal=relative_goal)
         self._tokens_per_step = self._num_slots(task_dim)
-        self.output_dim = RELATIVE_SE3_DIM + ROLE_DIM
+        self.output_dim = RELATIVE_SE3_DIM
         self.edge_dim = RELATIVE_SE3_DIM
 
     @property
@@ -34,6 +34,7 @@ class GraphTokenizer(BaseTokenizer):
     def token_spec(self) -> DimSpec:
         return {
             "nodes": self.output_dim,
+            "role": ROLE_DIM,
             "valid": self._tokens_per_step,
             "edge_feat": self.edge_dim,
         }
@@ -41,12 +42,8 @@ class GraphTokenizer(BaseTokenizer):
     @property
     def normalization_mask(self) -> dict[str, torch.Tensor]:
         return {
-            "nodes": torch.cat(
-                [
-                    torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
-                    torch.zeros(ROLE_DIM, dtype=torch.bool),
-                ]
-            ),
+            "nodes": torch.ones(self.output_dim, dtype=torch.bool),
+            "role": torch.zeros(ROLE_DIM, dtype=torch.bool),
             "valid": torch.zeros(self._tokens_per_step, dtype=torch.bool),
             "edge_feat": torch.ones(self.edge_dim, dtype=torch.bool),
         }
@@ -59,9 +56,14 @@ class GraphTokenizer(BaseTokenizer):
         valid = self._concat_time(obs_task, goal_task, "obj_valid")
 
         tcp_pose = pose[..., TCP_SLOT : TCP_SLOT + 1, :].expand_as(pose)
-        nodes = torch.cat([relative_se3_pose(pose, tcp_pose), role], dim=-1)
+        nodes = relative_se3_pose(pose, tcp_pose)
 
-        return {"nodes": nodes, "valid": valid, "edge_feat": self._edge_features(pose)}
+        return {
+            "nodes": nodes,
+            "role": role,
+            "valid": valid,
+            "edge_feat": self._edge_features(pose),
+        }
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         raise NotImplementedError(

@@ -21,9 +21,18 @@ def _embedder(**overrides):
     return GraphTransformer(**kwargs)
 
 
+def _role():
+    """One-hot role per slot, cycling through the 4 role classes."""
+    role = torch.zeros(B, T + G, K, 4)
+    for k in range(K):
+        role[:, :, k, k % 4] = 1.0
+    return role
+
+
 def _task(valid=None):
     return {
         "nodes": torch.randn(B, T + G, K, IN),
+        "role": _role(),
         "valid": torch.ones(B, T + G, K) if valid is None else valid,
         "edge_feat": torch.randn(B, SEQ, SEQ, 6),
     }
@@ -108,7 +117,23 @@ class TestGraphTransformer:
         embedder = _embedder()
         embedder(_task()).sum().backward()
 
-        for name in ("edge_kind_emb.weight", "edge_bias.0.weight", "pos_emb"):
+        for name in ("edge_kind_emb.weight", "edge_bias.0.weight", "pos_emb", "role_emb.weight"):
             param = dict(embedder.named_parameters())[name]
             assert param.grad is not None, name
             assert torch.isfinite(param.grad).all(), name
+
+    def test_role_is_added_additively(self):
+        """Permuting which slot holds which role changes that slot's output -- role is actually
+        consumed, not silently dropped."""
+        embedder = _embedder().eval()
+        task = _task()
+
+        task_permuted = dict(task)
+        task_permuted["role"] = task["role"].clone()
+        task_permuted["role"][:, :, [0, 1]] = task_permuted["role"][:, :, [1, 0]]
+
+        with torch.no_grad():
+            out = embedder(task)
+            out_permuted = embedder(task_permuted)
+
+        assert not torch.allclose(out[:, :, 0, :], out_permuted[:, :, 0, :])

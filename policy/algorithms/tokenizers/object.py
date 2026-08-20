@@ -19,14 +19,16 @@ from policy.utils.typing_utils import DimSpec, TensorTree
 class ObjectTokenizer(BaseTokenizer):
     """Tokenizes each object entity in a state as a standalone token.
 
-    - In relative mode (``relative_goal=True``):
+    Each token's ``"tokens"`` leaf carries geometry only; role is emitted separately as a
+    ``"role"`` leaf, for a downstream embedder to inject additively (like a positional embedding)
+    rather than concatenated into the token.
+
+    - In relative mode (``relative_goal=True``), ``"tokens"`` is:
         1. SE(3) pose relative to TCP (6D)
         2. SE(3) pose delta from current state to goal (6D)
-        3. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
-    - In absolute mode (``relative_goal=False``):
+    - In absolute mode (``relative_goal=False``), ``"tokens"`` is:
         1. SE(3) pose relative to TCP (6D)
         2. Absolute SE(3) pose (7D)
-        3. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D)
 
     ``obj_valid`` is ignored: this tokenizer has no way to express an absent object, so it suits
     fixed-population tasks only. Use ``GraphTokenizer`` for the clutter environments.
@@ -40,24 +42,21 @@ class ObjectTokenizer(BaseTokenizer):
         super().__init__(relative_goal=relative_goal)
         self._tokens_per_step = self._num_slots(task_dim)
         self.output_dim = (
-            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM + ROLE_DIM
+            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM
             if relative_goal
-            else RELATIVE_SE3_DIM + POSE_DIM + ROLE_DIM
+            else RELATIVE_SE3_DIM + POSE_DIM
         )
-        # The role one-hot is the trailing ROLE_DIM block of every token, in both modes.
-        self._normalization_mask = torch.cat(
-            [
-                torch.ones(self.output_dim - ROLE_DIM, dtype=torch.bool),
-                torch.zeros(ROLE_DIM, dtype=torch.bool),
-            ]
-        )
+        self._normalization_mask = {
+            "tokens": torch.ones(self.output_dim, dtype=torch.bool),
+            "role": torch.zeros(ROLE_DIM, dtype=torch.bool),
+        }
 
     @property
     def token_spec(self) -> DimSpec:
-        return self.output_dim
+        return {"tokens": self.output_dim, "role": ROLE_DIM}
 
     @property
-    def normalization_mask(self) -> torch.Tensor:
+    def normalization_mask(self) -> dict[str, torch.Tensor]:
         return self._normalization_mask
 
     @property
@@ -66,7 +65,7 @@ class ObjectTokenizer(BaseTokenizer):
 
     def _tokenize_relative(
         self, obs_task: Mapping[str, TensorTree], goal_task: Mapping[str, TensorTree]
-    ) -> torch.Tensor:
+    ) -> dict[str, torch.Tensor]:
         obs_pose = get_tensor(obs_task, "obj_pose")
         goal_pose = match_shapes(get_tensor(goal_task, "obj_pose"), obs_pose)
         role = match_shapes(get_tensor(obs_task, "obj_role"), obs_pose)
@@ -74,15 +73,15 @@ class ObjectTokenizer(BaseTokenizer):
         rel_to_tcp = relative_se3_pose(obs_pose, self._tcp_pose(obs_pose))
         goal_delta = relative_se3_pose(goal_pose, obs_pose)
 
-        return torch.cat([rel_to_tcp, goal_delta, role], dim=-1)
+        return {"tokens": torch.cat([rel_to_tcp, goal_delta], dim=-1), "role": role}
 
-    def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
+    def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         pose = get_tensor(task, "obj_pose")
         role = match_shapes(get_tensor(task, "obj_role"), pose)
 
         rel_to_tcp = relative_se3_pose(pose, self._tcp_pose(pose))
 
-        return torch.cat([rel_to_tcp, pose, role], dim=-1)
+        return {"tokens": torch.cat([rel_to_tcp, pose], dim=-1), "role": role}
 
     @staticmethod
     def _tcp_pose(pose: torch.Tensor) -> torch.Tensor:
