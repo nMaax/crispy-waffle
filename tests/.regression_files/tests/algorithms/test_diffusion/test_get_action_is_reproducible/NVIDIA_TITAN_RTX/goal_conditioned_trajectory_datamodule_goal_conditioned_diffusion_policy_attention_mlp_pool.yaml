@@ -2,10 +2,10 @@ action:
   device: cuda:0
   dtype: torch.float32
   max: 1.0
-  mean: 0.17990490794181824
+  mean: 0.17896413803100586
   min: -1.0
   shape:
   - 256
   - 8
   - 4
-  sum: 1473.781005859375
+  sum: 1466.07421875
