@@ -38,6 +38,8 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=BESO++__SCLR__default__train trainer.max_epochs=1",
     "experiment=BESO++__SCLR__default__test trainer.max_epochs=1",
     "experiment=BESO++__SCLR__default__test__video trainer.max_epochs=1",
+    "experiment=BESO++-Obj__SCLR__default__train trainer.max_epochs=1",
+    "experiment=BESO++-Obj__SCLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-MLP-AttnPool__SCLR__default__train trainer.max_epochs=1",
     "experiment=GCDP-MLP-AttnPool__SCLR__default__test trainer.max_epochs=1",
     "experiment=GCDP-Attn__SCLR__default__train trainer.max_epochs=1",

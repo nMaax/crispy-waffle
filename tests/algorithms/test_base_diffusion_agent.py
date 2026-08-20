@@ -190,9 +190,9 @@ class TestBaseDiffusionAgentLogic:
     # ------------------------------------------------------------------ #
     # Encoder scaffolding: _encode / _ema_parameters / _get_cond_dims
     # ------------------------------------------------------------------ #
-    def test_encode_passes_through_unchanged_when_no_encoder(self):
+    def test_encode_passes_through_unchanged_when_no_tokenizer(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        assert agent.encoder is None
+        assert agent.tokenizer is None
         external_cond = {"obs": torch.randn(2, 2, 3)}
         assert agent._encode(external_cond) is external_cond
 
@@ -205,7 +205,8 @@ class TestBaseDiffusionAgentLogic:
     def test_encode_hands_normalized_tokens_to_the_encoder(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
         agent.encoder = MagicMock()
-        tokens = {"proprio": torch.randn(2, 2, 3), "task": torch.randn(2, 2, 5)}
+        agent.tokenizer = MagicMock()
+        tokens = {"obs": {"proprio": torch.randn(2, 2, 3), "task": torch.randn(2, 2, 5)}}
         agent._tokenize = MagicMock(return_value=tokens)
         agent.obs_normalizer = MagicMock()
         agent.obs_normalizer.normalize.side_effect = lambda x: x
@@ -214,7 +215,7 @@ class TestBaseDiffusionAgentLogic:
         agent._encode({"obs": obs})
 
         agent._tokenize.assert_called_once_with(obs=obs)
-        agent.obs_normalizer.normalize.assert_called_once_with(tokens)
+        agent.obs_normalizer.normalize.assert_called_once_with(tokens["obs"])
         agent.encoder.assert_called_once_with(tokens)
 
     def test_get_cond_dims_uses_encoder_cond_dims_when_present(self):

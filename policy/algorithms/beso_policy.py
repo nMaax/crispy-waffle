@@ -1,24 +1,14 @@
 import math
 from collections import deque
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 import hydra_zen
 import torch
 import torch.nn.functional as F
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
-from policy.algorithms.networks.utils import as_task_only
-from policy.utils import (
-    concat_leaf_tensors,
-    get_batch_size,
-    get_total_dim,
-    map_leaves,
-    merge_dicts,
-    pack_obs_goal,
-    pop_leaf_key,
-    subtract_leaves,
-)
+from policy.utils import get_batch_size, map_leaves, pack_obs_goal
 from policy.utils.typing_utils import (
     DimSpec,
     GoalConditionedPolicyProtocol,
@@ -53,13 +43,8 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         num_parallel_samples: int = 1,
         goal_drop_prob: float = 0.1,
         cfg_lambda: float | None = None,
-        use_proprio_token: bool = False,
         **kwargs,
     ):
-
-        # TODO: looking at this code, it seems like BESO is actually using some form of
-        # (degenerate, checks and reshaping only) encoder. Value later if we could make one for it too.
-
         super().__init__(*args, **kwargs)
 
         if "DiffusionGPT" not in self.decoder_config.get("_target_", None):
@@ -72,9 +57,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "BesoPolicy does not support noise_schedulers as it implements its own custom one. "
                 f"Got noise_scheduler={self.noise_scheduler_config}. Please remove it."
             )
-
-        # For BESO++ (relative_goal is a BaseDiffusionAgent-level option)
-        self.use_proprio_token = use_proprio_token
 
         # Training
         self.alpha = alpha
@@ -201,23 +183,37 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         self.action_history = deque(maxlen=self.obs_horizon - 1)
 
     def _get_cond_dims(self) -> DimSpec:
-        """Reports the per-timestep conditioning dimensionality passed to the network."""
-        cond_dims = cast(Mapping[str, DimSpec], super()._get_cond_dims())
+        """Reports the token dimensions the decoder is sized from."""
+        if self.tokenizer is None:
+            raise ValueError(
+                f"{type(self).__name__} requires a tokenizer; name one in the config "
+                "(e.g. `tokenizer: state`)."
+            )
+        if self.tokenizer.tokens_per_step is None:
+            raise ValueError(
+                f"{type(self.tokenizer).__name__} emits a variable number of tokens per step, "
+                "which has no fixed layout in a GPT decoder's causal sequence."
+            )
 
-        # No "goal" key when relative_goal=True, the goal is folded into obs
-        if self.goal_horizon > 0 and not self.relative_goal:
-            cond_dims = {**cond_dims, "goal": get_total_dim(cond_dims["obs"])}
-        return cond_dims
+        side = {
+            "proprio": self.proprio_dim,
+            "task": (self.tokenizer.tokens_per_step, self.tokenizer.output_dim),
+        }
+        if not self.has_standalone_goal:
+            return {"obs": side}
+        else:
+            return {"obs": side, "goal": side}
 
     def _decoder_extra_kwargs(self) -> dict[str, Any]:
         kwargs = super()._decoder_extra_kwargs()  # {"cond_dims": self._get_cond_dims()}
-        if self.use_proprio_token:
-            kwargs["proprio_dim"] = self.proprio_dim
-            kwargs["use_proprio_token"] = True
         if self.relative_goal:
             # No "goal" key when relative_goal=True, the goal is folded into obs
             kwargs["goal_horizon"] = 0
         return kwargs
+
+    def _encode(self, external_cond: Mapping[str, TensorTree]) -> Mapping[str, TensorTree]:
+        """Tokenizes and normalizes; the decoder's own embeddings stand in for an encoder."""
+        return self._normalize_tokens(self._tokenize(**external_cond))
 
     def get_action(
         self,
@@ -262,11 +258,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         B = get_batch_size(external_cond)
 
         # Since we need to mask the goal for CFG
-        # we unpack the external_cond and pack it back later
-
-        # Unpack data
-        obs_seq = external_cond["obs"]
-        goal = external_cond.get("goal", None)
+        # we unpack the encoded conditioning and pack it back later
+        encoded_cond = self._encode(external_cond)
+        obs_cond = encoded_cond["obs"]
+        goal_cond = encoded_cond.get("goal", None)
 
         # Sample continuous noise levels
         sigmas = self._sample_noise_distribution(B, alpha=self.alpha, beta=self.beta)
@@ -285,20 +280,21 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         scaled_noisy_act = noisy_act_seq * c_in
 
         # Goal dropout for Classifier-Free Guidance
-        if self.training and goal is not None and self.goal_drop_prob > 0.0:
+        if self.training and goal_cond is not None and self.goal_drop_prob > 0.0:
             # One drop decision per batch item, shared across every leaf of the goal tree.
             drop_mask = torch.rand(B, device=self.device) < self.goal_drop_prob
-            goal = map_leaves(
+            goal_cond = map_leaves(
                 lambda leaf: torch.where(
                     drop_mask.view([B] + [1] * (leaf.ndim - 1)), torch.zeros_like(leaf), leaf
                 ),
-                goal,
+                goal_cond,
             )
 
         # Repack data back into the external_cond dictionary and predict.
-        external_cond = pack_obs_goal(obs_seq, goal)
         model_output = self.decoder(
-            sample=scaled_noisy_act, timestep=sigmas, external_cond=external_cond
+            sample=scaled_noisy_act,
+            timestep=sigmas,
+            external_cond=pack_obs_goal(obs_cond, goal_cond),
         )
 
         # Compute the Karras target (reversing the skip connection)
@@ -327,57 +323,7 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 "construct this policy with goal_horizon > 0."
             )
 
-        obs = self._normalize_obs(obs)
-        if goal is not None:
-            goal = self._normalize_obs(goal)
-
-        if self.relative_goal:
-            assert goal is not None
-            return self._build_delta_external_cond(obs, goal)
-        else:
-            return self._build_abs_external_cond(obs, goal)
-
-    def _build_abs_external_cond(
-        self, obs: TensorTree, goal: TensorTree | None
-    ) -> dict[str, TensorTree]:
-        """Build the external condition dictionary for the absolute goal variant (original
-        BESO)."""
-        obs_cond = self._build_obs_external_cond(obs)
-        goal_cond = self._build_goal_external_cond(goal) if goal is not None else {}
-
-        return merge_dicts([obs_cond, goal_cond])
-
-    def _build_obs_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
-        return {"obs": obs}
-
-    def _build_goal_external_cond(self, goal: TensorTree) -> dict[str, TensorTree]:
-        return {"goal": goal}
-
-    def _build_delta_external_cond(
-        self, obs: TensorTree, goal: TensorTree
-    ) -> dict[str, TensorTree]:
-        """Builds the external condition dictionary for the goal-delta variant."""
-        obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
-        if obs_proprio is None:
-            raise ValueError(
-                f"{type(self).__name__} requires external_cond['obs'] to carry a 'proprio' key."
-            )
-
-        goal_task = self._extract_goal_task(goal)
-        task_delta = subtract_leaves(goal_task, obs_task)
-
-        if isinstance(task_delta, Mapping):
-            return {"obs": {"proprio": obs_proprio, **task_delta}}
-
-        return {"obs": {"proprio": obs_proprio, "task": task_delta}}
-
-    def _extract_goal_task(self, goal: TensorTree) -> TensorTree:
-        """Extracts the task-only portion of `goal`."""
-        if isinstance(goal, Mapping):
-            _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
-            return goal_task
-        elif isinstance(goal, torch.Tensor):
-            return as_task_only(goal, self.proprio_dim, self.task_dim)
+        return pack_obs_goal(obs, goal)
 
     def _run_diffusion_loop(
         self,
@@ -406,9 +352,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         B = get_batch_size(external_cond)
 
-        # Unpack data
-        obs_cond = external_cond["obs"]
-        goal_cond = external_cond.get("goal", None)
+        # Encoded once, outside the loop: obs/goal don't change across denoising steps.
+        encoded_cond = self._encode(external_cond)
+        obs_cond = encoded_cond["obs"]
+        goal_cond = encoded_cond.get("goal", None)
 
         # Determine the current history length
         H = len(self.action_history)
@@ -420,24 +367,17 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         else:
             clean_past_actions = torch.zeros((B, 0, self.act_dim), device=self.device)
 
-        # NOTE: Slicing logic below needs a flat Tensor so we need
-        # to flatten it before and work on it; kind of dirty but same
-        # flattening would have happened inside DiffusionGPT anyway.
-
-        if isinstance(obs_cond, Mapping):
-            obs_cond = concat_leaf_tensors(obs_cond, dim=-1)
-
-        # Slice network_cond to the current observation sequence length
-        if obs_cond.ndim == 3:
-            sliced_obs_cond = obs_cond[:, -cur_obs_len:, :]
-        else:
-            sliced_obs_cond = obs_cond.view(B, self.obs_horizon, -1)[:, -cur_obs_len:, :]
+        # Slice the conditioning to the current observation sequence length
+        sliced_obs_cond = map_leaves(lambda leaf: leaf[:, -cur_obs_len:], obs_cond)
 
         if self.num_parallel_samples > 1:
             clean_past_actions = clean_past_actions.repeat_interleave(
                 self.num_parallel_samples, dim=0
             )
-            sliced_obs_cond = sliced_obs_cond.repeat_interleave(self.num_parallel_samples, dim=0)
+            sliced_obs_cond = map_leaves(
+                lambda leaf: leaf.repeat_interleave(self.num_parallel_samples, dim=0),
+                sliced_obs_cond,
+            )
             if goal_cond is not None:
                 goal_cond = map_leaves(
                     lambda t: t.repeat_interleave(self.num_parallel_samples, dim=0), goal_cond

@@ -134,9 +134,10 @@ class ConditioningEncoder(nn.Module):
         return self.pooling.pools_objects if self.pooling is not None else False
 
     def forward(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
-        """Embeds a ``{"proprio", "task"[, "goal_task"]}`` token tree into the decoder payload."""
-        proprio = get_tensor(tokens, "proprio")
-        task = tokens["task"]
+        """Embeds a ``{"obs"[, "goal"]}`` tree of ``{"proprio", "task"}`` tokens into a payload."""
+        obs = get_subtree(tokens, "obs")
+        proprio = get_tensor(obs, "proprio")
+        task = obs["task"]
 
         if not isinstance(task, Mapping):
             payload = self._pack_task(proprio, self._embed_tokens(task))
@@ -144,8 +145,9 @@ class ConditioningEncoder(nn.Module):
             payload = self._pack_graph(proprio, task)
 
         if self.has_standalone_goal:
-            goal_embedded = self._embed_tokens(get_tensor(tokens, "goal_task"))
-            payload = merge_dicts([payload, {"goal": goal_embedded}])
+            # The goal's own proprioception never enters conditioning, only the observed history's.
+            goal_task = get_tensor(get_subtree(tokens, "goal"), "task")
+            payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
 
         self.cond_dims.validate_payload(payload)
         return payload
