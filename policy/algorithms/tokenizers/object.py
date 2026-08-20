@@ -21,12 +21,14 @@ class ObjectTokenizer(BaseTokenizer):
     """Tokenizes each object entity in a state as a standalone token.
 
     - In relative mode (``relative_goal=True``):
-        1. SE(3) pose delta from current state to goal (6D)
-        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
+        1. SE(3) pose relative to TCP (6D), if ``include_tcp_relative``
+        2. SE(3) pose delta from current state to goal (6D)
+        3. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
            ``include_role``
     - In absolute mode (``relative_goal=False``):
-        1. Absolute SE(3) pose (7D)
-        2. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
+        1. SE(3) pose relative to TCP (6D), if ``include_tcp_relative``
+        2. Absolute SE(3) pose (7D)
+        3. One-hot role indicator [is_tcp, is_pick, is_target, is_clutter] (4D), if
            ``include_role``
 
     The role one-hot is constant per slot in every fixed-role env, so it carries information only
@@ -38,13 +40,17 @@ class ObjectTokenizer(BaseTokenizer):
         object_keys: Sequence[str] | None = None,
         relative_goal: bool = True,
         include_role: bool = True,
+        include_tcp_relative: bool = False,
         task_dim: DimSpec | None = None,  # for API consistency
     ):
         super().__init__(relative_goal=relative_goal)
         self.object_keys = tuple(object_keys) if object_keys is not None else None
         self.include_role = include_role
+        self.include_tcp_relative = include_tcp_relative
         role_dim = ROLE_DIM if include_role else 0
-        self.output_dim = (RELATIVE_SE3_DIM if relative_goal else POSE_DIM) + role_dim
+        tcp_relative_dim = RELATIVE_SE3_DIM if include_tcp_relative else 0
+        pose_dim = RELATIVE_SE3_DIM if relative_goal else POSE_DIM
+        self.output_dim = tcp_relative_dim + pose_dim + role_dim
         # The role one-hot is the trailing block of every token, in both modes.
         self._categorical_mask = torch.cat(
             [
@@ -80,13 +86,17 @@ class ObjectTokenizer(BaseTokenizer):
         self, obs_task: Mapping[str, TensorTree], goal_task: Mapping[str, TensorTree]
     ) -> torch.Tensor:
         keys = self._keys(obs_task)
+        tcp_pose = get_tensor(obs_task, TCP_POSE_KEY) if self.include_tcp_relative else None
 
         tokens = []
         for key in keys:
             o_k = get_tensor(obs_task, key)
             g_k = match_shapes(get_tensor(goal_task, key), o_k)
 
-            parts = [relative_se3_pose(g_k, o_k)]
+            parts = []
+            if tcp_pose is not None:
+                parts.append(relative_se3_pose(o_k, tcp_pose))
+            parts.append(relative_se3_pose(g_k, o_k))
             if self.include_role:
                 parts.append(self._role(obs_task, key, o_k))
 
@@ -96,12 +106,16 @@ class ObjectTokenizer(BaseTokenizer):
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
         keys = self._keys(task)
+        tcp_pose = get_tensor(task, TCP_POSE_KEY) if self.include_tcp_relative else None
 
         tokens = []
         for key in keys:
             o_k = get_tensor(task, key)
 
-            parts = [o_k]
+            parts = []
+            if tcp_pose is not None:
+                parts.append(relative_se3_pose(o_k, tcp_pose))
+            parts.append(o_k)
             if self.include_role:
                 parts.append(self._role(task, key, o_k))
 

@@ -127,6 +127,7 @@ class TrajectoryDataModule(L.LightningDataModule):
             obs_transform = observation_pipeline(
                 env_id=self.env_id,
                 canonicalize=self.canonicalize,
+                obs_mode=self.obs_mode,
             )
 
         if stage == "fit" or stage is None:

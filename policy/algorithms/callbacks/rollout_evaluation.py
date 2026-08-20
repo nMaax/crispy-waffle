@@ -317,6 +317,14 @@ class RolloutEvaluationCallback(L.Callback):
         apply_transforms = observation_pipeline(
             env_id=self.env_id,
             canonicalize=bool(self.canonicalize),
+            obs_mode=cast(str, self.obs_mode),
+        )
+        # `generate_heuristic_goal()` always returns an already-dict-shaped tree (it reads
+        # `_get_obs_state_dict()` directly, bypassing the env's obs_mode entirely), so it never
+        # needs the obs_mode-aware unflatten step `apply_transforms` applies to raw env obs.
+        apply_goal_transforms = observation_pipeline(
+            env_id=self.env_id,
+            canonicalize=bool(self.canonicalize),
         )
 
         obs = to_tensor(obs, device=pl_module.device, dtype=torch.float32)
@@ -337,7 +345,7 @@ class RolloutEvaluationCallback(L.Callback):
             goal_state = goal_env.generate_heuristic_goal()
 
             goal_state = to_tensor(goal_state, device=pl_module.device, dtype=torch.float32)
-            goal_state = apply_transforms(goal_state)
+            goal_state = apply_goal_transforms(goal_state)
 
         if self.render_mode == "human":
             env.render()
@@ -389,7 +397,7 @@ class RolloutEvaluationCallback(L.Callback):
                     goal_state = to_tensor(
                         goal_state, device=pl_module.device, dtype=torch.float32
                     )
-                    goal_state = apply_transforms(goal_state)
+                    goal_state = apply_goal_transforms(goal_state)
 
                 truncated = torch.as_tensor(truncated, device=pl_module.device, dtype=torch.bool)
 
