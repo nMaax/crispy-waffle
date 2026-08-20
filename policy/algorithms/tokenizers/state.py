@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 
 import torch
 
 from policy.algorithms.tokenizers.base import BaseTokenizer
 from policy.algorithms.tokenizers.utils import relative_se3_pose
-from policy.transforms.canonicalization.spec import RELATIVE_SE3_DIM
-from policy.utils import concat_leaf_tensors, get_tensor, get_total_dim, match_shapes
+from policy.transforms.canonicalization.spec import (
+    CATEGORICAL_KEYS,
+    RELATIVE_SE3_DIM,
+    dim_shape,
+)
+from policy.utils import get_tensor, match_shapes
 from policy.utils.typing_utils import DimSpec, TensorTree
 
 
@@ -17,37 +22,48 @@ class StateTokenizer(BaseTokenizer):
     - In relative mode (``relative_goal=True``): computes SE(3) relative pose deltas w.r.t. goal
       for named 7D pose components, preserving role indicators and differencing other keys.
     - In absolute mode (``relative_goal=False``): passes raw flat states.
+
+
+    ``obj_valid`` is ignored: this tokenizer has no way to express an absent object, so it suits
+    fixed-population tasks only. Use ``GraphTokenizer`` for the clutter environments.
     """
 
-    def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
+    def __init__(self, task_dim: Mapping[str, DimSpec], relative_goal: bool = True):
         super().__init__(relative_goal=relative_goal)
+        self._spec_ndims = self._task_leaf_ndims(task_dim)
         widths = self._channel_widths(task_dim)
         self.output_dim = sum(width for _, width in widths)
-        self._categorical_mask = torch.cat(
+        self._normalization_mask = torch.cat(
             [
-                torch.full((width,), not key.endswith("_role"), dtype=torch.bool)
+                torch.full((width,), key not in CATEGORICAL_KEYS, dtype=torch.bool)
                 for key, width in widths
             ]
         )
 
-    def _channel_widths(self, task_dim: DimSpec) -> list[tuple[str, int]]:
+    def _channel_widths(self, task_dim: Mapping[str, DimSpec]) -> list[tuple[str, int]]:
         """Per-key output widths, in the channel order the matching tokenize path emits."""
-        if not isinstance(task_dim, Mapping):
-            return [("task", get_total_dim(task_dim))]
+        keys = sorted(task_dim.keys()) if self.relative_goal else list(task_dim.keys())
+        return [(key, self._width(key, task_dim[key])) for key in keys]
 
-        if self.relative_goal:
-            # Mirrors _tokenize_relative: sorted keys, poses reduced to an SE(3) delta.
-            return [
-                (key, RELATIVE_SE3_DIM if key.endswith("_pose") else get_total_dim(task_dim[key]))
-                for key in sorted(task_dim.keys())
-            ]
-
-        # Mirrors _tokenize_absolute's concat_leaf_tensors: insertion order, full widths.
-        return [(key, get_total_dim(dim)) for key, dim in task_dim.items()]
+    def _width(self, key: str, dim: DimSpec) -> int:
+        """Mirrors _tokenize_relative branch for branch, so output_dim cannot disagree with it."""
+        shape = dim_shape(dim)
+        if not self.relative_goal:
+            return math.prod(shape)
+        if key.endswith("_pose"):
+            # A 7D pose collapses to a 6D SE(3) delta, slot axis intact.
+            return math.prod(shape[:-1]) * RELATIVE_SE3_DIM
+        if key in CATEGORICAL_KEYS:
+            return math.prod(shape)
+        raise ValueError(self._no_reduction_message(key))
 
     @property
-    def categorical_mask(self) -> torch.Tensor:
-        return self._categorical_mask
+    def token_spec(self) -> DimSpec:
+        return self.output_dim
+
+    @property
+    def normalization_mask(self) -> torch.Tensor:
+        return self._normalization_mask
 
     @property
     def tokens_per_step(self) -> int:
@@ -61,12 +77,30 @@ class StateTokenizer(BaseTokenizer):
             o = get_tensor(obs_task, key)
             g = match_shapes(get_tensor(goal_task, key), o)
             if key.endswith("_pose"):
-                deltas.append(relative_se3_pose(g, o))
-            elif key.endswith("_role"):
-                deltas.append(o)
+                delta = relative_se3_pose(g, o)
+            elif key in CATEGORICAL_KEYS:
+                delta = o
             else:
-                deltas.append(g - o)
+                raise ValueError(self._no_reduction_message(key))
+            deltas.append(self._flatten(key, delta))
         return torch.cat(deltas, dim=-1)
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> torch.Tensor:
-        return concat_leaf_tensors(task, dim=-1)
+        return torch.cat(
+            [self._flatten(key, get_tensor(task, key)) for key in task.keys()], dim=-1
+        )
+
+    def _flatten(self, key: str, tensor: torch.Tensor) -> torch.Tensor:
+        spec_ndim = self._spec_ndims[key]
+        return tensor.flatten(start_dim=tensor.ndim - spec_ndim) if spec_ndim > 1 else tensor
+
+    @staticmethod
+    def _no_reduction_message(key: str) -> str:
+        return (
+            f"Task key {key!r} is neither a pose nor categorical, so it has no defined "
+            "goal-relative reduction."
+        )
+
+    @staticmethod
+    def _task_leaf_ndims(task_dim: Mapping[str, DimSpec]) -> dict[str, int]:
+        return {key: len(dim_shape(dim)) for key, dim in task_dim.items()}

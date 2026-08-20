@@ -1,5 +1,6 @@
 defaults:
   - decoder: diffusion_gpt
+  - tokenizer: state
   - optimizer: AdamW
   - ema: default
   - noise_scheduler: null

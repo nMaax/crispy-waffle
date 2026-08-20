@@ -11,14 +11,7 @@ from policy.utils.typing_utils import HydraConfigFor, PoolingProtocol, TensorTre
 
 
 class ConditioningEncoder(nn.Module):
-    """Embeds already-tokenized, already-normalized conditioning into the tensors a downstream
-    network consumes.
-
-    Tokenization is the algorithm's job (see :meth:`BaseDiffusionAgent._tokenize`), so that
-    normalization can be fit on and applied to the tokens this encoder's learned layers actually
-    see. This class owns only the learned half: embedder, pooling, and the payload packing the
-    decoder's conditioning contract expects.
-    """
+    """Embeds conditioning into the tensors a downstream network consumes."""
 
     def __init__(
         self,
@@ -141,17 +134,48 @@ class ConditioningEncoder(nn.Module):
         return self.pooling.pools_objects if self.pooling is not None else False
 
     def forward(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
-        """Embeds a ``{"proprio", "task"[, "goal_task"]}`` token tree into the decoder payload."""
-        payload = self._pack_task(
-            get_tensor(tokens, "proprio"), self._embed_tokens(get_tensor(tokens, "task"))
-        )
+        """Embeds a ``{"obs"[, "goal"]}`` tree of ``{"proprio", "task"}`` tokens into a payload."""
+        obs = get_subtree(tokens, "obs")
+        proprio = get_tensor(obs, "proprio")
+        task = obs["task"]
+
+        if not isinstance(task, Mapping):
+            payload = self._pack_task(proprio, self._embed_tokens(task))
+        else:
+            payload = self._pack_graph(proprio, task)
 
         if self.has_standalone_goal:
-            goal_embedded = self._embed_tokens(get_tensor(tokens, "goal_task"))
-            payload = merge_dicts([payload, {"goal": goal_embedded}])
+            # The goal's own proprioception never enters conditioning, only the observed history's.
+            goal_task = get_tensor(get_subtree(tokens, "goal"), "task")
+            payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
 
         self.cond_dims.validate_payload(payload)
         return payload
+
+    def _pack_graph(
+        self, proprio: torch.Tensor, task: Mapping[str, TensorTree]
+    ) -> dict[str, TensorTree]:
+        """Packs a graph token subtree: nodes become the attended sequence, validity its key mask.
+
+        The embedder consumes the whole subtree (it needs the edges and the mask to attend at
+        all), so this bypasses ``_embed_tokens``' single-tensor path entirely.
+        """
+        if self.embedder is None:
+            raise ValueError(
+                "A graph token subtree requires an embedder that consumes it (e.g. "
+                "GraphTransformer); got embedder=None."
+            )
+
+        embedded = self.embedder(task)  # [B, T_all, K, output_dim]
+        batch, time, num_slots, dim = embedded.shape
+        valid = get_tensor(task, "valid").reshape(batch, time * num_slots).bool()
+
+        return {
+            "obs": {"proprio": proprio},
+            self.cond_dims.context_key: embedded.reshape(batch, time * num_slots, dim),
+            # key_padding_mask semantics: True marks a token to ignore.
+            self.cond_dims.context_mask_key: ~valid,
+        }
 
     def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
         if self.decoder_type == "cross_attention":

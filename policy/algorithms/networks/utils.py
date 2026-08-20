@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import hydra.utils
-import torch
 import torch.nn as nn
 
 from policy.utils import get_total_dim
@@ -83,16 +82,3 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
         )
 
     return calc_task_dim
-
-
-def as_task_only(tensor: torch.Tensor, proprio_dim: int, task_dim: int) -> torch.Tensor:
-    """Resolves a flat tensor at ambiguous width to task-only form."""
-    width = tensor.shape[-1]
-    if width == task_dim:
-        return tensor
-    if width == proprio_dim + task_dim:
-        return tensor[..., proprio_dim:]
-    raise ValueError(
-        f"Expected width {task_dim} (task-only) or {proprio_dim + task_dim} (proprio+task), "
-        f"but got {width}."
-    )

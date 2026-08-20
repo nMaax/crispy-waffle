@@ -11,7 +11,7 @@ MLP = "policy.algorithms.networks.encoder.embedders.mlp.MLP"
 
 
 def _tokens(batch_size=2, obs_horizon=2, proprio_dim=18, token_dim=30, tokens_per_step=None):
-    """The ``{"proprio", "task"}`` tree the algorithm's ``_tokenize`` hands the encoder."""
+    """The observed side of the ``{"obs", "goal"}`` tree ``_tokenize`` hands the encoder."""
     task = (
         torch.randn(batch_size, obs_horizon, token_dim)
         if tokens_per_step is None
@@ -20,12 +20,14 @@ def _tokens(batch_size=2, obs_horizon=2, proprio_dim=18, token_dim=30, tokens_pe
     return {"proprio": torch.randn(batch_size, obs_horizon, proprio_dim), "task": task}
 
 
-def _goal_tokens(batch_size=2, token_dim=30, tokens_per_step=None):
-    return (
+def _goal_side(batch_size=2, proprio_dim=18, token_dim=30, tokens_per_step=None):
+    """The goal side of that tree; its proprioception is present but never conditioned on."""
+    task = (
         torch.randn(batch_size, token_dim)
         if tokens_per_step is None
         else torch.randn(batch_size, tokens_per_step, token_dim)
     )
+    return {"proprio": torch.randn(batch_size, proprio_dim), "task": task}
 
 
 class TestConditioningEncoderLogic:
@@ -53,7 +55,7 @@ class TestConditioningEncoderLogic:
         assert encoder.output_dim == 30
 
         tokens = _tokens()
-        ext_cond = encoder(tokens)
+        ext_cond = encoder({"obs": tokens})
         assert set(ext_cond) == {"obs"}
         assert torch.equal(ext_cond["obs"]["task"], tokens["task"])
         assert torch.equal(ext_cond["obs"]["proprio"], tokens["proprio"])
@@ -66,15 +68,16 @@ class TestConditioningEncoderLogic:
         assert encoder.cond_dims["obs"] == 48
         assert encoder.cond_dims["goal"] == 30
 
-        tokens = _tokens() | {"goal_task": _goal_tokens()}
-        ext_cond = encoder(tokens)
+        tokens = _tokens()
+        goal_tokens = _goal_side()
+        ext_cond = encoder({"obs": tokens, "goal": goal_tokens})
 
         assert set(ext_cond) == {"obs", "goal"}
         obs_cond = ext_cond["obs"]
         assert isinstance(obs_cond, Mapping)
         assert torch.equal(obs_cond["proprio"], tokens["proprio"])
         assert torch.equal(obs_cond["task"], tokens["task"])  # no-op embedder pass-through
-        assert torch.equal(ext_cond["goal"], tokens["goal_task"])
+        assert torch.equal(ext_cond["goal"], goal_tokens["task"])
 
     def test_unconditioned_has_no_goal_key(self):
         encoder = ConditioningEncoder(
@@ -82,7 +85,7 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
-        ext_cond = encoder(_tokens())
+        ext_cond = encoder({"obs": _tokens()})
         assert set(ext_cond) == {"obs"}
 
     def test_relative_goal_folds_the_goal_into_obs(self):
@@ -96,7 +99,7 @@ class TestConditioningEncoderLogic:
         )
         assert encoder.cond_dims == ConditioningContract(step_dim=48)
 
-        ext_cond = encoder(_tokens())
+        ext_cond = encoder({"obs": _tokens()})
         assert set(ext_cond) == {"obs"}
 
     # ------------------------------------------------------------------ #
@@ -149,7 +152,7 @@ class TestConditioningEncoderLogic:
         assert encoder.cond_dims == ConditioningContract(step_dim=26)
 
         tokens = _tokens()
-        obs_cond = encoder(tokens)["obs"]
+        obs_cond = encoder({"obs": tokens})["obs"]
         assert isinstance(obs_cond, Mapping)
 
         with torch.no_grad():
@@ -183,7 +186,7 @@ class TestConditioningEncoderLogic:
         assert cond_dims == ConditioningContract(step_dim=18, global_dim=8)
         encoder.embedder.eval()
 
-        ext_cond = encoder(_tokens())
+        ext_cond = encoder({"obs": _tokens()})
 
         assert set(ext_cond) == {"obs", "task"}
         obs_cond = ext_cond["obs"]
@@ -216,7 +219,7 @@ class TestConditioningEncoderLogic:
         assert encoder.cond_dims == ConditioningContract(step_dim=18 + 8 * 3)
 
         tokens = _tokens(token_dim=15, tokens_per_step=3)
-        obs_cond = encoder(tokens)["obs"]
+        obs_cond = encoder({"obs": tokens})["obs"]
         assert isinstance(obs_cond, Mapping)
         assert torch.equal(obs_cond["proprio"], tokens["proprio"])
         assert obs_cond["task"].shape == (2, 2, 8 * 3)
@@ -226,7 +229,7 @@ class TestConditioningEncoderLogic:
         assert encoder.cond_dims == ConditioningContract(step_dim=18, context_dim=8)
 
         tokens = _tokens(token_dim=15, tokens_per_step=3)
-        ext_cond = encoder(tokens)
+        ext_cond = encoder({"obs": tokens})
 
         assert set(ext_cond) == {"obs", "context"}
         obs_cond = ext_cond["obs"]
@@ -282,7 +285,7 @@ class TestConditioningEncoderLogic:
         assert encoder.pools_objects is True
         assert encoder.cond_dims == ConditioningContract(step_dim=18, global_dim=15)
 
-        ext_cond = encoder(_tokens(token_dim=15, tokens_per_step=3))
+        ext_cond = encoder({"obs": _tokens(token_dim=15, tokens_per_step=3)})
         assert set(ext_cond) == {"obs", "task"}
         assert ext_cond["task"].shape == (2, 15)
 
@@ -292,7 +295,7 @@ class TestConditioningEncoderLogic:
         assert encoder.pools_objects is True
         assert encoder.cond_dims == ConditioningContract(step_dim=18 + 15)
 
-        ext_cond = encoder(_tokens(token_dim=15, tokens_per_step=3))
+        ext_cond = encoder({"obs": _tokens(token_dim=15, tokens_per_step=3)})
         assert set(ext_cond) == {"obs"}
         assert ext_cond["obs"]["task"].shape == (2, 2, 15)
 
@@ -302,6 +305,6 @@ class TestConditioningEncoderLogic:
         assert encoder.pools_objects is False
         assert encoder.cond_dims == ConditioningContract(step_dim=18, global_dim=15)
 
-        ext_cond = encoder(_tokens(token_dim=15, tokens_per_step=3))
+        ext_cond = encoder({"obs": _tokens(token_dim=15, tokens_per_step=3)})
         assert set(ext_cond) == {"obs", "task"}
         assert ext_cond["task"].shape == (2, 3, 15)

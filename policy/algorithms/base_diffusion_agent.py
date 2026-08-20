@@ -12,8 +12,8 @@ from torch.optim.optimizer import Optimizer
 
 from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
-from policy.transforms.canonicalization.spec import canonical_normalization_mask
-from policy.utils import as_batch, cat_dicts, get_total_dim, pop_leaf_key
+from policy.transforms.canonicalization.spec import canonical_normalization_mask, dim_shape
+from policy.utils import as_batch, cat_dicts, get_tensor, get_total_dim, pop_leaf_key
 from policy.utils.typing_utils import (
     DiffusionSchedulerProtocol,
     DimSpec,
@@ -41,16 +41,16 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         optimizer: HydraConfigFor[functools.partial[Optimizer]],
         encoder: HydraConfigFor[nn.Module] | None = None,
         tokenizer: HydraConfigFor[TokenizerProtocol] | None = None,
-        relative_goal: bool = False,
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         ema: HydraConfigFor[EMAModel] | None = None,
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol] | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
         act_horizon: int = 8,
+        goal_horizon: int = 0,
+        relative_goal: bool = False,
         obs_dim: DimSpec = 48,
         act_dim: int = 4,
-        goal_horizon: int = 0,
         proprio_dim: int | None = None,
         task_dim: int | None = None,
         obs_normalizer: bool | HydraConfigFor[nn.Module] | None = None,
@@ -63,15 +63,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.decoder_config = decoder
         self.decoder: torch.nn.Module | None = None
 
+        self.optimizer_config = optimizer
+        self.optimizer: Optimizer | None = None
+
         self.encoder_config = encoder
         self.encoder: torch.nn.Module | None = None
 
         self.tokenizer_config = tokenizer
         self.tokenizer: TokenizerProtocol | None = None
-        self.relative_goal = relative_goal
-
-        self.optimizer_config = optimizer
-        self.optimizer: Optimizer | None = None
 
         self.lr_scheduler_config = lr_scheduler
         self.lr_scheduler: LRScheduler | None = None
@@ -86,6 +85,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.pred_horizon = pred_horizon
         self.act_horizon = act_horizon
         self.goal_horizon = goal_horizon
+        self.relative_goal = relative_goal
+
         self._validate_horizons()
 
         self.act_dim = act_dim
@@ -117,10 +118,21 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 f"the actions to execute ({self.act_horizon})."
             )
 
+        if self.relative_goal and self.goal_horizon == 0:
+            raise ValueError(
+                "Relative goal conditioning requires a nonzero goal_horizon. "
+                "Set goal_horizon > 0 or relative_goal=False."
+            )
+
     @property
     def goal_conditioned(self) -> bool:
         """Whether a goal is part of the conditioning at all."""
         return self.goal_horizon > 0
+
+    @property
+    def has_standalone_goal(self) -> bool:
+        """Whether the goal is its own conditioning stream, rather than folded into obs tokens."""
+        return self.goal_conditioned and not self.relative_goal
 
     @property
     def proprio_dim(self) -> int:
@@ -178,11 +190,13 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         )
         self._validate_tokenizer()
 
-    def _tokenizer_task_dim(self) -> DimSpec:
+    def _tokenizer_task_dim(self) -> Mapping[str, DimSpec]:
         """The task-only dim spec handed to the tokenizer, with proprioception split off."""
-        if isinstance(self.obs_dim, Mapping):
-            return {key: dim for key, dim in self.obs_dim.items() if key != "proprio"}
-        return self.task_dim
+        if not isinstance(self.obs_dim, Mapping):
+            raise TypeError(
+                f"Tokenizers require a canonical dict obs_dim tree, got {type(self.obs_dim).__name__}. "
+            )
+        return {key: dim for key, dim in self.obs_dim.items() if key != "proprio"}
 
     def _validate_tokenizer(self) -> None:
         if self.encoder_config is not None and self.tokenizer is None:
@@ -230,12 +244,13 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """The space the obs normalizer is fit in: tokens when tokenizing, else the raw tree."""
         if self.tokenizer is None:
             return self.obs_dim
-        return {"proprio": self.proprio_dim, "task": self.tokenizer.output_dim}
+        else:
+            return {"proprio": self.proprio_dim, "task": self.tokenizer.token_spec}
 
     def _obs_normalizer_mask(self) -> TensorTree | None:
         """Channels of :meth:`_obs_normalizer_spec` that an affine rescale would destroy."""
         if self.tokenizer is not None:
-            return {"task": self.tokenizer.categorical_mask}
+            return {"task": self.tokenizer.normalization_mask}
         if isinstance(self.obs_dim, Mapping):
             return canonical_normalization_mask(self.obs_dim)
         return None
@@ -278,20 +293,96 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Maps one training-set item into :meth:`_obs_normalizer_spec`'s space."""
         if self.tokenizer is None:
             return item["obs_seq"]
-        return self._tokenize(as_batch(item["obs_seq"]))
 
-    def _tokenize(self, obs: TensorTree) -> dict[str, TensorTree]:
-        """Splits proprioception off and turns the task tree into raw, pre-normalization tokens."""
-        if self.tokenizer is None:
-            raise ValueError(
-                f"{type(self).__name__} has no tokenizer; _tokenize() should not be reached."
+        goal = as_batch(item["goal"]) if self.goal_conditioned else None
+        return self._tokenize(as_batch(item["obs_seq"]), goal)["obs"]
+
+    def _tokenize(self, obs: TensorTree, goal: TensorTree | None = None) -> dict[str, TensorTree]:
+        """Turns a raw ``{"obs", "goal"}`` tree into the same-shaped tree of raw tokens."""
+        if not self.goal_conditioned:
+            return {"obs": self._tokenize_absolute(obs)}
+
+        if goal is None:
+            raise ValueError("goal_conditioned=True, but received goal=None.")
+
+        if not self.relative_goal:
+            return {"obs": self._tokenize_absolute(obs), "goal": self._tokenize_absolute(goal)}
+
+        return {"obs": self._tokenize_relative(obs, goal)}
+
+    def _tokenize_absolute(self, state: TensorTree) -> dict[str, TensorTree]:
+        """Tokenizes one state tree standalone, proprioception split off."""
+        proprio, task = self._split_proprio(state)
+        return {"proprio": proprio, "task": self._required_tokenizer.tokenize(task, None)}
+
+    def _tokenize_relative(self, obs: TensorTree, goal: TensorTree) -> dict[str, TensorTree]:
+        """Tokenizes the observations as per-timestep deltas against the goal."""
+        obs_proprio, obs_task = self._split_proprio(obs)
+        # The goal's own proprioception never enters a relative token: the delta is task-only.
+        _, goal_task = self._split_proprio(goal)
+
+        if not isinstance(obs_task, Mapping) or not isinstance(goal_task, Mapping):
+            raise TypeError(
+                "Tokenized conditioning requires canonical dict observation and goal trees, got "
+                f"{type(obs_task).__name__} and {type(goal_task).__name__}."
             )
 
-        proprio, task = pop_leaf_key(obs, "proprio", self.proprio_dim)
+        # An obs without a time axis would not raise below: it would broadcast against the
+        # unsqueezed goal into [B, B, ...], mistaking the batch axis for the time axis.
+        self._validate_obs_time_axis(obs_task)
+
+        return {
+            "proprio": obs_proprio,
+            "task": self._required_tokenizer.tokenize(
+                obs_task, self._add_goal_time_axis(goal_task)
+            ),
+        }
+
+    @property
+    def _required_tokenizer(self) -> TokenizerProtocol:
+        """The tokenizer, on the paths that cannot run without one."""
+        if self.tokenizer is None:
+            raise ValueError(f"{type(self).__name__} has no tokenizer; nothing to tokenize with.")
+        return self.tokenizer
+
+    @property
+    def _required_encoder(self) -> nn.Module:
+        """The encoder, on the paths that cannot run without one."""
+        if self.encoder is None:
+            raise ValueError(
+                f"{type(self).__name__} is configured with a tokenizer but no encoder, so nothing "
+                "consumes the tokens. Name an encoder in the config, or override _encode()."
+            )
+        return self.encoder
+
+    def _split_proprio(self, state: TensorTree) -> tuple[torch.Tensor, TensorTree]:
+        """Pops the proprioception leaf off a state tree, leaving the task-only remainder."""
+        proprio, task = pop_leaf_key(state, "proprio", self.proprio_dim)
         if proprio is None:
             raise ValueError("Observation mapping must contain a 'proprio' key.")
+        return proprio, task
 
-        return {"proprio": proprio, "task": self.tokenizer.tokenize(task, None)}
+    def _validate_obs_time_axis(self, obs_task: Mapping[str, TensorTree]) -> None:
+        """Requires a [B, T, ...] prefix on every task leaf."""
+        for key, spec_ndim in self._task_leaf_ndims().items():
+            ndim = get_tensor(obs_task, key).ndim
+            if ndim != spec_ndim + 2:
+                raise ValueError(
+                    "relative_goal=True expects observations of shape [B, T, F], but task leaf "
+                    f"{key!r} has {ndim} axes where {spec_ndim + 2} were expected."
+                )
+
+    def _add_goal_time_axis(self, goal_task: Mapping[str, TensorTree]) -> TensorTree:
+        """Inserts the goal's missing time axis, leaving an already-timed goal untouched."""
+        return {
+            key: leaf.unsqueeze(1) if leaf.ndim == spec_ndim + 1 else leaf
+            for key, spec_ndim in self._task_leaf_ndims().items()
+            for leaf in (get_tensor(goal_task, key),)
+        }
+
+    def _task_leaf_ndims(self) -> dict[str, int]:
+        """Per-key axis counts before the [B, T] prefix."""
+        return {key: len(dim_shape(dim)) for key, dim in self._tokenizer_task_dim().items()}
 
     def _encoder_extra_kwargs(self) -> dict[str, Any]:
         """Extra kwargs threaded to encoder instantiation."""
@@ -321,10 +412,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if "obs" not in external_cond:
             raise ValueError("external_cond must contain an 'obs' entry.")
 
-        if self.encoder is None:
+        if self.tokenizer is None:
             return external_cond
 
-        return self.encoder(self._normalize_obs(self._tokenize(**external_cond)))
+        return self._required_encoder(self._normalize_tokens(self._tokenize(**external_cond)))
 
     def _ema_parameters(self) -> list[torch.nn.Parameter]:
         """Parameters tracked by EMA: whatever training actually updates."""
@@ -432,6 +523,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
         return loss
+
+    def _normalize_tokens(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
+        """Normalizes every side of a token tree with the same fitted statistics."""
+        return {side: self._normalize_obs(tree) for side, tree in tokens.items()}
 
     def _normalize_obs(self, obs: TensorTree) -> TensorTree:
         """Normalizes observations if a normalizer is configured; otherwise returns them as-is."""

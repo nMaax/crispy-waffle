@@ -1,0 +1,11 @@
+defaults:
+  - goal_conditioned_diffusion_policy
+  - override decoder: cross_attention_decoder1d
+  - override tokenizer: graph
+  - override embedder@encoder.embedder: graph_transformer
+
+encoder:
+  decoder_type: cross_attention
+  embedder:
+    obs_horizon: ${...obs_horizon}
+    goal_horizon: ${...goal_horizon}

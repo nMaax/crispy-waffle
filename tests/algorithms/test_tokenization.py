@@ -1,7 +1,7 @@
 """Tokenization and token-space normalization, which the algorithm owns.
 
 The tokenizer is parameterless geometry and the encoder is learned, so normalization sits between
-them: ``_tokenize -> _normalize_obs -> encoder``. Normalizing the raw tree instead would hand
+them: ``_tokenize -> _normalize_tokens -> encoder``. Normalizing the raw tree instead would hand
 non-unit quaternions to the tokenizer's SE(3) math and z-score the one-hot role indicators to zero.
 """
 
@@ -12,11 +12,12 @@ from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedD
 from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.transforms.canonicalization.spec import (
-    ROLE_DIM,
+    CATEGORICAL_KEYS,
     ROLE_PICK,
     ROLE_TARGET,
     ROLE_TCP,
     canonical_dim_spec,
+    dim_shape,
 )
 
 DECODER = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
@@ -26,8 +27,8 @@ STATE_TOKENIZER = "policy.algorithms.tokenizers.state.StateTokenizer"
 
 OBS_HORIZON = 2
 NUM_OBJECTS = 2
-OBJECT_KEYS = ["tcp_pose", "obj_0_pose", "obj_1_pose"]
-ROLES = {"tcp_role": ROLE_TCP, "obj_0_role": ROLE_PICK, "obj_1_role": ROLE_TARGET}
+# Pool slot order: the TCP first, then the pick and target objects.
+ROLES = (ROLE_TCP, ROLE_PICK, ROLE_TARGET)
 
 
 def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overrides):
@@ -45,11 +46,7 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
         goal_horizon=1,
     )
     if tokenizer is not None:
-        kwargs["tokenizer"] = (
-            {"_target_": tokenizer, "object_keys": OBJECT_KEYS}
-            if tokenizer == OBJECT_TOKENIZER
-            else {"_target_": tokenizer}
-        )
+        kwargs["tokenizer"] = {"_target_": tokenizer}
     if encoder:
         kwargs["encoder"] = {"_target_": ENCODER, "_recursive_": False}
     kwargs.update(overrides)
@@ -59,15 +56,20 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
 def _canonical_tree(batch_size=4, time_axis=True):
     """A canonicalized obs/goal tree with genuine unit quaternions and constant role one-hots."""
     tree = {}
+    lead = (batch_size, OBS_HORIZON) if time_axis else (batch_size,)
     for key, dim in canonical_dim_spec(NUM_OBJECTS).items():
-        shape = (batch_size, OBS_HORIZON) if time_axis else (batch_size,)
+        shape = lead + dim_shape(dim)
         if key.endswith("_pose"):
-            quat = torch.randn(*shape, 4)
-            tree[key] = torch.cat([torch.randn(*shape, 3), quat / quat.norm(dim=-1, keepdim=True)], -1)
+            quat = torch.randn(*shape[:-1], 4)
+            tree[key] = torch.cat(
+                [torch.randn(*shape[:-1], 3), quat / quat.norm(dim=-1, keepdim=True)], -1
+            )
         elif key.endswith("_role"):
-            tree[key] = torch.tensor(ROLES[key]).expand(*shape, ROLE_DIM).clone()
+            tree[key] = torch.tensor(ROLES).expand(*shape).clone()
+        elif key == "obj_valid":
+            tree[key] = torch.ones(*shape)
         else:
-            tree[key] = torch.randn(*shape, dim)
+            tree[key] = torch.randn(*shape)
     return tree
 
 
@@ -81,9 +83,9 @@ class TestTokenizeRouting:
         obs, goal = _canonical_tree(), _canonical_tree(time_axis=False)
         tokens = policy._tokenize(obs, goal)
 
-        assert set(tokens) == {"proprio", "task"}
-        assert torch.equal(tokens["proprio"], obs["proprio"])
-        assert tokens["task"].shape == (4, OBS_HORIZON, policy.tokenizer.output_dim)
+        assert set(tokens) == {"obs"}
+        assert torch.equal(tokens["obs"]["proprio"], obs["proprio"])
+        assert tokens["obs"]["task"].shape == (4, OBS_HORIZON, policy.tokenizer.output_dim)
 
     def test_absolute_mode_emits_standalone_goal_tokens(self):
         policy = _policy(relative_goal=False)
@@ -92,17 +94,22 @@ class TestTokenizeRouting:
         obs, goal = _canonical_tree(), _canonical_tree(time_axis=False)
         tokens = policy._tokenize(obs, goal)
 
-        assert set(tokens) == {"proprio", "task", "goal_task"}
-        assert tokens["task"].shape == (4, OBS_HORIZON, policy.tokenizer.output_dim)
-        assert tokens["goal_task"].shape == (4, policy.tokenizer.output_dim)
+        assert set(tokens) == {"obs", "goal"}
+        assert tokens["obs"]["task"].shape == (4, OBS_HORIZON, policy.tokenizer.output_dim)
+        assert tokens["goal"]["task"].shape == (4, policy.tokenizer.output_dim)
 
     def test_goal_proprio_never_enters_conditioning(self):
+        """Both sides stay symmetric through tokenization; the encoder drops the goal's proprio."""
         policy = _policy(relative_goal=False)
-        policy._instantiate_tokenizer()
+        policy.configure_model()
 
         obs, goal = _canonical_tree(), _canonical_tree(time_axis=False)
         tokens = policy._tokenize(obs, goal)
-        assert torch.equal(tokens["proprio"], obs["proprio"])
+        assert torch.equal(tokens["goal"]["proprio"], goal["proprio"])
+
+        payload = policy.encoder(tokens)
+        assert torch.equal(payload["obs"]["proprio"], obs["proprio"])
+        assert torch.equal(payload["goal"], tokens["goal"]["task"])
 
     def test_relative_goal_rejects_obs_without_time_axis(self):
         policy = _policy(relative_goal=True)
@@ -142,7 +149,7 @@ class TestNormalizationHappensOnTokens:
         policy.configure_model()
 
         obs, goal = _canonical_tree(), _canonical_tree(time_axis=False)
-        policy.obs_normalizer.fit(policy._tokenize(obs, goal))
+        policy.obs_normalizer.fit(policy._tokenize(obs, goal)["obs"])
 
         seen = []
         raw_tokenize = policy.tokenizer.tokenize
@@ -164,11 +171,11 @@ class TestNormalizationHappensOnTokens:
         policy.configure_model()
 
         obs, goal = _canonical_tree(), _canonical_tree(time_axis=False)
-        tokens = policy._tokenize(obs, goal)
+        tokens = policy._tokenize(obs, goal)["obs"]
         policy.obs_normalizer.fit(tokens)
         normalized = policy.obs_normalizer.normalize(tokens)
 
-        mask = policy.tokenizer.categorical_mask
+        mask = policy.tokenizer.normalization_mask
         assert torch.equal(normalized["task"][..., ~mask], tokens["task"][..., ~mask])
         assert not torch.allclose(normalized["task"][..., mask], tokens["task"][..., mask])
 
@@ -178,6 +185,23 @@ class TestNormalizationHappensOnTokens:
         mangled = unmasked.normalize(tokens)["task"][..., ~mask]
         assert not torch.equal(mangled, tokens["task"][..., ~mask])
         assert not torch.isin(mangled, torch.tensor([0.0, 1.0])).all(), "still a valid one-hot"
+
+    def test_obs_normalizer_does_not_drop_the_standalone_goal(self):
+        """A Mapping normalizer only iterates its own spec keys, so a goal parked beside
+        proprio/task would silently vanish; normalizing each side separately keeps it."""
+        policy = _policy(relative_goal=False, obs_normalizer=True)
+        policy.configure_model()
+
+        tokens = policy._tokenize(_canonical_tree(), _canonical_tree(time_axis=False))
+        policy.obs_normalizer.fit(tokens["obs"])
+        normalized = policy._normalize_tokens(tokens)
+
+        assert set(normalized) == {"obs", "goal"}
+        # Both sides share one set of statistics, as the goal shares the decoder's obs embedding.
+        assert torch.equal(
+            normalized["goal"]["task"],
+            policy.obs_normalizer.norms["task"].normalize(tokens["goal"]["task"]),
+        )
 
     def test_normalizer_is_fit_in_token_space_not_observation_space(self):
         policy = _policy(tokenizer=OBJECT_TOKENIZER, relative_goal=True, obs_normalizer=True)
@@ -204,12 +228,13 @@ class TestNormalizationHappensOnTokens:
         assert policy.act_normalizer.min.shape == (policy.act_dim,)
 
     def test_normalizer_mask_falls_back_to_the_canonical_schema_without_a_tokenizer(self):
-        """BesoPolicy has no tokenizer, so its role keys are masked at the canonical-tree level."""
+        """Without a tokenizer the role keys are masked at the canonical-tree level instead."""
         policy = _policy(tokenizer=None, encoder=False)
 
         mask = policy._obs_normalizer_mask()
-        assert not mask["obj_0_role"].any()
-        assert mask["obj_0_pose"].all()
+        assert not mask["obj_role"].any()
+        assert not mask["obj_valid"].any()
+        assert mask["obj_pose"].all()
         assert mask["proprio"].all()
 
     def test_masked_channels_are_untouched_by_the_round_trip(self):
@@ -222,8 +247,8 @@ class TestNormalizationHappensOnTokens:
         policy.obs_normalizer.fit(obs)
         normalized = policy._normalize_obs(obs)
 
-        assert torch.equal(normalized["obj_0_role"], obs["obj_0_role"])
-        assert torch.equal(normalized["obj_1_role"], obs["obj_1_role"])
+        assert torch.equal(normalized["obj_role"], obs["obj_role"])
+        assert torch.equal(normalized["obj_valid"], obs["obj_valid"])
         assert not torch.allclose(normalized["proprio"], obs["proprio"])
 
 
@@ -235,7 +260,7 @@ class TestCategoricalMaskLayout:
     def _sentinel_tree(self, time_axis=True):
         tree = _canonical_tree(time_axis=time_axis)
         for key in tree:
-            if key.endswith("_role"):
+            if key in CATEGORICAL_KEYS:
                 tree[key] = torch.full_like(tree[key], self.SENTINEL)
         return tree
 
@@ -250,7 +275,7 @@ class TestCategoricalMaskLayout:
         goal = {k: v.unsqueeze(1) for k, v in goal.items()}
 
         tokens = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
-        mask = tokenizer.categorical_mask
+        mask = tokenizer.normalization_mask
 
         assert tokens.shape[-1] == tokenizer.output_dim == mask.shape[0]
         assert (tokens[..., ~mask] == self.SENTINEL).all(), "mask misses a role channel"
@@ -258,9 +283,8 @@ class TestCategoricalMaskLayout:
 
     @pytest.mark.parametrize("relative_goal", [True, False])
     def test_object_tokenizer_mask_matches_emitted_channels(self, relative_goal):
-        tokenizer = ObjectTokenizer(
-            object_keys=OBJECT_KEYS, relative_goal=relative_goal
-        )
+        task_dim = {k: v for k, v in canonical_dim_spec(NUM_OBJECTS).items() if k != "proprio"}
+        tokenizer = ObjectTokenizer(task_dim=task_dim, relative_goal=relative_goal)
 
         obs = self._sentinel_tree()
         goal = self._sentinel_tree(time_axis=False)
@@ -268,7 +292,7 @@ class TestCategoricalMaskLayout:
         goal = {k: v.unsqueeze(1) for k, v in goal.items()}
 
         tokens = tokenizer.tokenize(obs, goal) if relative_goal else tokenizer.tokenize(obs, None)
-        mask = tokenizer.categorical_mask
+        mask = tokenizer.normalization_mask
 
         assert tokens.shape[-1] == tokenizer.output_dim == mask.shape[0]
         assert (tokens[..., ~mask] == self.SENTINEL).all()

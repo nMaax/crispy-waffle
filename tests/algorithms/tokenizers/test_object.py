@@ -4,10 +4,10 @@ from mani_skill.utils.geometry.rotation_conversions import axis_angle_to_quatern
 
 from policy.algorithms.tokenizers.object import ObjectTokenizer
 
-TCP = torch.tensor([1.0, 0.0, 0.0, 0.0])
-PICK = torch.tensor([0.0, 1.0, 0.0, 0.0])
-TARGET = torch.tensor([0.0, 0.0, 1.0, 0.0])
-CLUTTER = torch.tensor([0.0, 0.0, 0.0, 1.0])
+ROLE_TCP = [1.0, 0.0, 0.0, 0.0]
+ROLE_PICK = [0.0, 1.0, 0.0, 0.0]
+ROLE_TARGET = [0.0, 0.0, 1.0, 0.0]
+ROLE_CLUTTER = [0.0, 0.0, 0.0, 1.0]
 
 
 def _pose(pos: tuple[float, float, float], axis_angle: tuple[float, float, float] = (0, 0, 0)):
@@ -17,158 +17,156 @@ def _pose(pos: tuple[float, float, float], axis_angle: tuple[float, float, float
     return torch.cat([p, q], dim=-1)
 
 
+def _task_dim(num_slots: int) -> dict[str, tuple[int, ...]]:
+    return {
+        "obj_pose": (num_slots, 7),
+        "obj_role": (num_slots, 4),
+        "obj_valid": (num_slots,),
+    }
+
+
+def _pool(poses: list[torch.Tensor], roles: list[list[float]], time_axis: bool):
+    """Stacks a pool into canonical [B, (T,) K, F] tensors."""
+    pose = torch.stack(poses, dim=0).unsqueeze(0)
+    role = torch.tensor(roles).unsqueeze(0)
+    valid = torch.ones(1, len(poses))
+    if time_axis:
+        pose, role, valid = pose.unsqueeze(1), role.unsqueeze(1), valid.unsqueeze(1)
+    return {"obj_pose": pose, "obj_role": role, "obj_valid": valid}
+
+
 class TestObjectTokenizer:
     def test_output_dim_relative_and_absolute_modes(self):
-        assert ObjectTokenizer(relative_goal=True).output_dim == 16
-        assert ObjectTokenizer(relative_goal=False).output_dim == 17
+        assert ObjectTokenizer(_task_dim(3), relative_goal=True).output_dim == 16
+        assert ObjectTokenizer(_task_dim(3), relative_goal=False).output_dim == 17
 
-    def test_tokens_per_step_matches_object_keys_length(self):
-        assert ObjectTokenizer().tokens_per_step is None
-        assert ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose")).tokens_per_step == 2
+    def test_tokens_per_step_matches_num_slots(self):
+        assert ObjectTokenizer(_task_dim(3)).tokens_per_step == 3
+        assert ObjectTokenizer(_task_dim(9)).tokens_per_step == 9
 
     def _obs_goal(self):
-        obs = {
-            "tcp_pose": _pose((0, 1, 0)).unsqueeze(0).unsqueeze(0),
-            "tcp_role": TCP.unsqueeze(0).unsqueeze(0),
-            "obj_0_pose": _pose((0, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_0_role": PICK.unsqueeze(0).unsqueeze(0),
-            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_1_role": TARGET.unsqueeze(0).unsqueeze(0),
-        }
-        goal = {
-            "tcp_pose": _pose((0, 1, 0)).unsqueeze(0),
-            "obj_0_pose": _pose((1, 2, 3), axis_angle=(0, 0, torch.pi / 2)).unsqueeze(0),
-            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0),
-        }
+        # Slot 0 is the TCP, slot 1 the pick object, slot 2 the target.
+        obs = _pool(
+            [_pose((0, 1, 0)), _pose((0, 0, 0)), _pose((1, 0, 0))],
+            [ROLE_TCP, ROLE_PICK, ROLE_TARGET],
+            time_axis=True,
+        )
+        goal = _pool(
+            [
+                _pose((0, 1, 0)),
+                _pose((1, 2, 3), axis_angle=(0, 0, torch.pi / 2)),
+                _pose((1, 0, 0)),
+            ],
+            [ROLE_TCP, ROLE_PICK, ROLE_TARGET],
+            time_axis=False,
+        )
         return obs, goal
 
-    def test_tcp_is_tokenized_with_its_own_goal_delta(self):
-        tokenizer = ObjectTokenizer(relative_goal=True)
-        obs, goal = self._obs_goal()
-        goal["tcp_pose"] = _pose((2, 1, 0.5)).unsqueeze(0)
-
-        tokens = tokenizer.tokenize(obs, goal)
-        tok_tcp = tokens[0, 0, 0]
-        # Its own frame, so the TCP-relative block is identically zero...
-        assert torch.allclose(tok_tcp[:6], torch.zeros(6), atol=1e-6)
-        # ...but the goal delta is the gripper's own displacement to the goal.
-        assert torch.allclose(tok_tcp[6:9], torch.tensor([2.0, 0.0, 0.5]))
-        assert torch.allclose(tok_tcp[12:16], TCP)
-
     def test_enriched_token_structure(self):
-        tokenizer = ObjectTokenizer(relative_goal=True)
+        tokenizer = ObjectTokenizer(_task_dim(3), relative_goal=True)
         obs, goal = self._obs_goal()
 
         tokens = tokenizer.tokenize(obs, goal)
-        # tcp_pose, obj_0_pose, obj_1_pose
         assert tokens.shape == (1, 1, 3, 16)
 
-        # Token 1 (obj_0, pick):
-        # 1. rel_to_tcp: obj_0 (0,0,0) - tcp (0,1,0) = (0, -1, 0)
-        tok_0 = tokens[0, 0, 1]
-        assert torch.allclose(tok_0[:3], torch.tensor([0.0, -1.0, 0.0]))
-        # 2. goal_delta: goal_0 (1,2,3) - obj_0 (0,0,0) = (1, 2, 3), rotvec pi/2 about z
-        assert torch.allclose(tok_0[6:9], torch.tensor([1.0, 2.0, 3.0]))
-        assert torch.allclose(tok_0[9:12].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
-        assert torch.allclose(tok_0[12:16], PICK)
+        # Token 0 is the TCP itself, so its pose relative to the TCP is identically zero.
+        assert torch.allclose(tokens[0, 0, 0, :6], torch.zeros(6), atol=1e-6)
+        assert torch.allclose(tokens[0, 0, 0, 12:16], torch.tensor(ROLE_TCP))
 
-        # Token 2 (obj_1, target):
-        # 1. rel_to_tcp: obj_1 (1,0,0) - tcp (0,1,0) = (1, -1, 0)
-        tok_1 = tokens[0, 0, 2]
-        assert torch.allclose(tok_1[:3], torch.tensor([1.0, -1.0, 0.0]))
-        # 2. goal_delta: goal_1 == obj_1 -> 0
-        assert torch.allclose(tok_1[6:12], torch.zeros(6), atol=1e-6)
-        assert torch.allclose(tok_1[12:16], TARGET)
+        # Token 1 (pick):
+        # 1. rel_to_tcp: (0,0,0) - tcp (0,1,0) = (0, -1, 0)
+        tok_1 = tokens[0, 0, 1]
+        assert torch.allclose(tok_1[:3], torch.tensor([0.0, -1.0, 0.0]))
+        # 2. goal_delta: goal (1,2,3) - obs (0,0,0) = (1, 2, 3), rotvec pi/2 about z
+        assert torch.allclose(tok_1[6:9], torch.tensor([1.0, 2.0, 3.0]))
+        assert torch.allclose(tok_1[9:12].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
+        assert torch.allclose(tok_1[12:16], torch.tensor(ROLE_PICK))
 
-    def test_dynamic_clutter_tokens(self):
-        tokenizer = ObjectTokenizer(relative_goal=True)
-        obs, goal = self._obs_goal()
-        obs["obj_2_pose"] = _pose((0.5, 0.5, 0)).unsqueeze(0).unsqueeze(0)
-        obs["obj_2_role"] = CLUTTER.unsqueeze(0).unsqueeze(0)
-        obs["obj_3_pose"] = _pose((-0.5, 0.5, 0)).unsqueeze(0).unsqueeze(0)
-        obs["obj_3_role"] = CLUTTER.unsqueeze(0).unsqueeze(0)
-        goal["obj_2_pose"] = _pose((0.5, 0.5, 0)).unsqueeze(0)
-        goal["obj_3_pose"] = _pose((-0.5, 0.5, 0)).unsqueeze(0)
+        # Token 2 (target): rel_to_tcp (1,0,0) - (0,1,0) = (1,-1,0), goal == obs so delta is 0
+        tok_2 = tokens[0, 0, 2]
+        assert torch.allclose(tok_2[:3], torch.tensor([1.0, -1.0, 0.0]))
+        assert torch.allclose(tok_2[6:12], torch.zeros(6), atol=1e-6)
+        assert torch.allclose(tok_2[12:16], torch.tensor(ROLE_TARGET))
+
+    def test_clutter_slots_extend_the_token_sequence(self):
+        tokenizer = ObjectTokenizer(_task_dim(5), relative_goal=True)
+        poses = [
+            _pose((0, 1, 0)),
+            _pose((0, 0, 0)),
+            _pose((1, 0, 0)),
+            _pose((0.5, 0.5, 0)),
+            _pose((-0.5, 0.5, 0)),
+        ]
+        roles = [ROLE_TCP, ROLE_PICK, ROLE_TARGET, ROLE_CLUTTER, ROLE_CLUTTER]
+        obs = _pool(poses, roles, time_axis=True)
+        goal = _pool(poses, roles, time_axis=False)
 
         tokens = tokenizer.tokenize(obs, goal)
-        assert tokens.shape == (1, 1, 5, 16)  # tcp, obj_0, obj_1, obj_2, obj_3
-
-        assert torch.allclose(tokens[0, 0, 3, 12:16], CLUTTER)
-        assert torch.allclose(tokens[0, 0, 4, 12:16], CLUTTER)
+        assert tokens.shape == (1, 1, 5, 16)
+        assert torch.allclose(tokens[0, 0, 3, 12:16], torch.tensor(ROLE_CLUTTER))
+        assert torch.allclose(tokens[0, 0, 4, 12:16], torch.tensor(ROLE_CLUTTER))
 
     def test_single_side_tokenization_absolute_mode(self):
-        tokenizer = ObjectTokenizer(relative_goal=False)
+        tokenizer = ObjectTokenizer(_task_dim(3), relative_goal=False)
         obs, _ = self._obs_goal()
 
         tokens = tokenizer.tokenize(obs, None)
         assert tokens.shape == (1, 1, 3, 17)
-        # Check raw pose in token[6:13] matches the source pose
-        assert torch.equal(tokens[0, 0, 0, 6:13], obs["tcp_pose"][0, 0])
-        assert torch.equal(tokens[0, 0, 1, 6:13], obs["obj_0_pose"][0, 0])
-        assert torch.equal(tokens[0, 0, 2, 6:13], obs["obj_1_pose"][0, 0])
+        # The raw pose occupies channels 6:13 in absolute mode.
+        assert torch.equal(tokens[0, 0, 1, 6:13], obs["obj_pose"][0, 0, 1])
+        assert torch.equal(tokens[0, 0, 2, 6:13], obs["obj_pose"][0, 0, 2])
 
-    def test_natural_obj_slots_with_role_tensors(self):
-        """Tests that natural object slot order is preserved with role tensors."""
-        tokenizer = ObjectTokenizer(relative_goal=True)
-        obs = {
-            "tcp_pose": _pose((0, 1, 0)).unsqueeze(0).unsqueeze(0),
-            "tcp_role": TCP.unsqueeze(0).unsqueeze(0),
-            "obj_0_pose": _pose((0, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_0_role": CLUTTER.unsqueeze(0).unsqueeze(0),
-            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_1_role": CLUTTER.unsqueeze(0).unsqueeze(0),
-            "obj_2_pose": _pose((2, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_2_role": PICK.unsqueeze(0).unsqueeze(0),  # pick in slot 2!
-            "obj_3_pose": _pose((3, 0, 0)).unsqueeze(0).unsqueeze(0),
-            "obj_3_role": TARGET.unsqueeze(0).unsqueeze(0),  # target in slot 3!
-        }
-        goal = {
-            "tcp_pose": _pose((0, 1, 0)).unsqueeze(0),
-            "obj_0_pose": _pose((0, 0, 0)).unsqueeze(0),
-            "obj_1_pose": _pose((1, 0, 0)).unsqueeze(0),
-            "obj_2_pose": _pose((3, 0, 0.05)).unsqueeze(0),  # goal: pick placed on target
-            "obj_3_pose": _pose((3, 0, 0)).unsqueeze(0),
-        }
+    def test_roles_are_read_per_slot_not_inferred_from_position(self):
+        """A pick/target sitting in an arbitrary slot keeps its role (the random-pick case)."""
+        tokenizer = ObjectTokenizer(_task_dim(5), relative_goal=True)
+        obs = _pool(
+            [
+                _pose((0, 1, 0)),
+                _pose((0, 0, 0)),
+                _pose((1, 0, 0)),
+                _pose((2, 0, 0)),
+                _pose((3, 0, 0)),
+            ],
+            [ROLE_TCP, ROLE_CLUTTER, ROLE_CLUTTER, ROLE_PICK, ROLE_TARGET],
+            time_axis=True,
+        )
+        goal = _pool(
+            [
+                _pose((0, 1, 0)),
+                _pose((0, 0, 0)),
+                _pose((1, 0, 0)),
+                _pose((3, 0, 0.05)),  # pick placed on top of the target
+                _pose((3, 0, 0)),
+            ],
+            [ROLE_TCP, ROLE_CLUTTER, ROLE_CLUTTER, ROLE_PICK, ROLE_TARGET],
+            time_axis=False,
+        )
 
         tokens = tokenizer.tokenize(obs, goal)
         assert tokens.shape == (1, 1, 5, 16)
 
-        assert torch.allclose(tokens[0, 0, 0, 12:16], TCP)
-        assert torch.allclose(tokens[0, 0, 1, 12:16], CLUTTER)
-        assert torch.allclose(tokens[0, 0, 2, 12:16], CLUTTER)
-        # Slot 2 (pick): goal delta to target
-        assert torch.allclose(tokens[0, 0, 3, 12:16], PICK)
+        assert torch.allclose(tokens[0, 0, 3, 12:16], torch.tensor(ROLE_PICK))
         assert torch.allclose(tokens[0, 0, 3, 6:9], torch.tensor([1.0, 0.0, 0.05]))
-        # Slot 3 (target): goal delta 0
-        assert torch.allclose(tokens[0, 0, 4, 12:16], TARGET)
+        assert torch.allclose(tokens[0, 0, 4, 12:16], torch.tensor(ROLE_TARGET))
         assert torch.allclose(tokens[0, 0, 4, 6:12], torch.zeros(6), atol=1e-6)
 
-    def test_missing_tcp_pose_raises_keyerror(self):
-        tokenizer = ObjectTokenizer()
+    def test_missing_pool_key_raises_keyerror(self):
+        tokenizer = ObjectTokenizer(_task_dim(3))
         obs, goal = self._obs_goal()
-        del obs["tcp_pose"]
-        del goal["tcp_pose"]
-        with pytest.raises(KeyError, match="tcp_pose"):
+        del obs["obj_role"]
+        with pytest.raises(KeyError, match="obj_role"):
             tokenizer.tokenize(obs, goal)
-
-    def test_missing_role_tensor_raises_keyerror(self):
-        tokenizer = ObjectTokenizer()
-        obs, goal = self._obs_goal()
-        del obs["obj_0_role"]
-        with pytest.raises(KeyError, match="obj_0_role"):
-            tokenizer.tokenize(obs, goal)
-
-    def test_missing_canonical_keys_raises_keyerror(self):
-        tokenizer = ObjectTokenizer(relative_goal=False)
-        with pytest.raises(KeyError, match="No canonical object pose keys"):
-            tokenizer.tokenize({"random_key": torch.randn(1, 7)}, None)
 
     def test_missing_goal_key_raises_keyerror(self):
-        tokenizer = ObjectTokenizer(relative_goal=True)
+        tokenizer = ObjectTokenizer(_task_dim(3), relative_goal=True)
         obs, goal = self._obs_goal()
-        del goal["obj_0_pose"]
+        del goal["obj_pose"]
         with pytest.raises(KeyError):
             tokenizer.tokenize(obs, goal)
+
+    def test_non_canonical_task_dim_raises_typeerror(self):
+        with pytest.raises(TypeError, match="canonical dict task_dim"):
+            ObjectTokenizer(task_dim=42)
 
     def test_single_side_support(self):
         assert ObjectTokenizer.supports_single_side is True
