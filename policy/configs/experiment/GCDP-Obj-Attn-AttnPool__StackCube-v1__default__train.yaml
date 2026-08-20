@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /algorithm: goal_conditioned_diffusion_policy_attention
+  - override /algorithm: goal_conditioned_diffusion_policy_per_object_attention_attn_pool
   - override /datamodule: goal_conditioned_trajectory_datamodule
   - override /trainer: default
 
@@ -10,7 +10,7 @@ algorithm:
   act_horizon: 8
 
 datamodule:
-  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCubeLockedRotation-v1/motionplanning/trajectory.state_dict.pd_ee_delta_pos.physx_cuda.h5
+  dataset_file: ${oc.env:HOME}/.maniskill/demos/StackCube-v1/motionplanning/trajectory.state_dict.pd_ee_delta_pos.physx_cuda.h5
   obs_horizon: 2
   pred_horizon: 16
 
