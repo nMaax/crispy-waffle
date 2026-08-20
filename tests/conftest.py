@@ -360,13 +360,24 @@ def train_dataloader(
 
 @pytest.fixture(autouse=True, scope="function")
 def seed(request: pytest.FixtureRequest, make_torch_deterministic: None):
-    """Fixture that seeds everything for reproducibility and yields the random seed used."""
+    """Fixture that seeds everything for reproducibility and yields the random seed used.
+
+    Also pins the intra-op thread count. Left to fluctuate, it varies with whatever the
+    previous test did (e.g. spun up DataLoader workers), which changes the reduction order of
+    CPU sum/mean ops and makes tensor_regression stats (computed on CPU) drift in their last few
+    digits between an isolated run and a full-suite run of the same, otherwise-reproducible test.
+    """
     random_seed = getattr(request, "param", DEFAULT_SEED)
     assert isinstance(random_seed, int) or random_seed is None
 
-    with torch.random.fork_rng(devices=list(range(torch.cuda.device_count()))):
-        lightning.seed_everything(random_seed, workers=True)
-        yield random_seed
+    num_threads_before = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        with torch.random.fork_rng(devices=list(range(torch.cuda.device_count()))):
+            lightning.seed_everything(random_seed, workers=True)
+            yield random_seed
+    finally:
+        torch.set_num_threads(num_threads_before)
 
 
 @pytest.fixture(scope="session")
