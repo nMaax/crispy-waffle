@@ -1,6 +1,8 @@
 # @package _global_
 defaults:
   - override /algorithm: goal_conditioned_diffusion_policy_per_object_attention_attn_pool
+  - override /algorithm/normalizer@algorithm.obs_normalizer: z_score
+  - override /algorithm/normalizer@algorithm.act_normalizer: min_max
   - override /datamodule: goal_conditioned_trajectory_datamodule
   - override /trainer: default
 

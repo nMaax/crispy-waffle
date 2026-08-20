@@ -21,11 +21,11 @@ class ObjectTokenizer(BaseTokenizer):
     """Tokenizes each object entity in a state as a standalone token.
 
     - In relative mode (``relative_goal=True``):
-        1. SE(3) pose relative to TCP (6D)
+        1. SE(3) pose relative to TCP (6D, omitted when ``include_rel_to_tcp=False``)
         2. SE(3) pose delta from current state to goal (6D)
         3. One-hot role indicator [is_pick, is_target, is_clutter] (3D)
     - In absolute mode (``relative_goal=False``):
-        1. SE(3) pose relative to TCP (6D)
+        1. SE(3) pose relative to TCP (6D, omitted when ``include_rel_to_tcp=False``)
         2. Absolute SE(3) pose (7D)
         3. One-hot role indicator [is_pick, is_target, is_clutter] (3D)
     """
@@ -34,14 +34,17 @@ class ObjectTokenizer(BaseTokenizer):
         self,
         object_keys: Sequence[str] | None = None,
         relative_goal: bool = True,
+        include_rel_to_tcp: bool = True,
         task_dim: DimSpec | None = None,  # for API consistency
     ):
         super().__init__(relative_goal=relative_goal)
         self.object_keys = tuple(object_keys) if object_keys is not None else None
+        self.include_rel_to_tcp = include_rel_to_tcp
+        rel_to_tcp_dim = RELATIVE_SE3_DIM if include_rel_to_tcp else 0
         self.output_dim = (
-            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM + ROLE_DIM
+            rel_to_tcp_dim + RELATIVE_SE3_DIM + ROLE_DIM
             if relative_goal
-            else RELATIVE_SE3_DIM + POSE_DIM + ROLE_DIM
+            else rel_to_tcp_dim + POSE_DIM + ROLE_DIM
         )
         # The role one-hot is the trailing ROLE_DIM block of every token, in both modes.
         self._categorical_mask = torch.cat(
@@ -86,10 +89,13 @@ class ObjectTokenizer(BaseTokenizer):
             g_k = match_shapes(get_tensor(goal_task, key), o_k)
             role = match_shapes(get_tensor(obs_task, key.replace("_pose", "_role")), o_k)
 
-            rel_to_tcp = relative_se3_pose(o_k, tcp_pose)
             goal_delta = relative_se3_pose(g_k, o_k)
 
-            tokens.append(torch.cat([rel_to_tcp, goal_delta, role], dim=-1))
+            if self.include_rel_to_tcp:
+                rel_to_tcp = relative_se3_pose(o_k, tcp_pose)
+                tokens.append(torch.cat([rel_to_tcp, goal_delta, role], dim=-1))
+            else:
+                tokens.append(torch.cat([goal_delta, role], dim=-1))
 
         return torch.stack(tokens, dim=2)
 
@@ -102,9 +108,11 @@ class ObjectTokenizer(BaseTokenizer):
             o_k = get_tensor(task, key)
             role = match_shapes(get_tensor(task, key.replace("_pose", "_role")), o_k)
 
-            rel_to_tcp = relative_se3_pose(o_k, tcp_pose)
-
-            tokens.append(torch.cat([rel_to_tcp, o_k, role], dim=-1))
+            if self.include_rel_to_tcp:
+                rel_to_tcp = relative_se3_pose(o_k, tcp_pose)
+                tokens.append(torch.cat([rel_to_tcp, o_k, role], dim=-1))
+            else:
+                tokens.append(torch.cat([o_k, role], dim=-1))
 
         stack_dim = 2 if tokens[0].ndim >= 3 else 1
         return torch.stack(tokens, dim=stack_dim)

@@ -22,6 +22,10 @@ class TestObjectTokenizer:
         assert ObjectTokenizer(relative_goal=True).output_dim == 16
         assert ObjectTokenizer(relative_goal=False).output_dim == 17
 
+    def test_output_dim_without_rel_to_tcp(self):
+        assert ObjectTokenizer(relative_goal=True, include_rel_to_tcp=False).output_dim == 10
+        assert ObjectTokenizer(relative_goal=False, include_rel_to_tcp=False).output_dim == 11
+
     def test_tokens_per_step_matches_object_keys_length(self):
         assert ObjectTokenizer().tokens_per_step is None
         assert ObjectTokenizer(object_keys=("obj_0_pose", "obj_1_pose")).tokens_per_step == 2
@@ -95,6 +99,36 @@ class TestObjectTokenizer:
 
         assert torch.allclose(tokens[0, 0, 3, 12:16], CLUTTER)
         assert torch.allclose(tokens[0, 0, 4, 12:16], CLUTTER)
+
+    def test_enriched_token_structure_without_rel_to_tcp(self):
+        tokenizer = ObjectTokenizer(relative_goal=True, include_rel_to_tcp=False)
+        obs, goal = self._obs_goal()
+
+        tokens = tokenizer.tokenize(obs, goal)
+        # tcp_pose, obj_0_pose, obj_1_pose; 10 = goal_delta (6D) + role (4D)
+        assert tokens.shape == (1, 1, 3, 10)
+
+        # Token 1 (obj_0, pick): goal_delta: goal_0 (1,2,3) - obj_0 (0,0,0) = (1, 2, 3)
+        tok_0 = tokens[0, 0, 1]
+        assert torch.allclose(tok_0[:3], torch.tensor([1.0, 2.0, 3.0]))
+        assert torch.allclose(tok_0[3:6].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
+        assert torch.allclose(tok_0[6:10], PICK)
+
+        # Token 2 (obj_1, target): goal_delta 0
+        tok_1 = tokens[0, 0, 2]
+        assert torch.allclose(tok_1[:6], torch.zeros(6), atol=1e-6)
+        assert torch.allclose(tok_1[6:10], TARGET)
+
+    def test_absolute_tokenization_without_rel_to_tcp(self):
+        tokenizer = ObjectTokenizer(relative_goal=False, include_rel_to_tcp=False)
+        obs, _ = self._obs_goal()
+
+        tokens = tokenizer.tokenize(obs, None)
+        assert tokens.shape == (1, 1, 3, 11)
+        # Raw pose is now the leading block since rel_to_tcp is dropped.
+        assert torch.equal(tokens[0, 0, 0, 0:7], obs["tcp_pose"][0, 0])
+        assert torch.equal(tokens[0, 0, 1, 0:7], obs["obj_0_pose"][0, 0])
+        assert torch.equal(tokens[0, 0, 2, 0:7], obs["obj_1_pose"][0, 0])
 
     def test_single_side_tokenization_absolute_mode(self):
         tokenizer = ObjectTokenizer(relative_goal=False)
