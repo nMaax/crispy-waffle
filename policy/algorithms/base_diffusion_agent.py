@@ -44,6 +44,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         relative_goal: bool = False,
         lr_scheduler: HydraConfigFor[functools.partial[LRScheduler]] | None = None,
         ema: HydraConfigFor[EMAModel] | None = None,
+        ema_include_encoder: bool = True,
         noise_scheduler: HydraConfigFor[DiffusionSchedulerProtocol] | None = None,
         obs_horizon: int = 2,
         pred_horizon: int = 16,
@@ -78,6 +79,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         self.ema_config = ema
         self.ema: EMAModel | None = None
+        self.ema_include_encoder = ema_include_encoder
 
         self.noise_scheduler_config = noise_scheduler
         self.noise_scheduler: DiffusionSchedulerProtocol | None = None
@@ -331,7 +333,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if self.decoder is None:
             raise ValueError("Decoder not initialized. Call configure_model() first.")
 
-        modules = [self.decoder] if self.encoder is None else [self.encoder, self.decoder]
+        modules = (
+            [self.decoder]
+            if self.encoder is None or not self.ema_include_encoder
+            else [self.encoder, self.decoder]
+        )
         return [p for m in modules for p in m.parameters() if p.requires_grad]
 
     def configure_optimizers(self) -> Optimizer | dict:

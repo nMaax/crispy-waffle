@@ -236,6 +236,14 @@ class TestBaseDiffusionAgentLogic:
         assert agent.encoder is None
         assert agent._ema_parameters() == list(agent.decoder.parameters())
 
+    def test_ema_parameters_is_decoder_only_when_ema_include_encoder_false(self):
+        kwargs = _basic_kwargs()
+        kwargs["ema_include_encoder"] = False
+        agent = _MinimalDiffusionAgent(**kwargs)
+        agent.decoder = torch.nn.Linear(3, 3)
+        agent.encoder = torch.nn.Linear(2, 2)
+        assert agent._ema_parameters() == list(agent.decoder.parameters())
+
 
 class TestGoalConditionedDiffusionPolicyLogic:
     def test_init_with_goal_horizon_zero_raises(self):

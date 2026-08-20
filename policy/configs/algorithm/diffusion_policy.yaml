@@ -18,6 +18,7 @@ act_horizon: 8 # Can't do math in hydra, otherwise this would be ${datamodule.ac
 
 obs_dim: ${datamodule.obs_dim}
 act_dim: ${datamodule.act_dim}
+ema_include_encoder: true
 
 decoder:
   act_dim: ${..act_dim}

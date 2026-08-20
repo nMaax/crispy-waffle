@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - GCDP-Obj-Attn-AttnPool__SCLR__default__train__NoRole__NoFFN__PostNorm
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  ema_include_encoder: false
