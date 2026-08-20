@@ -5,6 +5,7 @@ import hydra_zen
 import torch
 import torch.nn as nn
 
+from policy.algorithms.networks.encoder.embedders.graph_transformer import GraphTransformer
 from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.utils import get_subtree, get_tensor, merge_dicts
 from policy.utils.typing_utils import HydraConfigFor, PoolingProtocol, TensorTree
@@ -81,6 +82,33 @@ class ConditioningEncoder(nn.Module):
                 "pooling across objects (pools_objects=True, e.g. AttentionPooling(mode='objects'))."
             )
 
+        if isinstance(self.embedder, GraphTransformer):
+            if self.decoder_type != "cross_attention" or self.pooling is not None:
+                raise ValueError(
+                    "A GraphTransformer embedder is only supported with "
+                    "decoder_type='cross_attention' and pooling=None: _pack_graph always emits "
+                    "the raw per-node token sequence for cross-attention and never runs it "
+                    f"through pooling. Got decoder_type={self.decoder_type!r}, "
+                    f"pooling={self.pooling!r}."
+                )
+            if self.has_standalone_goal:
+                raise ValueError(
+                    "A GraphTransformer embedder folds the goal into the node sequence itself "
+                    "(nodes span obs_horizon + goal_horizon, linked by EDGE_GOAL edges); there is "
+                    "no separate goal stream to embed standalone. Set relative_goal=True."
+                )
+            if self.goal_conditioned and self.embedder.goal_horizon < 1:
+                raise ValueError(
+                    "goal_conditioned=True requires the GraphTransformer to reserve at least one "
+                    f"goal timestep; got goal_horizon={self.embedder.goal_horizon}."
+                )
+            if not self.goal_conditioned and self.embedder.goal_horizon != 0:
+                raise ValueError(
+                    "goal_conditioned=False but the GraphTransformer is configured with "
+                    f"goal_horizon={self.embedder.goal_horizon}; it would carry goal node slots "
+                    "that nothing conditions on."
+                )
+
     def _compute_cond_dims(self) -> ConditioningContract:
         step_task_dim = (
             self.output_dim
@@ -139,42 +167,53 @@ class ConditioningEncoder(nn.Module):
         proprio = get_tensor(obs, "proprio")
         task = obs["task"]
 
-        if not isinstance(task, Mapping):
-            payload = self._pack_task(proprio, self._embed_tokens(task))
+        if isinstance(self.embedder, GraphTransformer):
+            if not isinstance(task, Mapping):
+                raise ValueError(
+                    f"GraphTransformer embedder requires a Mapping[str, TensorTree] for task, "
+                    f"but got {type(task)}."
+                )
+            # The goal (if any) is already folded into that subtree via EDGE_GOAL edges, so there
+            # is no separate "goal" stream to pack here (_validate_config enforces this).
+            context, key_padding_mask = self._embed_graph_tokens(self.embedder, task)
+            payload = self._pack_graph(proprio, context, key_padding_mask)
         else:
-            payload = self._pack_graph(proprio, task)
+            if not isinstance(task, torch.Tensor):
+                raise ValueError(
+                    f"Non-Graph embedder requires a torch.Tensor for task, but got {type(task)}."
+                )
+            embedded_task = self._embed_tokens(task)
+            payload = self._pack_task(proprio, embedded_task)
 
-        if self.has_standalone_goal:
-            # The goal's own proprioception never enters conditioning, only the observed history's.
-            goal_task = get_tensor(get_subtree(tokens, "goal"), "task")
-            payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
+            if self.has_standalone_goal:
+                # The goal's own proprioception never enters conditioning, only the observed
+                # history's.
+                goal_task = get_tensor(get_subtree(tokens, "goal"), "task")
+                payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
 
         self.cond_dims.validate_payload(payload)
         return payload
 
-    def _pack_graph(
-        self, proprio: torch.Tensor, task: Mapping[str, TensorTree]
-    ) -> dict[str, TensorTree]:
-        """Packs a graph token subtree: nodes become the attended sequence, validity its key mask.
-
-        The embedder consumes the whole subtree (it needs the edges and the mask to attend at
-        all), so this bypasses ``_embed_tokens``' single-tensor path entirely.
-        """
-        if self.embedder is None:
-            raise ValueError(
-                "A graph token subtree requires an embedder that consumes it (e.g. "
-                "GraphTransformer); got embedder=None."
-            )
-
-        embedded = self.embedder(task)  # [B, T_all, K, output_dim]
+    def _embed_graph_tokens(
+        self, embedder: GraphTransformer, task: Mapping[str, TensorTree]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Runs a graph token subtree through its embedder into a flat sequence + key mask."""
+        embedded = embedder(task)  # [B, T_all, K, output_dim]
         batch, time, num_slots, dim = embedded.shape
         valid = get_tensor(task, "valid").reshape(batch, time * num_slots).bool()
 
+        context = embedded.reshape(batch, time * num_slots, dim)
+        # key_padding_mask semantics: True marks a token to ignore.
+        key_padding_mask = ~valid
+        return context, key_padding_mask
+
+    def _pack_graph(
+        self, proprio: torch.Tensor, context: torch.Tensor, key_padding_mask: torch.Tensor
+    ) -> dict[str, TensorTree]:
         return {
             "obs": {"proprio": proprio},
-            self.cond_dims.context_key: embedded.reshape(batch, time * num_slots, dim),
-            # key_padding_mask semantics: True marks a token to ignore.
-            self.cond_dims.context_mask_key: ~valid,
+            self.cond_dims.context_key: context,
+            self.cond_dims.context_mask_key: key_padding_mask,
         }
 
     def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:

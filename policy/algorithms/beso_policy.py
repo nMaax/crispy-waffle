@@ -110,9 +110,6 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
         # Separate parameters into decay/no_decay sets
         decay = set()
         no_decay = set()
-        # nn.MultiheadAttention owns its packed in-projection (in_proj_weight/in_proj_bias)
-        # directly -- it isn't an nn.Linear -- so it needs its own whitelist entry; its
-        # out_proj sub-module is an nn.Linear and is already covered by that branch.
         whitelist_weight_modules = (torch.nn.Linear, torch.nn.MultiheadAttention)
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
 

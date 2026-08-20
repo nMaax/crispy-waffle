@@ -9,7 +9,6 @@ from policy.transforms.canonicalization.spec import RELATIVE_SE3_DIM
 from policy.utils import get_tensor
 from policy.utils.typing_utils import TensorTree
 
-# Edge kinds, in the order their learned embeddings are indexed.
 EDGE_NONE, EDGE_SPATIAL, EDGE_TEMPORAL, EDGE_GOAL = range(4)
 NUM_EDGE_KINDS = 4
 
@@ -17,8 +16,8 @@ NUM_EDGE_KINDS = 4
 class GraphTransformer(nn.Module):
     """Attends over a scene graph, with the topology applied as an attention mask.
 
-    The node tensor, of shape [B, T_all, K, D] (T_all= T + G horizons), is flattened (index = t * K + k)
-    into one sequence, and a mask decides which of those pairs are edges:
+    The node tensor, of shape [B, T_all, K, D] (T_all= T + G horizons), is flattened into
+    one sequence (index = t * K + k), and a mask decides which of those pairs are edges, we make:
 
     - one edge for every object/tcp in the same timestep, in both directions (self-loops included).
     - one edge for a node attending to itself one step earlier, one direction only (future to past).
@@ -27,8 +26,8 @@ class GraphTransformer(nn.Module):
 
     Goal nodes are therefore keys but never queries.
 
-    Each node carries categorial features indicating its ROLE.
-    Each edge carries its endpoints' SE(3) delta.
+    Each node carries categorial features indicating its ROLE. This is mathematically equivalent to a positional embedding.
+    Each edge carries its endpoints' SE(3) delta as features.
     """
 
     def __init__(
@@ -118,15 +117,15 @@ class GraphTransformer(nn.Module):
     def _attention_mask(
         self, edge_feat: torch.Tensor, valid: torch.Tensor, time: int, num_slots: int
     ) -> torch.Tensor:
-        """The additive ``[B * num_heads, S, S]`` mask carrying both topology and geometry."""
+        """The additive ``[B * num_heads, S, S]`` mask provides both topology and geometry."""
         kinds = self._edge_kinds(time, num_slots, edge_feat.device)
         bias = self.edge_bias(edge_feat + self.edge_kind_emb(kinds))  # [B, S, S, num_heads]
 
         connected = kinds != EDGE_NONE
         # A key that is not a real object must never be attended to, whatever the topology says.
         allowed = connected.unsqueeze(0) & valid.flatten(1).bool().unsqueeze(1)
-        # An all-masked row makes softmax emit NaN, and an invalid node's row is exactly that;
-        # keeping its self-loop costs nothing since its output is discarded downstream.
+        # An all-masked row makes softmax emit NaN, which applies automatically for an invalid node's row
+        # We keep also self-loops
         eye = torch.eye(allowed.shape[-1], dtype=torch.bool, device=allowed.device)
         allowed = allowed | eye.unsqueeze(0)
 
@@ -135,8 +134,7 @@ class GraphTransformer(nn.Module):
         return bias.reshape(-1, *bias.shape[-2:])
 
     def _edge_kinds(self, time: int, num_slots: int, device: torch.device) -> torch.Tensor:
-        """Static ``[S, S]`` relation type per node pair; depends only on the grid, not the
-        data."""
+        """Static ``[S, S]`` relation type per node pair."""
         steps = torch.arange(time, device=device).repeat_interleave(num_slots)
         slots = torch.arange(num_slots, device=device).repeat(time)
 

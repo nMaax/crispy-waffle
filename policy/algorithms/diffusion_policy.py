@@ -114,8 +114,6 @@ class DiffusionPolicy(BaseDiffusionAgent):
 
         self.noise_scheduler.set_timesteps(num_inference_steps, device=self.device)
 
-        # Encoded once, outside the loop: obs/goal don't change across denoising steps, unlike
-        # `sample`/`timestep`, so re-encoding on every step would be pure waste.
         encoded_cond = self._encode(external_cond)
 
         with torch.no_grad():

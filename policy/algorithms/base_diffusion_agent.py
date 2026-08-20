@@ -149,12 +149,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             return
 
         self._instantiate_tokenizer()
-
-        self.encoder = (
-            hydra_zen.instantiate(self.encoder_config, **self._encoder_extra_kwargs())
-            if self.encoder_config is not None
-            else None
-        )
+        self._instantiate_encoder()
 
         self.obs_normalizer = self._instantiate_normalizer(
             config=self.obs_normalizer_config,
@@ -178,7 +173,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             self.noise_scheduler = hydra_zen.instantiate(self.noise_scheduler_config)
 
     def _instantiate_tokenizer(self) -> None:
-        """Builds the tokenizer the encoder is sized from and the obs normalizer is fit in."""
+        """Instantiates the tokenizer, if configured."""
         self.tokenizer = (
             hydra_zen.instantiate(
                 self.tokenizer_config,
@@ -220,6 +215,14 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 f"{type(self.tokenizer).__name__} cannot tokenize a standalone observation "
                 "state (supports_single_side=False), so it cannot be used unconditioned."
             )
+
+    def _instantiate_encoder(self) -> None:
+        """Instantiates the encoder, if configured."""
+        self.encoder = (
+            hydra_zen.instantiate(self.encoder_config, **self._encoder_extra_kwargs())
+            if self.encoder_config is not None
+            else None
+        )
 
     def _instantiate_normalizer(
         self,

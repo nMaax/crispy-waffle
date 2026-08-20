@@ -16,20 +16,7 @@ from policy.utils.typing_utils import DimSpec, TensorTree
 
 
 class GraphTokenizer(BaseTokenizer):
-    """Turns the observed window and the goal into one scene graph per sample.
-
-    Nodes are pool slots (the TCP at slot 0, then every scene object) laid out ``[B, T_all, K, D]``
-    with ``T_all = obs_horizon + goal_horizon``: the goal frames are simply the trailing
-    timesteps, so a goal node is an ordinary node the topology can point at.
-
-    Node features are ``[pose relative to the TCP (6), role one-hot (4)]``; all *pairwise*
-    geometry lives on the edges instead, as the SE(3) delta between the two endpoints. Edges are
-    emitted for every pair -- which pairs actually connect is topology the embedder applies as an
-    attention mask, not something this parameterless tokenizer decides.
-
-    ``valid`` carries the per-slot activity flag through, so an absent clutter object can be
-    excluded from attention rather than attended to at a parked, off-table pose.
-    """
+    """Turns the observed window and the goal into one scene graph per sample."""
 
     supports_single_side = False
 
@@ -86,8 +73,7 @@ class GraphTokenizer(BaseTokenizer):
     def _edge_features(pose: torch.Tensor) -> torch.Tensor:
         """Pairwise SE(3) delta between every node pair, as ``[B, S, S, 6]`` with S = T_all * K.
 
-        Entry ``[i, j]`` is the delta from node ``i`` (the query) to node ``j`` (the key), in the
-        same t-major/k-minor flattening the embedder attends over.
+        Entry ``[i, j]`` is the delta from node ``i`` (query) to node ``j`` (key).
         """
         flat = pose.flatten(1, 2)  # [B, S, 7]
         seq = flat.shape[1]
