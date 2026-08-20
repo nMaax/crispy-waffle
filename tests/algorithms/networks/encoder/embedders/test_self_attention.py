@@ -44,6 +44,24 @@ def test_self_attention_instantiates_and_runs():
             assert torch.isfinite(p.grad).all()
 
 
+def test_include_feedforward_false_drops_the_sublayer():
+    """Without the feed-forward sublayer the block is attention alone, as it was before
+    ``6dde21e``: no ``mlp``/``ln2``, and the output norm still applied."""
+    embedder_cfg = _load_embedder_cfg("self_attention")
+    embedder_cfg.input_dim = 16
+    embedder_cfg.output_dim = 12
+    embedder_cfg.obs_horizon = 3
+    embedder_cfg.include_feedforward = False
+    embedder = hydra_zen.instantiate(embedder_cfg)
+
+    assert embedder.mlp is None
+    assert embedder.ln2 is None
+    assert isinstance(embedder.ln1, torch.nn.LayerNorm)
+    assert isinstance(embedder.ln_f, torch.nn.LayerNorm)
+
+    assert embedder(torch.randn(2, 3, 4, 16)).shape == (2, 3, 4, 12)
+
+
 def test_self_attention_has_a_feed_forward_sublayer():
     """Regression guard: this is a full (pre-norm) transformer block -- attention then FFN,
     each normed on the way in and the block normed on the way out, mirroring DiffusionGPT's

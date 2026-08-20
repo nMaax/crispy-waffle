@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - GCDP-Obj-Attn-MLPPool__SCLR__default__train__NoRole__NoFFN
+
+name: ${hydra:runtime.choices.experiment}
+
+algorithm:
+  encoder:
+    embedder:
+      pre_norm: false
