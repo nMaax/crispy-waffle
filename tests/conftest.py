@@ -112,6 +112,8 @@ if typing.TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+torch.set_num_threads(1)
+
 DEFAULT_TIMEOUT = 1.0
 DEFAULT_SEED = 42
 
