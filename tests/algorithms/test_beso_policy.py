@@ -297,6 +297,36 @@ class TestBesoPolicyLogic:
         categorized = sum(len(g["params"]) for g in optimizer.param_groups)
         assert categorized == len(list(policy.decoder.parameters()))
 
+    def test_configure_optimizers_categorizes_object_diffusion_gpt(self):
+        """ObjectDiffusionGPT names its positional embedding ``time_emb`` (not ``pos_emb``); it
+        must still land in no_decay rather than tripping the "not categorized" assertion."""
+        policy = BesoPolicy(
+            **_delta_kwargs(
+                tokenizer={"_target_": OBJECT_TOKENIZER},
+                decoder={
+                    "_target_": OBJECT_DIFFUSION_GPT,
+                    "act_dim": 4,
+                    "obs_horizon": 2,
+                    "pred_horizon": 2,
+                    "embed_dim": 8,
+                    "n_layers": 1,
+                    "n_heads": 2,
+                },
+                optimizer={"_target_": "torch.optim.AdamW", "_partial_": True, "weight_decay": 1e-4},
+            )
+        )
+        policy._instantiate_tokenizer()
+        policy.configure_model()
+
+        result = policy.configure_optimizers()
+        optimizer = result["optimizer"] if isinstance(result, dict) else result
+        categorized = sum(len(g["params"]) for g in optimizer.param_groups)
+        assert categorized == len(list(policy.decoder.parameters()))
+
+        no_decay_group = optimizer.param_groups[1]
+        assert any(p is policy.decoder.time_emb for p in no_decay_group["params"])
+        assert any(p is policy.decoder.role_emb.weight for p in no_decay_group["params"])
+
     # ------------------------------------------------------------------ #
     # num_parallel_samples
     # ------------------------------------------------------------------ #

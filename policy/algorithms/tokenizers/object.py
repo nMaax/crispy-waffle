@@ -42,9 +42,7 @@ class ObjectTokenizer(BaseTokenizer):
         super().__init__(relative_goal=relative_goal)
         self._tokens_per_step = self._num_slots(task_dim)
         self.output_dim = (
-            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM
-            if relative_goal
-            else RELATIVE_SE3_DIM + POSE_DIM
+            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM if relative_goal else RELATIVE_SE3_DIM + POSE_DIM
         )
         self._normalization_mask = {
             "tokens": torch.ones(self.output_dim, dtype=torch.bool),
@@ -52,12 +50,12 @@ class ObjectTokenizer(BaseTokenizer):
         }
 
     @property
-    def token_spec(self) -> DimSpec:
-        return {"tokens": self.output_dim, "role": ROLE_DIM}
-
-    @property
     def normalization_mask(self) -> dict[str, torch.Tensor]:
         return self._normalization_mask
+
+    @property
+    def token_spec(self) -> DimSpec:
+        return {"tokens": self.output_dim, "role": ROLE_DIM}
 
     @property
     def tokens_per_step(self) -> int:

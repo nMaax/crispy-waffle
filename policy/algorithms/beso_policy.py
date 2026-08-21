@@ -128,9 +128,10 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
                 elif pn.endswith("weight") and isinstance(m, blacklist_weight_modules):
                     no_decay.add(fpn)
 
-        # Positional embedding in DiffusionGPT
-        if hasattr(self.decoder, "pos_emb"):
-            no_decay.add("pos_emb")
+        # Positional embeddings
+        for pos_emb_name in ("pos_emb", "time_emb"):
+            if hasattr(self.decoder, pos_emb_name):
+                no_decay.add(pos_emb_name)
 
         # Validate that we categorized every parameter
         param_dict = {pn: p for pn, p in self.decoder.named_parameters() if p.requires_grad}
@@ -194,7 +195,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
         side = {
             "proprio": self.proprio_dim,
-            "task": self._with_tokens_axis(self.tokenizer.token_spec, self.tokenizer.tokens_per_step),
+            "task": self._with_tokens_axis(
+                self.tokenizer.token_spec, self.tokenizer.tokens_per_step
+            ),
         }
         if not self.has_standalone_goal:
             return {"obs": side}
@@ -214,9 +217,11 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
 
     def _decoder_extra_kwargs(self) -> dict[str, Any]:
         kwargs = super()._decoder_extra_kwargs()  # {"cond_dims": self._get_cond_dims()}
+
+        # No "goal" key when relative_goal=True, the goal is folded into obs
         if self.relative_goal:
-            # No "goal" key when relative_goal=True, the goal is folded into obs
             kwargs["goal_horizon"] = 0
+
         return kwargs
 
     def _encode(self, external_cond: Mapping[str, TensorTree]) -> Mapping[str, TensorTree]:
@@ -238,19 +243,9 @@ class BesoPolicy(BaseDiffusionAgent, GoalConditionedPolicyProtocol):
             output_clip_range=output_clip_range,
         )
 
-    def _shared_step(self, batch: dict[str, Any], batch_idx: int, phase: str) -> torch.Tensor:
-        obs_seq = batch["obs_seq"]
-        action_seq = batch["act_seq"]
-        goal = batch.get("goal", None)
-
-        action_seq = self._normalize_act(action_seq)
-
-        external_cond = self._build_external_cond(obs_seq, goal)
-
-        loss = self._compute_loss(external_cond, action_seq)
-
-        self.log(f"{phase}/loss", loss, prog_bar=True, sync_dist=(phase == "val"))
-        return loss
+    def _build_external_cond_from_batch(self, batch: dict[str, Any]) -> dict[str, TensorTree]:
+        """Extracts observation and (optional) goal conditioning from a batch."""
+        return self._build_external_cond(batch["obs_seq"], batch.get("goal", None))
 
     def _compute_loss(
         self, external_cond: Mapping[str, TensorTree], act_seq: torch.Tensor

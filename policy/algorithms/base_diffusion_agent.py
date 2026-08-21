@@ -185,6 +185,28 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Width of the task (non-proprio) portion of an observation."""
         return derive_task_dim(self.obs_dim, self.proprio_dim, self._task_dim)
 
+    @property
+    def _task_spec(self) -> "_TaskSpec":
+        """Per-key shape bookkeeping for the task (non-proprio) portion of ``obs_dim``."""
+        return _TaskSpec.from_obs_dim(self.obs_dim)
+
+    @property
+    def _required_tokenizer(self) -> TokenizerProtocol:
+        """The tokenizer, on the paths that cannot run without one."""
+        if self.tokenizer is None:
+            raise ValueError(f"{type(self).__name__} has no tokenizer; nothing to tokenize with.")
+        return self.tokenizer
+
+    @property
+    def _required_encoder(self) -> nn.Module:
+        """The encoder, on the paths that cannot run without one."""
+        if self.encoder is None:
+            raise ValueError(
+                f"{type(self).__name__} is configured with a tokenizer but no encoder, so nothing "
+                "consumes the tokens. Name an encoder in the config, or override _encode()."
+            )
+        return self.encoder
+
     def configure_model(self) -> None:
         if self.decoder is not None:
             return
@@ -225,11 +247,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             else None
         )
         self._validate_tokenizer()
-
-    @property
-    def _task_spec(self) -> "_TaskSpec":
-        """Per-key shape bookkeeping for the task (non-proprio) portion of ``obs_dim``."""
-        return _TaskSpec.from_obs_dim(self.obs_dim)
 
     def _validate_tokenizer(self) -> None:
         if self.encoder_config is not None and self.tokenizer is None:
@@ -391,23 +408,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 obs_task, task_spec.add_goal_time_axis(goal_task)
             ),
         }
-
-    @property
-    def _required_tokenizer(self) -> TokenizerProtocol:
-        """The tokenizer, on the paths that cannot run without one."""
-        if self.tokenizer is None:
-            raise ValueError(f"{type(self).__name__} has no tokenizer; nothing to tokenize with.")
-        return self.tokenizer
-
-    @property
-    def _required_encoder(self) -> nn.Module:
-        """The encoder, on the paths that cannot run without one."""
-        if self.encoder is None:
-            raise ValueError(
-                f"{type(self).__name__} is configured with a tokenizer but no encoder, so nothing "
-                "consumes the tokens. Name an encoder in the config, or override _encode()."
-            )
-        return self.encoder
 
     def _split_proprio(self, state: TensorTree) -> tuple[torch.Tensor, TensorTree]:
         """Pops the proprioception leaf off a state tree, leaving the task-only remainder."""
@@ -580,8 +580,15 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Extracts the observation conditioning from a batch."""
         return self._build_external_cond(batch["obs_seq"])
 
-    def _build_external_cond(self, obs: TensorTree) -> dict[str, TensorTree]:
+    def _build_external_cond(
+        self, obs: TensorTree, goal: TensorTree | None = None
+    ) -> dict[str, TensorTree]:
         """Prepares the raw (un-normalized) network ``external_cond``."""
+        if goal is not None:
+            raise ValueError(
+                f"{type(self).__name__} has no goal-conditioning support; override "
+                "_build_external_cond to consume `goal`."
+            )
         return {"obs": obs}
 
     def _compute_loss(

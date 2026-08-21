@@ -58,12 +58,12 @@ class StateTokenizer(BaseTokenizer):
         raise ValueError(self._no_reduction_message(key))
 
     @property
-    def token_spec(self) -> DimSpec:
-        return self.output_dim
-
-    @property
     def normalization_mask(self) -> torch.Tensor:
         return self._normalization_mask
+
+    @property
+    def token_spec(self) -> DimSpec:
+        return self.output_dim
 
     @property
     def tokens_per_step(self) -> int:
