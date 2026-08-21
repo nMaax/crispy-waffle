@@ -5,7 +5,7 @@ from collections.abc import Mapping
 import hydra.utils
 import torch.nn as nn
 
-from policy.utils import get_total_dim
+from policy.utils import drop_key, get_total_dim
 from policy.utils.typing_utils import DimSpec
 
 
@@ -72,7 +72,7 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
     """Derives the task-only (non-proprio) width from `obs_dim`, optionally cross-checking it
     against an explicitly provided `task_dim`."""
     if isinstance(obs_dim, Mapping):
-        calc_task_dim = sum(get_total_dim(v) for k, v in obs_dim.items() if k != "proprio")
+        calc_task_dim = sum(get_total_dim(v) for v in drop_key(obs_dim, "proprio").values())
     else:
         calc_task_dim = get_total_dim(obs_dim) - proprio_dim
 

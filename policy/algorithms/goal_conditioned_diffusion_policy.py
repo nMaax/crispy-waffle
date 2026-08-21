@@ -34,7 +34,11 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             )
             embeddings = {"obs_embeddings": self.encoder.unpack_task(payload)}
             if "goal" in payload:
-                embeddings["goal_embedding"] = payload["goal"]
+                goal_embedding = payload["goal"]
+                assert isinstance(goal_embedding, torch.Tensor), (
+                    f"Expected the embedded goal to be a Tensor, got {type(goal_embedding)}."
+                )
+                embeddings["goal_embedding"] = goal_embedding
 
         return embeddings, "goal-relative" if self.relative_goal else "absolute"
 

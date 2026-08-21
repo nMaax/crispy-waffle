@@ -200,6 +200,11 @@ class RolloutEvaluationCallback(L.Callback):
             max_episode_steps=self.max_episode_steps,
             **make_kwargs,
         )
+        assert isinstance(pl_module, PolicyProtocol | GoalConditionedPolicyProtocol), (
+            f"Expected the LightningModule to implement PolicyProtocol or "
+            f"GoalConditionedPolicyProtocol, but got {type(pl_module).__name__}."
+        )
+
         inner_env = gym_env.unwrapped
         frame_stack_env = FrameStack(gym_env, num_stack=pl_module.obs_horizon)
         vector_env = ManiSkillVectorEnv(
@@ -311,8 +316,9 @@ class RolloutEvaluationCallback(L.Callback):
 
         seed = self.val_seed if phase == "val" else self.test_seed
         obs, info = env.reset(seed=seed)
-        if hasattr(pl_module, "reset"):
-            pl_module.reset()
+        reset_policy = getattr(pl_module, "reset", None)
+        if callable(reset_policy):
+            reset_policy()
 
         apply_transforms = observation_pipeline(
             env_id=self.env_id,

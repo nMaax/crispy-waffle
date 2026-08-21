@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Literal
+from typing import Literal, cast
 
 import hydra.utils
 import hydra_zen
@@ -47,7 +47,9 @@ class ConditioningEncoder(nn.Module):
             target_path = (
                 embedder["_target_"] if isinstance(embedder, Mapping) else embedder._target_
             )
-            target = hydra.utils.get_class(target_path) if isinstance(target_path, str) else target_path
+            target = (
+                hydra.utils.get_class(target_path) if isinstance(target_path, str) else target_path
+            )
             role_aware = bool(getattr(target, "ROLE_AWARE", False))
             input_dim = token_dim if role_aware or role_dim is None else token_dim + role_dim
             self.embedder = hydra_zen.instantiate(embedder, input_dim=input_dim)
@@ -63,13 +65,13 @@ class ConditioningEncoder(nn.Module):
         self._reconcat_role = role_dim is not None and not role_aware
 
         if self.embedder is not None:
-            self.output_dim = self.embedder.output_dim
+            self.output_dim = cast(int, self.embedder.output_dim)
         else:
             self.output_dim = token_dim + (role_dim or 0) if self._reconcat_role else token_dim
 
         # Pooling
         if isinstance(pooling, nn.Module | PoolingProtocol):
-            self.pooling = pooling
+            self.pooling = cast(PoolingProtocol, pooling)
         elif pooling is not None:
             self.pooling = hydra_zen.instantiate(pooling, dim=self.output_dim)
         else:
@@ -259,10 +261,14 @@ class ConditioningEncoder(nn.Module):
             had_no_time_axis = tokens.ndim == (3 if self.is_multi_token else 2)
             if had_no_time_axis:
                 tokens, role = tokens.unsqueeze(1), role.unsqueeze(1)
-            task = torch.cat([tokens, role], dim=-1) if self._reconcat_role else {
-                "tokens": tokens,
-                "role": role,
-            }
+            task = (
+                torch.cat([tokens, role], dim=-1)
+                if self._reconcat_role
+                else {
+                    "tokens": tokens,
+                    "role": role,
+                }
+            )
         else:
             had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
             if had_no_time_axis:

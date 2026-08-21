@@ -1,23 +1,28 @@
 import functools
+import time
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import hydra_zen
 import lightning as L
 import torch
 import torch.nn as nn
 from diffusers.training_utils import EMAModel
+from lightning.pytorch.utilities import rank_zero_info
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 
+from policy.algorithms.networks.encoder.encoder import ConditioningEncoder
+from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.algorithms.networks.utils import derive_task_dim, resolve_proprio_dim
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.transforms.canonicalization.spec import canonical_normalization_mask, dim_shape
-from policy.utils import as_batch, cat_dicts, get_tensor, get_total_dim, pop_leaf_key
+from policy.utils import as_batch, cat_dicts, drop_key, get_tensor, get_total_dim, pop_leaf_key
 from policy.utils.typing_utils import (
     DiffusionSchedulerProtocol,
     DimSpec,
     HydraConfigFor,
+    NormalizerProtocol,
     PolicyProtocol,
     TensorTree,
     TokenizerProtocol,
@@ -67,7 +72,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.optimizer: Optimizer | None = None
 
         self.encoder_config = encoder
-        self.encoder: torch.nn.Module | None = None
+        self.encoder: ConditioningEncoder | None = None
 
         self.tokenizer_config = tokenizer
         self.tokenizer: TokenizerProtocol | None = None
@@ -95,10 +100,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self._task_dim = task_dim
 
         self.obs_normalizer_config = obs_normalizer
-        self.obs_normalizer: nn.Module | None = None
+        self.obs_normalizer: NormalizerProtocol | None = None
 
         self.act_normalizer_config = act_normalizer
-        self.act_normalizer: nn.Module | None = None
+        self.act_normalizer: NormalizerProtocol | None = None
 
     def _validate_horizons(self) -> None:
         """Sanity-checks the observation / prediction / action horizons."""
@@ -191,7 +196,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             raise TypeError(
                 f"Tokenizers require a canonical dict obs_dim tree, got {type(self.obs_dim).__name__}. "
             )
-        return {key: dim for key, dim in self.obs_dim.items() if key != "proprio"}
+        return drop_key(self.obs_dim, "proprio")
 
     def _validate_tokenizer(self) -> None:
         if self.encoder_config is not None and self.tokenizer is None:
@@ -219,7 +224,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
     def _instantiate_encoder(self) -> None:
         """Instantiates the encoder, if configured."""
         self.encoder = (
-            hydra_zen.instantiate(self.encoder_config, **self._encoder_extra_kwargs())
+            cast(
+                ConditioningEncoder,
+                hydra_zen.instantiate(self.encoder_config, **self._encoder_extra_kwargs()),
+            )
             if self.encoder_config is not None
             else None
         )
@@ -230,7 +238,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         spec: DimSpec,
         default_cls: type[nn.Module],
         mask: TensorTree | None = None,
-    ) -> nn.Module | None:
+    ) -> NormalizerProtocol | None:
         """Instantiates a normalizer from its Hydra config, over the given dimension spec.
 
         config = ``True`` yields a :class:`ZScoreNormalizer` for the
@@ -238,10 +246,12 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         Hydra configs to specify a custom class.
         """
         if isinstance(config, bool) and config:
-            return default_cls(spec, mask=mask)
-        if isinstance(config, Mapping):
-            return hydra_zen.instantiate(config, spec=spec, mask=mask)
-        return None
+            normalizer = default_cls(spec, mask=mask)
+        elif isinstance(config, Mapping):
+            normalizer = hydra_zen.instantiate(config, spec=spec, mask=mask)
+        else:
+            return None
+        return cast(NormalizerProtocol, normalizer)
 
     def _obs_normalizer_spec(self) -> DimSpec:
         """The space the obs normalizer is fit in: tokens when tokenizing, else the raw tree."""
@@ -254,9 +264,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Channels of :meth:`_obs_normalizer_spec` that an affine rescale would destroy."""
         if self.tokenizer is not None:
             return {"task": self.tokenizer.normalization_mask}
-        if isinstance(self.obs_dim, Mapping):
+        elif isinstance(self.obs_dim, Mapping):
             return canonical_normalization_mask(self.obs_dim)
-        return None
+        else:
+            return None
 
     def on_fit_start(self) -> None:
         """Fits the normalizers, after ``configure_model`` has built the tokenizer they need."""
@@ -277,6 +288,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             raise ValueError("Training set is not available in the datamodule.")
 
         if self.obs_normalizer is not None and not self.obs_normalizer.is_fit:
+            rank_zero_info("Fitting obs normalizer...")
+            start = time.perf_counter()
             if train_set.lazy:
                 self.obs_normalizer.fit_incremental(
                     self._obs_normalizer_view(item) for item in train_set
@@ -285,12 +298,16 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
                 self.obs_normalizer.fit(
                     cat_dicts([self._obs_normalizer_view(item) for item in train_set])
                 )
+            rank_zero_info(f"Obs normalizer fit in {time.perf_counter() - start:.1f}s.")
 
         if self.act_normalizer is not None and not self.act_normalizer.is_fit:
+            rank_zero_info("Fitting act normalizer...")
+            start = time.perf_counter()
             if train_set.lazy:
                 self.act_normalizer.fit_incremental(item["act_seq"] for item in train_set)
             else:
                 self.act_normalizer.fit(cat_dicts([item["act_seq"] for item in train_set]))
+            rank_zero_info(f"Act normalizer fit in {time.perf_counter() - start:.1f}s.")
 
     def _obs_normalizer_view(self, item: dict[str, Any]) -> TensorTree:
         """Maps one training-set item into :meth:`_obs_normalizer_spec`'s space."""
@@ -310,8 +327,8 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         if not self.relative_goal:
             return {"obs": self._tokenize_absolute(obs), "goal": self._tokenize_absolute(goal)}
-
-        return {"obs": self._tokenize_relative(obs, goal)}
+        else:
+            return {"obs": self._tokenize_relative(obs, goal)}
 
     def _tokenize_absolute(self, state: TensorTree) -> dict[str, TensorTree]:
         """Tokenizes one state tree standalone, proprioception split off."""
@@ -393,7 +410,11 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
             raise ValueError("Cannot size an encoder without a tokenizer.")
 
         token_spec = self.tokenizer.token_spec
-        role_dim = token_spec["role"] if isinstance(token_spec, Mapping) and "role" in token_spec else None
+        role_dim = (
+            token_spec["role"]
+            if isinstance(token_spec, Mapping) and "role" in token_spec
+            else None
+        )
 
         return {
             "proprio_dim": self.proprio_dim,
@@ -408,7 +429,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         """Extra kwargs threaded to decoder instantiation."""
         return {"cond_dims": self._get_cond_dims()}
 
-    def _get_cond_dims(self) -> DimSpec:
+    def _get_cond_dims(self) -> DimSpec | ConditioningContract:
         """Reports the per-timestep conditioning dimensionality passed to the decoder."""
         if self.encoder is not None:
             return self.encoder.cond_dims

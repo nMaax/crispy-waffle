@@ -14,10 +14,10 @@ from pathlib import Path
 import hydra
 import lightning
 import torch
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-import wandb
 from policy.algorithms.callbacks.rollout_evaluation import SUCCESS_METRICS
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer

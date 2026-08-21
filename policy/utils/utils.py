@@ -11,7 +11,7 @@ import torch
 from lightning_utilities.core.rank_zero import rank_zero_info
 from omegaconf import DictConfig, OmegaConf
 
-from policy.utils.typing_utils import DimSpec, RawTree, TensorTree
+from policy.utils.typing_utils import DimSpec, RawTree, TensorTree, V
 
 logger = get_logger(__name__)
 
@@ -328,6 +328,11 @@ def pack_obs_goal(obs: TensorTree, goal: TensorTree | None) -> dict[str, TensorT
     return merge_dicts([{"obs": obs}, {"goal": goal}])
 
 
+def drop_key(tree: Mapping[str, V], key: str) -> dict[str, V]:
+    """Returns `tree` without `key`, unchanged if `key` isn't present."""
+    return {k: v for k, v in tree.items() if k != key}
+
+
 def pop_leaf_key(tree: TensorTree, key: str, size: int) -> tuple[torch.Tensor | None, TensorTree]:
     """Pops a named leaf out of a tree.
 
@@ -343,7 +348,7 @@ def pop_leaf_key(tree: TensorTree, key: str, size: int) -> tuple[torch.Tensor | 
         popped = tree[key]
         if not isinstance(popped, torch.Tensor):
             raise TypeError(f"Expected leaf at key {key!r} to be a Tensor, got {type(popped)}.")
-        return popped, {k: v for k, v in tree.items() if k != key}
+        return popped, drop_key(tree, key)
     return tree[..., :size], tree[..., size:]
 
 

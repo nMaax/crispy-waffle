@@ -39,6 +39,9 @@ class PolicyProtocol(Protocol):
     obs_horizon: int
     """Number of past observations used to build the observations window."""
 
+    act_horizon: int
+    """Number of actions executed per :meth:`get_action` call."""
+
     device: torch.device
     """Device on which the policy parameters live."""
 
@@ -66,6 +69,9 @@ class GoalConditionedPolicyProtocol(Protocol):
 
     obs_horizon: int
     """Number of past observations used to build the observations window."""
+
+    act_horizon: int
+    """Number of actions executed per :meth:`get_action` call."""
 
     device: torch.device
     """Device on which the policy parameters live."""
@@ -224,6 +230,31 @@ class PoolingProtocol(Protocol):
     def pools_objects(self) -> bool: ...
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor: ...
+
+
+@runtime_checkable
+class NormalizerProtocol(Protocol):
+    """Protocol for the normalizers configurable on a diffusion agent (e.g. ``ZScoreNormalizer``,
+    ``MinMaxNormalizer``)."""
+
+    @property
+    def is_fit(self) -> torch.Tensor: ...
+
+    def fit(self, data: TensorTree) -> None: ...
+
+    def fit_incremental(self, data_iterator: typing.Iterable[TensorTree]) -> None: ...
+
+    @typing.overload
+    def normalize(self, x: torch.Tensor) -> torch.Tensor: ...
+    @typing.overload
+    def normalize(self, x: Mapping[str, TensorTree]) -> dict[str, TensorTree]: ...
+    def normalize(self, x: TensorTree) -> TensorTree: ...
+
+    @typing.overload
+    def unnormalize(self, x: torch.Tensor) -> torch.Tensor: ...
+    @typing.overload
+    def unnormalize(self, x: Mapping[str, TensorTree]) -> dict[str, TensorTree]: ...
+    def unnormalize(self, x: TensorTree) -> TensorTree: ...
 
 
 @runtime_checkable

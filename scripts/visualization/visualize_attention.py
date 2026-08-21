@@ -17,7 +17,6 @@ import contextlib
 import warnings
 from collections.abc import Generator
 from pathlib import Path
-from typing import cast
 
 import h5py
 import matplotlib.pyplot as plt
@@ -83,7 +82,7 @@ def require_encoder(model: GoalConditionedDiffusionPolicy) -> ConditioningEncode
     configure_model() -- which load_from_checkpoint() already ran."""
     if model.encoder is None:
         raise RuntimeError("configure_model() must run before the encoder is available.")
-    return cast(ConditioningEncoder, model.encoder)
+    return model.encoder
 
 
 def detect_attention_modules(
@@ -658,9 +657,14 @@ def main() -> None:
     target_modules = detect_attention_modules(model)
     print(f"Detected attention module(s): {sorted(target_modules)}")
 
-    if model.encoder is None:
+    if model.tokenizer is None:
         raise RuntimeError("configure_model() must run before tokens_per_step is known.")
-    tokens_per_step = model.encoder.tokenizer.tokens_per_step
+    tokens_per_step = model.tokenizer.tokens_per_step
+    if tokens_per_step is None:
+        raise RuntimeError(
+            f"{type(model.tokenizer).__name__} emits a variable number of tokens per step; "
+            "attention visualization requires a tokenizer with a fixed tokens_per_step."
+        )
     token_labels = build_token_labels(model, model.obs_horizon)
 
     if args.source == "rollout":
