@@ -13,8 +13,10 @@ from pathlib import Path
 
 import hydra
 import lightning
+import rich
 import torch
 from omegaconf import DictConfig, OmegaConf
+from rich.panel import Panel
 from torch.utils.data import DataLoader
 
 import wandb
@@ -22,7 +24,12 @@ from policy.algorithms.callbacks.rollout_evaluation import SUCCESS_METRICS
 from policy.datamodules.trajectory_datamodule import DummyDataset
 from policy.experiment import instantiate_trainer
 from policy.utils.hf_hub_utils import ensure_checkpoint
-from policy.utils.hydra_utils import find_checkpoint_hydra_config, resolve_dictconfig
+from policy.utils.hydra_utils import (
+    find_checkpoint_hydra_config,
+    get_checkpoint_branch,
+    get_experiment_phase,
+    resolve_dictconfig,
+)
 from policy.utils.logging_utils import setup_logging
 
 torch.set_float32_matmul_precision("high")
@@ -50,6 +57,22 @@ def _log_zero_shot_bar_charts(trainer: lightning.Trainer) -> None:
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
 def main(dict_config: DictConfig):
     config = resolve_dictconfig(dict_config)
+
+    experiment_phase = get_experiment_phase(config.name)
+    if experiment_phase == "train":
+        warning_msg = (
+            "[bold red]TRAINING VIA EVAL IS NOT SUPPORTED[/bold red]\n\n"
+            f"It looks like you are trying to evaluate [yellow]{config.name}[/yellow], whose name "
+            "marks it as a [yellow]train[/yellow]-phase experiment, through [bold cyan]eval.py[/bold cyan].\n\n"
+            "eval.py loads a dummy dataloader and only runs the rollout evaluation callbacks — it "
+            "never trains. Please use the dedicated training entrypoint instead:\n"
+            "[bold green]uv run python policy/main.py experiment=YOUR_EXP[/bold green]"
+        )
+        rich.print(Panel(warning_msg, title="Notice", border_style="red"))
+        raise ValueError(
+            "Running a train-phase experiment via eval.py is not supported; use main.py instead."
+        )
+
     setup_logging(
         log_level=config.log_level,
         global_log_level="DEBUG" if config.debug else "INFO" if config.verbose else "WARNING",
@@ -60,13 +83,21 @@ def main(dict_config: DictConfig):
     ckpt_path = Path(config.ckpt_path)
     ensure_checkpoint(ckpt_path, config.hf_checkpoint_repo_id)
 
+    loaded_branch = get_checkpoint_branch(config.ckpt_path)
+    if loaded_branch is not None and loaded_branch != config.branch:
+        logger.warning(
+            f"Branch mismatch! The checkpoint at '{config.ckpt_path}' was generated on branch "
+            f"'{loaded_branch}', but you are currently on branch '{config.branch}'. Code "
+            "differences between the two branches may affect evaluation results."
+        )
+
     # Seed everything for reproducibility during evaluation (env seeding + model stochastic actions)
     lightning.seed_everything(seed=config.seed, workers=True)
 
     print(f"Loading policy from {ckpt_path}...")
     # Load the model class dynamically from the config
     model_class = hydra.utils.get_class(dict_config.algorithm._target_)
-    model = model_class.load_from_checkpoint(ckpt_path)
+    model = model_class.load_from_checkpoint(ckpt_path, weights_only=False)
 
     hparams = dataclasses.asdict(config)
     checkpoint_hydra_config = find_checkpoint_hydra_config(config.ckpt_path)

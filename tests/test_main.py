@@ -10,6 +10,7 @@ from logging import getLogger
 from pathlib import Path
 from unittest.mock import Mock
 
+import lightning
 import omegaconf
 import pytest
 from _pytest.mark.structures import ParameterSet
@@ -160,3 +161,84 @@ def test_setup_with_overrides_works(dict_config: omegaconf.DictConfig):
     """This test receives the `dict_config` loaded from Hydra with the given overrides."""
     assert dict_config["algorithm"]["_target_"] == NoOp.__module__ + "." + NoOp.__name__
     assert dict_config["trainer"]["max_epochs"] == 1
+
+
+@setup_with_overrides(
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train finetuning_ckpt_path=dummy.ckpt"
+)
+def test_main_loads_finetuning_checkpoint(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_load = Mock(return_value=Mock())
+    monkeypatch.setattr(lightning.LightningModule, "load_from_checkpoint", mock_load)
+    policy.main.main(dict_config)
+    mock_load.assert_called_once()
+    assert (
+        mock_load.call_args.args[0] == Path("dummy.ckpt")
+        or mock_load.call_args.args[0] == "dummy.ckpt"
+        or mock_load.call_args.kwargs.get("checkpoint_path") == "dummy.ckpt"
+    )
+    assert mock_load.call_args.kwargs.get("weights_only") is False
+    assert mock_load.call_args.kwargs.get("strict") is False
+
+
+@setup_with_overrides(
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train "
+    "+trainer.limit_train_batches=0 +trainer.limit_val_batches=0"
+)
+def test_main_rejects_eval_only_trainer_flags(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+):
+    with pytest.raises(ValueError, match="Testing via main.py is deprecated"):
+        policy.main.main(dict_config)
+    mock_train_and_validate.assert_not_called()
+
+
+@setup_with_overrides("experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test ckpt_path=dummy.ckpt")
+def test_main_rejects_test_experiment_with_ckpt_path(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+):
+    """A `*__test.yaml` experiment run through `main.py` with a real `ckpt_path` set would call
+    `trainer.fit(..., ckpt_path=...)`, resuming/continuing training instead of evaluating -- this
+    should be rejected in favor of `eval.py`, same as the `limit_*_batches=0` case above."""
+    with pytest.raises(ValueError, match="Testing via main.py is deprecated"):
+        policy.main.main(dict_config)
+    mock_train_and_validate.assert_not_called()
+
+
+@setup_with_overrides("experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__test trainer.max_epochs=1")
+def test_main_allows_test_experiment_without_ckpt_path(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+):
+    """Without a `ckpt_path` override, a `*__test.yaml` experiment run through `main.py` is just a
+    smoke check of the config (e.g. the CI commands in `experiment_commands_to_test`), not a real
+    resume-for-evaluation -- it should still be allowed."""
+    policy.main.main(dict_config)
+    mock_train_and_validate.assert_called_once()
+
+
+@setup_with_overrides(
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train ckpt_path=dummy.ckpt branch=main"
+)
+def test_main_warns_on_branch_mismatch(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Resuming from a checkpoint trained on a different branch shouldn't be blocked (unlike a seed
+    mismatch, switching branches -- e.g. after a merge -- is a normal workflow), but should be
+    surfaced as a warning."""
+    monkeypatch.setattr(policy.main, "get_checkpoint_seed", Mock(return_value=None))
+    monkeypatch.setattr(
+        policy.main, "get_checkpoint_branch", Mock(return_value="some-feature-branch")
+    )
+    mock_warning = Mock()
+    monkeypatch.setattr(policy.main.logger, "warning", mock_warning)
+    policy.main.main(dict_config)
+    mock_train_and_validate.assert_called_once()
+    assert any("Branch mismatch" in call.args[0] for call in mock_warning.call_args_list)

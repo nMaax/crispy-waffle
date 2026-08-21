@@ -219,6 +219,6 @@ def load_goal_conditioned_diffusion_policy(ckpt_path: Path) -> GoalConditionedDi
     reconstruction needed. Checkpoints saved before this move are not expected to load here;
     fetch them from the commit they were trained under.
     """
-    model = GoalConditionedDiffusionPolicy.load_from_checkpoint(ckpt_path)
+    model = GoalConditionedDiffusionPolicy.load_from_checkpoint(ckpt_path, weights_only=False)
     model.eval()
     return model

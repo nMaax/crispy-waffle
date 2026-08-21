@@ -41,6 +41,18 @@ def find_checkpoint_hydra_config(ckpt_path_str: str) -> DictConfig | None:
     return None
 
 
+def get_experiment_phase(name: str) -> str | None:
+    """The `<Phase>` segment of an experiment `name` (e.g. `"train"`, `"test"`), following the
+    `<Algorithm>__<Datamodule>__<Trainer>__<Phase>[__<Extras>]` naming convention.
+
+    Returns None if `name` doesn't have at least 4 double-underscore-separated segments (e.g. the
+    default `name="default"`, or a name that doesn't follow the convention).
+    """
+
+    parts = name.split("__")
+    return parts[3] if len(parts) >= 4 else None
+
+
 def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
     """The seed a checkpoint's run used, read from its `.hydra/config.yaml`, or None if unknown."""
 
@@ -48,6 +60,16 @@ def get_checkpoint_seed(ckpt_path_str: str) -> int | None:
     if loaded_config is None:
         return None
     return loaded_config.get("seed", None)
+
+
+def get_checkpoint_branch(ckpt_path_str: str) -> str | None:
+    """The git branch a checkpoint's run used, read from its `.hydra/config.yaml`, or None if
+    unknown."""
+
+    loaded_config = find_checkpoint_hydra_config(ckpt_path_str)
+    if loaded_config is None:
+        return None
+    return loaded_config.get("branch", None)
 
 
 def parse_slice(slice_def: str | int) -> slice | int:

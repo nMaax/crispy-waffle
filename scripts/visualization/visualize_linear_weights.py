@@ -38,10 +38,7 @@ def get_layer_index(key: str) -> int:
 
 def extract_state_dict(ckpt_path: Path) -> dict[str, torch.Tensor]:
     """Loads a checkpoint and returns its state dict."""
-    try:
-        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    except Exception:
-        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
     if isinstance(checkpoint, dict):
         return checkpoint.get("state_dict", checkpoint)
