@@ -24,7 +24,12 @@ import wandb
 from policy.configs.config import Config
 from policy.experiment import instantiate_algorithm, train_and_validate
 from policy.utils.hf_hub_utils import ensure_checkpoint
-from policy.utils.hydra_utils import get_checkpoint_seed, resolve_dictconfig
+from policy.utils.hydra_utils import (
+    get_checkpoint_branch,
+    get_checkpoint_seed,
+    get_experiment_phase,
+    resolve_dictconfig,
+)
 from policy.utils.logging_utils import setup_logging
 from policy.utils.utils import print_config
 
@@ -50,17 +55,30 @@ def main(dict_config: DictConfig) -> dict:
 
     limit_train = config.trainer.get("limit_train_batches", None)
     limit_val = config.trainer.get("limit_val_batches", None)
+    experiment_phase = get_experiment_phase(config.name)
 
-    if limit_train == 0 and limit_val == 0:
-        warning_msg = (
-            "[bold red]TESTING VIA MAIN IS DEPRECATED[/bold red]\n\n"
+    eval_only = limit_train == 0 and limit_val == 0
+    resuming_test_experiment = experiment_phase == "test" and config.ckpt_path is not None
+
+    if eval_only or resuming_test_experiment:
+        why = (
             "It looks like you are trying to run an evaluation-only pipeline by setting "
             "[yellow]limit_train_batches=0[/yellow] and [yellow]limit_val_batches=0[/yellow].\n\n"
-            "Using [bold cyan]main.py[/bold cyan] for pure evaluation is deprecated because it needlessly loads "
+            if eval_only
+            else (
+                f"It looks like you are running the '{experiment_phase}'-phase experiment "
+                f"[yellow]{config.name}[/yellow] with a real [yellow]ckpt_path[/yellow] set — this "
+                "would call [bold cyan]trainer.fit(...)[/bold cyan], resuming/continuing training "
+                "instead of evaluating.\n\n"
+            )
+        )
+        warning_msg = (
+            "[bold red]TESTING VIA MAIN IS DEPRECATED[/bold red]\n\n"
+            + why
+            + "Using [bold cyan]main.py[/bold cyan] for pure evaluation is deprecated because it needlessly loads "
             "the training datamodule and skips the test hooks.\n\n"
             "Please use the dedicated evaluation script instead:\n"
-            "[bold green]uv run python policy/eval.py experiment=YOUR_EXP ckpt_path=YOUR_CKPT[/bold green]\n\n"
-            "[dim]The script will now proceed with validation only, no test rollouts will occur.[/dim]"
+            "[bold green]uv run python policy/eval.py experiment=YOUR_EXP ckpt_path=YOUR_CKPT[/bold green]"
         )
         rich.print(Panel(warning_msg, title="Notice", border_style="red"))
         raise ValueError("Testing via main.py is deprecated, please use eval.py instead.")
@@ -88,6 +106,14 @@ def main(dict_config: DictConfig) -> dict:
                 f"was generated with seed={loaded_seed}, but the current config has seed={config.seed}.\n"
                 f"To ensure identical train/val data splits and reproducible rollouts, "
                 f"please re-run with the command line override: seed={loaded_seed}"
+            )
+
+        loaded_branch = get_checkpoint_branch(config.ckpt_path)
+        if loaded_branch is not None and loaded_branch != config.branch:
+            logger.warning(
+                f"Branch mismatch! The checkpoint at '{config.ckpt_path}' was generated on branch "
+                f"'{loaded_branch}', but you are currently on branch '{config.branch}'. Code "
+                "differences between the two branches may affect resumed training or evaluation."
             )
 
     # Seed the random number generators, so the weights that are
