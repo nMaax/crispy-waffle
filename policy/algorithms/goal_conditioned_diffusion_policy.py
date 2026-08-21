@@ -4,7 +4,7 @@ from typing import Any, Literal
 import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
-from policy.utils import as_batch, get_ndim, map_leaves, pop_leaf_key, to_device
+from policy.utils import to_device
 from policy.utils.typing_utils import GoalConditionedPolicyProtocol, TensorTree
 
 
@@ -19,68 +19,26 @@ class GoalConditionedDiffusionPolicy(DiffusionPolicy, GoalConditionedPolicyProto
             )
         super().__init__(*args, goal_horizon=goal_horizon, **kwargs)
 
-    def _tokenize(self, obs: TensorTree, goal: TensorTree | None = None) -> dict[str, TensorTree]:
-        """Splits proprioception off and tokenizes, routing absolute vs goal-relative."""
-        if self.tokenizer is None:
-            raise ValueError(
-                f"{type(self).__name__} has no tokenizer; _tokenize() should not be reached."
-            )
-
-        if goal is None:
-            raise ValueError("goal_conditioned=True, but received goal=None.")
-
-        obs_proprio, obs_task = pop_leaf_key(obs, "proprio", self.proprio_dim)
-        if obs_proprio is None:
-            raise ValueError("Observation mapping must contain a 'proprio' key.")
-
-        # The goal's own proprioception never enters conditioning: only the historical (observed)
-        # proprioception is used, on both the absolute and the relative path.
-        _, goal_task = pop_leaf_key(goal, "proprio", self.proprio_dim)
-
-        if not self.relative_goal:
-            return {
-                "proprio": obs_proprio,
-                "task": self.tokenizer.tokenize(obs_task, None),
-                "goal_task": self.tokenizer.tokenize(None, goal_task),
-            }
-
-        # A 2D obs would not raise below: it would broadcast against the unsqueezed goal into
-        # [B, B, F], silently mistaking the batch axis for the time axis. Checked generically
-        # across dict-of-poses and flat-tensor task trees via the first leaf tensor found.
-        if get_ndim(obs_task) != 3:
-            raise ValueError(
-                "relative_goal=True expects observations of shape [B, T, F], but got a "
-                f"{get_ndim(obs_task)}D tree (shape shown after splitting off proprioception)."
-            )
-
-        # goal_task's own missing time axis is added here, on every leaf,
-        # rather than left to the tokenizer.
-        if get_ndim(goal_task) == 2:
-            goal_task = map_leaves(lambda t: t.unsqueeze(1), goal_task)
-
-        return {"proprio": obs_proprio, "task": self.tokenizer.tokenize(obs_task, goal_task)}
-
-    def _obs_normalizer_view(self, item: dict[str, Any]) -> TensorTree:
-        return self._tokenize(as_batch(item["obs_seq"]), as_batch(item["goal"]))
-
     def extract_embeddings(
         self,
         obs: torch.Tensor | Mapping[str, Any],
-        goal: torch.Tensor | Mapping[str, Any] | None = None,
+        goal: torch.Tensor | Mapping[str, Any],
     ) -> tuple[dict[str, torch.Tensor], Literal["absolute", "goal-relative"]]:
         """Helper for visualizing the embeddings."""
         if self.encoder is None:
             raise ValueError("Encoder not initialized. Call configure_model() first.")
 
-        obs = to_device(obs, self.device)
-        if goal is not None:
-            goal = to_device(goal, self.device)
-
         with torch.no_grad():
-            payload = self.encoder(self._normalize_obs(self._tokenize(obs, goal)))
+            payload = self._encode(
+                {"obs": to_device(obs, self.device), "goal": to_device(goal, self.device)}
+            )
             embeddings = {"obs_embeddings": self.encoder.unpack_task(payload)}
             if "goal" in payload:
-                embeddings["goal_embedding"] = payload["goal"]
+                goal_embedding = payload["goal"]
+                assert isinstance(goal_embedding, torch.Tensor), (
+                    f"Expected the embedded goal to be a Tensor, got {type(goal_embedding)}."
+                )
+                embeddings["goal_embedding"] = goal_embedding
 
         return embeddings, "goal-relative" if self.relative_goal else "absolute"
 

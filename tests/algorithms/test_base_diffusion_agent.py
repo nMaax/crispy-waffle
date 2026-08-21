@@ -6,6 +6,7 @@ from omegaconf import OmegaConf
 
 from policy.algorithms.base_diffusion_agent import BaseDiffusionAgent
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
+from policy.transforms.canonicalization.spec import canonical_dim_spec
 from policy.utils import get_batch_size
 from policy.utils.typing_utils import TensorTree
 
@@ -189,9 +190,9 @@ class TestBaseDiffusionAgentLogic:
     # ------------------------------------------------------------------ #
     # Encoder scaffolding: _encode / _ema_parameters / _get_cond_dims
     # ------------------------------------------------------------------ #
-    def test_encode_passes_through_unchanged_when_no_encoder(self):
+    def test_encode_passes_through_unchanged_when_no_tokenizer(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
-        assert agent.encoder is None
+        assert agent.tokenizer is None
         external_cond = {"obs": torch.randn(2, 2, 3)}
         assert agent._encode(external_cond) is external_cond
 
@@ -204,7 +205,8 @@ class TestBaseDiffusionAgentLogic:
     def test_encode_hands_normalized_tokens_to_the_encoder(self):
         agent = _MinimalDiffusionAgent(**_basic_kwargs())
         agent.encoder = MagicMock()
-        tokens = {"proprio": torch.randn(2, 2, 3), "task": torch.randn(2, 2, 5)}
+        agent.tokenizer = MagicMock()
+        tokens = {"obs": {"proprio": torch.randn(2, 2, 3), "task": torch.randn(2, 2, 5)}}
         agent._tokenize = MagicMock(return_value=tokens)
         agent.obs_normalizer = MagicMock()
         agent.obs_normalizer.normalize.side_effect = lambda x: x
@@ -213,7 +215,7 @@ class TestBaseDiffusionAgentLogic:
         agent._encode({"obs": obs})
 
         agent._tokenize.assert_called_once_with(obs=obs)
-        agent.obs_normalizer.normalize.assert_called_once_with(tokens)
+        agent.obs_normalizer.normalize.assert_called_once_with(tokens["obs"])
         agent.encoder.assert_called_once_with(tokens)
 
     def test_get_cond_dims_uses_encoder_cond_dims_when_present(self):
@@ -263,7 +265,7 @@ class TestGoalConditionedDiffusionPolicyLogic:
             ema={"_target_": "diffusers.training_utils.EMAModel"},
             noise_scheduler={"_target_": "diffusers.schedulers.scheduling_ddpm.DDPMScheduler"},
             goal_horizon=1,
-            obs_dim=48,
+            obs_dim=canonical_dim_spec(2),
             proprio_dim=18,
             tokenizer={
                 "_target_": "policy.algorithms.tokenizers.state.StateTokenizer"
@@ -273,7 +275,7 @@ class TestGoalConditionedDiffusionPolicyLogic:
         kwargs = policy._encoder_extra_kwargs()
         assert kwargs["goal_conditioned"] is True
         assert kwargs["proprio_dim"] == 18
-        assert kwargs["token_dim"] == policy.tokenizer.output_dim == 30
+        assert kwargs["token_dim"] == policy.tokenizer.output_dim == 36
 
     def test_build_external_cond_from_batch_missing_goal_raises(self):
         from policy.algorithms.goal_conditioned_diffusion_policy import (

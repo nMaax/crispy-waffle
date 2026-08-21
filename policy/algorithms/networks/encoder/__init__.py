@@ -1,5 +1,6 @@
 from policy.algorithms.networks.encoder.embedders import (
     MLP,
+    GraphTransformer,
     SelfAttention,
 )
 from policy.algorithms.networks.encoder.encoder import ConditioningEncoder
@@ -10,6 +11,7 @@ __all__ = [
     "ConditioningEncoder",
     "ConditioningContract",
     "MLP",
+    "GraphTransformer",
     "SelfAttention",
     "AttentionPooling",
     "MLPPooling",

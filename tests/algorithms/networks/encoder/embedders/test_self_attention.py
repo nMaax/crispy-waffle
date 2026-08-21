@@ -35,11 +35,12 @@ def test_self_attention_instantiates_and_runs():
     assert isinstance(output, torch.Tensor)
     assert output.shape == (batch_size, obs_horizon, output_dim)
 
-    # Backward pass: grads must be finite.
+    # Backward pass: grads must be finite. role_emb is skipped: a plain-tensor call carries no
+    # role, so it's legitimately unused here (see test_self_attention_role_is_added_additively).
     loss = output.sum()
     loss.backward()
-    for p in embedder.parameters():
-        if p.requires_grad:
+    for name, p in embedder.named_parameters():
+        if p.requires_grad and not name.startswith("role_emb"):
             assert p.grad is not None
             assert torch.isfinite(p.grad).all()
 
@@ -115,8 +116,8 @@ def test_self_attention_accepts_multiple_tokens_per_step():
 
     loss = output.sum()
     loss.backward()
-    for p in embedder.parameters():
-        if p.requires_grad:
+    for name, p in embedder.named_parameters():
+        if p.requires_grad and not name.startswith("role_emb"):
             assert p.grad is not None
             assert torch.isfinite(p.grad).all()
 
@@ -213,3 +214,36 @@ def test_per_token_embedders_do_not_mix_across_timesteps():
             out_perturbed = embedder(x_perturbed)
 
         assert torch.equal(out[:, 1, :], out_perturbed[:, 1, :])
+
+
+def test_self_attention_role_is_added_additively():
+    """A ``{"tokens", "role"}`` mapping input adds role via role_emb after the projection, and
+    permuting which slot holds which role changes that slot's output -- role is actually consumed,
+    not silently dropped."""
+    embedder_cfg = _load_embedder_cfg("self_attention")
+    batch_size, obs_horizon, tokens_per_step, input_dim, output_dim = 4, 2, 3, 16, 12
+    embedder_cfg.input_dim = input_dim
+    embedder_cfg.output_dim = output_dim
+    embedder_cfg.obs_horizon = obs_horizon
+    embedder = hydra_zen.instantiate(embedder_cfg)
+    embedder.eval()
+
+    tokens = torch.randn(batch_size, obs_horizon, tokens_per_step, input_dim)
+    role = torch.zeros(batch_size, obs_horizon, tokens_per_step, 4)
+    # Distinct roles per slot (0->class 0, 1->class 1, 2->class 2), so permuting slots 0 and 1
+    # actually swaps which role each geometry gets, instead of swapping two identical roles.
+    for k in range(tokens_per_step):
+        role[:, :, k, k % 4] = 1.0
+    role_permuted = role.clone()
+    role_permuted[:, :, [0, 1]] = role_permuted[:, :, [1, 0]]
+
+    with torch.no_grad():
+        out = embedder({"tokens": tokens, "role": role})
+        out_permuted = embedder({"tokens": tokens, "role": role_permuted})
+
+    assert not torch.allclose(out[:, :, 0, :], out_permuted[:, :, 0, :])
+
+    embedder.train()
+    embedder({"tokens": tokens, "role": role}).sum().backward()
+    assert embedder.role_emb.weight.grad is not None
+    assert torch.isfinite(embedder.role_emb.weight.grad).all()

@@ -1,24 +1,19 @@
 from collections.abc import Mapping
-from typing import Literal
+from typing import Literal, cast
 
+import hydra.utils
 import hydra_zen
 import torch
 import torch.nn as nn
 
+from policy.algorithms.networks.encoder.embedders.graph_transformer import GraphTransformer
 from policy.algorithms.networks.encoder.spec import ConditioningContract
 from policy.utils import get_subtree, get_tensor, merge_dicts
 from policy.utils.typing_utils import HydraConfigFor, PoolingProtocol, TensorTree
 
 
 class ConditioningEncoder(nn.Module):
-    """Embeds already-tokenized, already-normalized conditioning into the tensors a downstream
-    network consumes.
-
-    Tokenization is the algorithm's job (see :meth:`BaseDiffusionAgent._tokenize`), so that
-    normalization can be fit on and applied to the tokens this encoder's learned layers actually
-    see. This class owns only the learned half: embedder, pooling, and the payload packing the
-    decoder's conditioning contract expects.
-    """
+    """Embeds conditioning into the tensors a downstream network consumes."""
 
     def __init__(
         self,
@@ -30,12 +25,14 @@ class ConditioningEncoder(nn.Module):
         decoder_type: Literal["film", "cross_attention"] = "film",
         embedder: HydraConfigFor[nn.Module] | None = None,
         pooling: HydraConfigFor[PoolingProtocol] | None = None,
+        role_dim: int | None = None,
     ):
         super().__init__()
 
         self.proprio_dim = proprio_dim
         self.token_dim = token_dim
         self.tokens_per_step = tokens_per_step
+        self.role_dim = role_dim
 
         self.goal_conditioned = goal_conditioned
         self.relative_goal = relative_goal
@@ -45,19 +42,36 @@ class ConditioningEncoder(nn.Module):
         # Embedder
         if isinstance(embedder, nn.Module):
             self.embedder = embedder
+            role_aware = bool(getattr(type(embedder), "ROLE_AWARE", False))
         elif embedder is not None:
-            self.embedder = hydra_zen.instantiate(embedder, input_dim=token_dim)
+            target_path = (
+                embedder["_target_"] if isinstance(embedder, Mapping) else embedder._target_
+            )
+            target = (
+                hydra.utils.get_class(target_path) if isinstance(target_path, str) else target_path
+            )
+            role_aware = bool(getattr(target, "ROLE_AWARE", False))
+            input_dim = token_dim if role_aware or role_dim is None else token_dim + role_dim
+            self.embedder = hydra_zen.instantiate(embedder, input_dim=input_dim)
         else:
             self.embedder = None
+            role_aware = False
+
+        # Whether ``_embed_tokens`` must reconcatenate tokens+role into one tensor before handing
+        # it to the embedder: role-aware embedders (e.g. SelfAttention, GraphTransformer) consume
+        # role additively themselves, everything else (MLP, AttentionPooling, or no embedder)
+        # needs role folded back into the token width, exactly as it was before role became a
+        # separate tokenizer output.
+        self._reconcat_role = role_dim is not None and not role_aware
 
         if self.embedder is not None:
-            self.output_dim = self.embedder.output_dim
+            self.output_dim = cast(int, self.embedder.output_dim)
         else:
-            self.output_dim = token_dim
+            self.output_dim = token_dim + (role_dim or 0) if self._reconcat_role else token_dim
 
         # Pooling
         if isinstance(pooling, nn.Module | PoolingProtocol):
-            self.pooling = pooling
+            self.pooling = cast(PoolingProtocol, pooling)
         elif pooling is not None:
             self.pooling = hydra_zen.instantiate(pooling, dim=self.output_dim)
         else:
@@ -87,6 +101,33 @@ class ConditioningEncoder(nn.Module):
                 "decoder_type='film' with a dynamic/variable number of object tokens requires "
                 "pooling across objects (pools_objects=True, e.g. AttentionPooling(mode='objects'))."
             )
+
+        if isinstance(self.embedder, GraphTransformer):
+            if self.decoder_type != "cross_attention" or self.pooling is not None:
+                raise ValueError(
+                    "A GraphTransformer embedder is only supported with "
+                    "decoder_type='cross_attention' and pooling=None: _pack_graph always emits "
+                    "the raw per-node token sequence for cross-attention and never runs it "
+                    f"through pooling. Got decoder_type={self.decoder_type!r}, "
+                    f"pooling={self.pooling!r}."
+                )
+            if self.has_standalone_goal:
+                raise ValueError(
+                    "A GraphTransformer embedder folds the goal into the node sequence itself "
+                    "(nodes span obs_horizon + goal_horizon, linked by EDGE_GOAL edges); there is "
+                    "no separate goal stream to embed standalone. Set relative_goal=True."
+                )
+            if self.goal_conditioned and self.embedder.goal_horizon < 1:
+                raise ValueError(
+                    "goal_conditioned=True requires the GraphTransformer to reserve at least one "
+                    f"goal timestep; got goal_horizon={self.embedder.goal_horizon}."
+                )
+            if not self.goal_conditioned and self.embedder.goal_horizon != 0:
+                raise ValueError(
+                    "goal_conditioned=False but the GraphTransformer is configured with "
+                    f"goal_horizon={self.embedder.goal_horizon}; it would carry goal node slots "
+                    "that nothing conditions on."
+                )
 
     def _compute_cond_dims(self) -> ConditioningContract:
         step_task_dim = (
@@ -141,17 +182,60 @@ class ConditioningEncoder(nn.Module):
         return self.pooling.pools_objects if self.pooling is not None else False
 
     def forward(self, tokens: Mapping[str, TensorTree]) -> dict[str, TensorTree]:
-        """Embeds a ``{"proprio", "task"[, "goal_task"]}`` token tree into the decoder payload."""
-        payload = self._pack_task(
-            get_tensor(tokens, "proprio"), self._embed_tokens(get_tensor(tokens, "task"))
-        )
+        """Embeds a ``{"obs"[, "goal"]}`` tree of ``{"proprio", "task"}`` tokens into a payload."""
+        obs = get_subtree(tokens, "obs")
+        proprio = get_tensor(obs, "proprio")
+        task = obs["task"]
 
-        if self.has_standalone_goal:
-            goal_embedded = self._embed_tokens(get_tensor(tokens, "goal_task"))
-            payload = merge_dicts([payload, {"goal": goal_embedded}])
+        if isinstance(self.embedder, GraphTransformer):
+            if not isinstance(task, Mapping):
+                raise ValueError(
+                    f"GraphTransformer embedder requires a Mapping[str, TensorTree] for task, "
+                    f"but got {type(task)}."
+                )
+            # The goal (if any) is already folded into that subtree via EDGE_GOAL edges, so there
+            # is no separate "goal" stream to pack here (_validate_config enforces this).
+            context, key_padding_mask = self._embed_graph_tokens(self.embedder, task)
+            payload = self._pack_graph(proprio, context, key_padding_mask)
+        else:
+            if not isinstance(task, torch.Tensor | Mapping):
+                raise ValueError(
+                    f"Non-Graph embedder requires a torch.Tensor or a {{'tokens', 'role'}} "
+                    f"Mapping for task, but got {type(task)}."
+                )
+            embedded_task = self._embed_tokens(task)
+            payload = self._pack_task(proprio, embedded_task)
+
+            if self.has_standalone_goal:
+                # The goal's own proprioception never enters conditioning, only the observed
+                # history's.
+                goal_task = get_subtree(tokens, "goal")["task"]
+                payload = merge_dicts([payload, {"goal": self._embed_tokens(goal_task)}])
 
         self.cond_dims.validate_payload(payload)
         return payload
+
+    def _embed_graph_tokens(
+        self, embedder: GraphTransformer, task: Mapping[str, TensorTree]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Runs a graph token subtree through its embedder into a flat sequence + key mask."""
+        embedded = embedder(task)  # [B, T_all, K, output_dim]
+        batch, time, num_slots, dim = embedded.shape
+        valid = get_tensor(task, "valid").reshape(batch, time * num_slots).bool()
+
+        context = embedded.reshape(batch, time * num_slots, dim)
+        # key_padding_mask semantics: True marks a token to ignore.
+        key_padding_mask = ~valid
+        return context, key_padding_mask
+
+    def _pack_graph(
+        self, proprio: torch.Tensor, context: torch.Tensor, key_padding_mask: torch.Tensor
+    ) -> dict[str, TensorTree]:
+        return {
+            "obs": {"proprio": proprio},
+            self.cond_dims.context_key: context,
+            self.cond_dims.context_mask_key: key_padding_mask,
+        }
 
     def _pack_task(self, proprio: torch.Tensor, task: torch.Tensor) -> dict[str, TensorTree]:
         if self.decoder_type == "cross_attention":
@@ -170,13 +254,31 @@ class ConditioningEncoder(nn.Module):
         else:
             return get_tensor(get_subtree(payload, "obs"), "task")
 
-    def _embed_tokens(self, task: torch.Tensor) -> torch.Tensor:
+    def _embed_tokens(self, task: torch.Tensor | Mapping[str, TensorTree]) -> torch.Tensor:
         """Runs raw tokens through the embedder and pooling into their packed form."""
-        had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
-        if had_no_time_axis:
-            task = task.unsqueeze(1)
+        if isinstance(task, Mapping):
+            tokens, role = get_tensor(task, "tokens"), get_tensor(task, "role")
+            had_no_time_axis = tokens.ndim == (3 if self.is_multi_token else 2)
+            if had_no_time_axis:
+                tokens, role = tokens.unsqueeze(1), role.unsqueeze(1)
+            task = (
+                torch.cat([tokens, role], dim=-1)
+                if self._reconcat_role
+                else {
+                    "tokens": tokens,
+                    "role": role,
+                }
+            )
+        else:
+            had_no_time_axis = task.ndim == (3 if self.is_multi_token else 2)
+            if had_no_time_axis:
+                task = task.unsqueeze(1)
 
         task_embedded = self.embedder(task) if self.embedder is not None else task
+        # A dict-shaped task only arises when role is left for the embedder to consume (see
+        # `_reconcat_role` above), which only happens when `self.embedder` is role-aware and
+        # therefore not None; every embedder returns a plain tensor.
+        assert isinstance(task_embedded, torch.Tensor)
 
         if self.pooling is not None:
             task_embedded = self.pooling(task_embedded)

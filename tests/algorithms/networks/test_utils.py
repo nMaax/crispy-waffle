@@ -1,8 +1,6 @@
 import pytest
-import torch
 
 from policy.algorithms.networks.utils import (
-    as_task_only,
     derive_task_dim,
     resolve_proprio_dim,
     validate_proprio_dim,
@@ -65,21 +63,3 @@ def test_derive_task_dim_int():
 
     with pytest.raises(ValueError, match="does not match task_dim"):
         derive_task_dim(48, 18, task_dim=31)
-
-
-def test_as_task_only_already_task_width():
-    tensor = torch.randn(2, 5)
-    resolved = as_task_only(tensor, proprio_dim=3, task_dim=5)
-    assert torch.equal(resolved, tensor)
-
-
-def test_as_task_only_strips_leading_proprio():
-    tensor = torch.arange(16, dtype=torch.float32).view(2, 8)
-    resolved = as_task_only(tensor, proprio_dim=3, task_dim=5)
-    assert torch.equal(resolved, tensor[..., 3:])
-
-
-def test_as_task_only_rejects_mismatched_width():
-    tensor = torch.randn(2, 7)
-    with pytest.raises(ValueError, match="Expected width 5"):
-        as_task_only(tensor, proprio_dim=3, task_dim=5)

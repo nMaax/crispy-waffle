@@ -14,17 +14,24 @@ def _pose(pos: tuple[float, float, float], axis_angle: tuple[float, float, float
 
 class TestStateTokenizer:
     def test_output_dim_matches_task_dim(self):
-        tokenizer = StateTokenizer(task_dim=42, relative_goal=False)
+        tokenizer = StateTokenizer(task_dim={"task": 42}, relative_goal=False)
         assert tokenizer.output_dim == 42
         assert tokenizer.tokens_per_step == 1
 
-        # Mapping task_dim with _pose keys converts 7D poses to 6D relative SE(3) deltas
-        task_spec = {"obj_0_pose": 7, "obj_1_pose": 7, "tcp_pose": 7, "other": 3}
+        # A canonical pool: poses collapse 7D -> 6D SE(3) deltas, categoricals keep full width,
+        # and every entry's slot axis is folded into the single per-timestep vector.
+        task_spec = {"obj_pose": (3, 7), "obj_role": (3, 4), "obj_valid": (3,)}
         tokenizer_spec = StateTokenizer(task_dim=task_spec, relative_goal=True)
-        assert tokenizer_spec.output_dim == 3 * 6 + 3  # 21
+        assert tokenizer_spec.output_dim == 3 * 6 + 3 * 4 + 3  # 33
+
+    def test_a_key_with_no_goal_relative_reduction_is_rejected_at_construction(self):
+        """Neither a pose nor categorical: there is no defined delta, so refuse rather than
+        invent one. Caught while sizing, so it cannot surface first as a shape error."""
+        with pytest.raises(ValueError, match="neither a pose nor categorical"):
+            StateTokenizer(task_dim={"obj_pose": (3, 7), "other": 3}, relative_goal=True)
 
     def test_single_side_tokenization_flattens_mapping(self):
-        tokenizer = StateTokenizer(task_dim={"a": 3, "b": 7})
+        tokenizer = StateTokenizer(task_dim={"a": 3, "b": 7}, relative_goal=False)
         obs_dict = {"a": torch.randn(2, 4, 3), "b": torch.randn(2, 4, 7)}
         expected = torch.cat([obs_dict["a"], obs_dict["b"]], dim=-1)
         assert torch.equal(tokenizer.tokenize(obs_dict, None), expected)
@@ -61,7 +68,7 @@ class TestStateTokenizer:
             tokenizer.tokenize(obs, goal)
 
     def test_tokenize_raises_if_both_none(self):
-        tokenizer = StateTokenizer(task_dim=5)
+        tokenizer = StateTokenizer(task_dim={"obj_pose": (2, 7)})
         with pytest.raises(ValueError, match="at least one"):
             tokenizer.tokenize(None, None)
 

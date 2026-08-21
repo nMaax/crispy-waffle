@@ -9,32 +9,16 @@ from policy.utils.typing_utils import DimSpec, TensorTree
 
 
 class ZScoreNormalizer(nn.Module):
-    """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors.
+    """Z-score normalizer (mean=0, std=1) for a tensor or a nested mapping of tensors."""
 
-    A dict is treated as a tree; each leaf tensor gets its own independent
-    normalizer, fit/applied over its last (feature) dimension. Structure of
-    the tree of sub-normalizers is fixed at construction time via `spec`.
-
-    ``mask`` marks which channels are actually normalizable: ``False`` channels pass through
-    untouched, for features where an affine rescale is not meaningful (e.g. the one-hot role
-    indicators of a canonicalized observation). A mask tree may cover a subset of `spec`'s keys;
-    leaves it omits are normalized in full.
-
-    Example:
-        spec = {
-            "proprio": {"qpos": 9, "qvel": 9},
-            "states": 30,
-        }
-        normalizer = ZScoreNormalizer(spec)
-        normalizer.fit(batch)          # batch matches the tree structure
-        normed = normalizer(batch)     # same tree structure, normalized leaves
-        original = normalizer.unnormalize(normed)
-    """
-
+    mean: torch.Tensor
+    std: torch.Tensor
+    _is_fit: torch.Tensor
     _n: int
     _running_mean: torch.Tensor | None
     _running_M2: torch.Tensor | None
     mask: torch.Tensor | None
+    norms: dict[str, "ZScoreNormalizer"]
 
     def __init__(self, spec: DimSpec, mask: TensorTree | None = None):
         super().__init__()
@@ -50,7 +34,7 @@ class ZScoreNormalizer(nn.Module):
             self.register_buffer("_is_fit", torch.tensor(False))
             self.register_buffer("mask", validate_mask(mask, dim), persistent=False)
         else:
-            self.norms = nn.ModuleDict(
+            self.norms = nn.ModuleDict(  # type: ignore[assignment]
                 {
                     key: ZScoreNormalizer(child_spec, child_mask(mask, key))
                     for key, child_spec in spec.items()
@@ -85,10 +69,10 @@ class ZScoreNormalizer(nn.Module):
             for key, norm in self.norms.items():
                 norm.fit(data[key])
 
-    def fit_incremental(self, data: Iterable[TensorTree]):
+    def fit_incremental(self, data_iterator: Iterable[TensorTree]) -> None:
         """Fits the normalizer incrementally on batches using Welford's algorithm."""
         self._init_running_stats()
-        for batch in data:
+        for batch in data_iterator:
             self._update_running_stats(batch)
         self._finalize_running_stats()
 

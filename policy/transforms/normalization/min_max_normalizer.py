@@ -19,9 +19,13 @@ class MinMaxNormalizer(nn.Module):
     leaves it omits are normalized in full.
     """
 
+    min: torch.Tensor
+    max: torch.Tensor
+    _is_fit: torch.Tensor
     _running_min: torch.Tensor | None
     _running_max: torch.Tensor | None
     mask: torch.Tensor | None
+    norms: dict[str, "MinMaxNormalizer"]
 
     def __init__(
         self,
@@ -46,7 +50,7 @@ class MinMaxNormalizer(nn.Module):
             self.register_buffer("_is_fit", torch.tensor(False))
             self.register_buffer("mask", validate_mask(mask, dim), persistent=False)
         else:
-            self.norms = nn.ModuleDict(
+            self.norms = nn.ModuleDict(  # type: ignore[assignment]
                 {
                     key: MinMaxNormalizer(child_spec, min_val, max_val, child_mask(mask, key))
                     for key, child_spec in spec.items()

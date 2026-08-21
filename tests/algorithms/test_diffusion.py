@@ -6,8 +6,18 @@ import torch
 
 from policy.algorithms.diffusion_policy import DiffusionPolicy
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
+from policy.transforms.canonicalization.spec import canonical_dim_spec, dim_shape
 from policy.utils import get_total_dim
 from tests.algorithms.test_lightning_module import LightningModuleTests, LightningModuleType
+
+
+def _canonical_tree(batch: int, time: int | None = None, num_objects: int = 2) -> dict:
+    """A canonicalized obs (with time axis) or goal (without) tree."""
+    lead = (batch,) if time is None else (batch, time)
+    return {
+        key: torch.randn(*lead, *dim_shape(dim))
+        for key, dim in canonical_dim_spec(num_objects).items()
+    }
 
 
 class DiffusionPolicyTests(LightningModuleTests[LightningModuleType]):
@@ -174,6 +184,21 @@ class TestGoalConditionedDiffusionPolicyAttention(GoalConditionedDiffusionPolicy
     per-object token sequence, in different ways)."""
 
 
+@pytest.mark.parametrize(
+    "algorithm_config",
+    [
+        "goal_conditioned_diffusion_policy_graph",
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicyGraph(GoalConditionedDiffusionPolicyTests):
+    """Test suite for GoalConditionedDiffusionPolicy with GraphTokenizer, GraphTransformer, and
+    cross-attention decoder."""
+
+
 class TestDiffusionPolicyLogic:
     """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
 
@@ -196,7 +221,7 @@ class TestDiffusionPolicyLogic:
             "noise_scheduler": {},
             "optimizer": {},
             "act_dim": 4,
-            "obs_dim": 48,
+            "obs_dim": canonical_dim_spec(2),
             "proprio_dim": 18,
             "pred_horizon": 16,
             "obs_horizon": 2,
@@ -215,7 +240,7 @@ class TestDiffusionPolicyLogic:
             "noise_scheduler": {},
             "optimizer": {},
             "act_dim": 4,
-            "obs_dim": 48,
+            "obs_dim": canonical_dim_spec(2),
             "proprio_dim": 18,
             "pred_horizon": 16,
             "obs_horizon": 2,
@@ -228,6 +253,7 @@ class TestDiffusionPolicyLogic:
             "tokens_per_step": policy.tokenizer.tokens_per_step,
             "relative_goal": False,
             "goal_conditioned": False,
+            "role_dim": None,
         }
 
     def test_goal_conditioned_diffusion_policy_encoder_extra_kwargs_reports_goal_conditioned(self):
@@ -243,6 +269,7 @@ class TestDiffusionPolicyLogic:
                 "tokens_per_step": policy.tokenizer.tokens_per_step,
                 "relative_goal": False,
                 "goal_conditioned": True,
+                "role_dim": None,
             }
 
     def test_goal_conditioned_diffusion_policy_requires_goal_horizon_ge_1(self):
@@ -279,8 +306,8 @@ class TestDiffusionPolicyLogic:
             policy.encoder.return_value = {"obs": {"task": torch.zeros(2, 2, 30)}}
             policy.encoder.unpack_task = MagicMock(return_value=torch.zeros(2, 2, 30))
 
-            obs = torch.randn(2, 2, 48)
-            goal = torch.randn(2, 48)
+            obs = _canonical_tree(batch=2, time=2)
+            goal = _canonical_tree(batch=2)
             result, mode = policy.extract_embeddings(obs, goal)
             policy.encoder.unpack_task.assert_called_once()
             assert "obs_embeddings" in result

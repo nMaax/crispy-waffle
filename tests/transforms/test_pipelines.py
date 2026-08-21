@@ -27,18 +27,12 @@ class TestObservationPipeline:
         }
         out = pipeline(obs)
         assert isinstance(out, dict)
-        assert set(out.keys()) == {
-            "proprio",
-            "tcp_pose",
-            "tcp_role",
-            "obj_0_pose",
-            "obj_0_role",
-            "obj_1_pose",
-            "obj_1_role",
-        }
+        assert set(out.keys()) == {"proprio", "obj_pose", "obj_role", "obj_valid"}
         assert out["proprio"].shape[-1] == 18
-        assert out["tcp_pose"].shape[-1] == 7
-        assert out["obj_0_pose"].shape[-1] == 7
-        assert out["obj_1_pose"].shape[-1] == 7
-        assert torch.equal(out["obj_0_role"], torch.tensor([0.0, 1.0, 0.0, 0.0]))
-        assert torch.equal(out["obj_1_role"], torch.tensor([0.0, 0.0, 1.0, 0.0]))
+        # tcp + cubeA + cubeB
+        assert out["obj_pose"].shape == (3, 7)
+        assert out["obj_role"].shape == (3, 4)
+        assert out["obj_valid"].shape == (3,)
+        assert torch.equal(out["obj_role"][0], torch.tensor([1.0, 0.0, 0.0, 0.0]))  # tcp
+        assert torch.equal(out["obj_role"][1], torch.tensor([0.0, 1.0, 0.0, 0.0]))  # pick
+        assert torch.equal(out["obj_role"][2], torch.tensor([0.0, 0.0, 1.0, 0.0]))  # target

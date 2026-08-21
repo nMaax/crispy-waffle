@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import hydra.utils
-import torch
 import torch.nn as nn
 
-from policy.utils import get_total_dim
+from policy.utils import drop_key, get_total_dim
 from policy.utils.typing_utils import DimSpec
 
 
@@ -73,7 +72,7 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
     """Derives the task-only (non-proprio) width from `obs_dim`, optionally cross-checking it
     against an explicitly provided `task_dim`."""
     if isinstance(obs_dim, Mapping):
-        calc_task_dim = sum(get_total_dim(v) for k, v in obs_dim.items() if k != "proprio")
+        calc_task_dim = sum(get_total_dim(v) for v in drop_key(obs_dim, "proprio").values())
     else:
         calc_task_dim = get_total_dim(obs_dim) - proprio_dim
 
@@ -83,16 +82,3 @@ def derive_task_dim(obs_dim: DimSpec, proprio_dim: int, task_dim: int | None = N
         )
 
     return calc_task_dim
-
-
-def as_task_only(tensor: torch.Tensor, proprio_dim: int, task_dim: int) -> torch.Tensor:
-    """Resolves a flat tensor at ambiguous width to task-only form."""
-    width = tensor.shape[-1]
-    if width == task_dim:
-        return tensor
-    if width == proprio_dim + task_dim:
-        return tensor[..., proprio_dim:]
-    raise ValueError(
-        f"Expected width {task_dim} (task-only) or {proprio_dim + task_dim} (proprio+task), "
-        f"but got {width}."
-    )

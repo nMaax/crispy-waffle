@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
 import torch
 import torch.nn as nn
@@ -39,7 +40,7 @@ class MLP(nn.Module):
         self.net = nn.Sequential(*layers)
 
         if not hidden_dims and not bias:
-            nn.init.zeros_(self.net[0].weight)
+            nn.init.zeros_(cast(nn.Linear, self.net[0]).weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Shapes:

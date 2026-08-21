@@ -28,6 +28,7 @@ from matplotlib.lines import Line2D
 import policy.environments  # noqa: F401  (registers the project's envs as a side effect)
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
 from policy.algorithms.networks.encoder import ConditioningEncoder
+from policy.transforms.canonicalization import ROLE_PICK
 from policy.utils import get_subtree, get_tensor
 from policy.utils.typing_utils import TensorTree
 from scripts.utils import cli, theme
@@ -122,10 +123,11 @@ def ground_truth_distance(
     obs_canonical: Mapping[str, TensorTree], goal_canonical: Mapping[str, TensorTree]
 ) -> float:
     """Straight-line distance from the manipulated object to its goal position."""
-    key = "obj_0_pose" if "obj_0_pose" in obs_canonical else "a_pose"
-    obs_pose = get_tensor(obs_canonical, key)
+    is_pick = get_tensor(obs_canonical, "obj_role")[..., ROLE_PICK.index(1.0)]
+    slot = int(is_pick.reshape(-1, is_pick.shape[-1])[0].argmax())
+    obs_pose = get_tensor(obs_canonical, "obj_pose")[..., slot, :]
     obs_position = obs_pose[:, -1, :3] if obs_pose.ndim == 3 else obs_pose[..., :3]
-    goal_position = get_tensor(goal_canonical, key)[..., :3]
+    goal_position = get_tensor(goal_canonical, "obj_pose")[..., slot, :3]
     return float(torch.linalg.norm(goal_position - obs_position, dim=-1).item())
 
 

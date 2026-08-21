@@ -1,12 +1,16 @@
 defaults:
   - beso_policy
+  - override decoder: object_diffusion_gpt
+  - override tokenizer: object
 
 _target_: policy.algorithms.beso_policy.BesoPolicy
 
 # BESO++DeltaInput: folds the goal into a delta (g - s_t) instead of conditioning on a standalone
-# goal token, and gives proprioception its own per-timestep network token. CFG's "unconditional"
+# goal token, and gives proprioception its own per-timestep token. CFG's "unconditional"
 # goal-zeroing has no meaning once there's no standalone goal tensor to zero.
+#
+# ObjectDiffusionGPT requires per-object tokens (it embeds role additively per object), so this
+# is always paired with the object tokenizer -- there is no plain state-tokenized BESO++ variant.
 relative_goal: true
-use_proprio_token: true
 goal_drop_prob: 0.0
 cfg_lambda: null
