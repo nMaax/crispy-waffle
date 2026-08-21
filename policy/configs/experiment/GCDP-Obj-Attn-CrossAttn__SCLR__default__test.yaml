@@ -1,0 +1,7 @@
+# @package _global_
+defaults:
+  - GCDP-Obj-Attn-CrossAttn__SCLR__default__train
+  - override /trainer/callbacks: zero_shot_stack_cube_locked_rotation
+
+name: ${hydra:runtime.choices.experiment}
+ckpt_path: ???
