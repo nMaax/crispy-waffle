@@ -184,6 +184,21 @@ class TestGoalConditionedDiffusionPolicyAttention(GoalConditionedDiffusionPolicy
     per-object token sequence, in different ways)."""
 
 
+@pytest.mark.parametrize(
+    "algorithm_config",
+    [
+        "goal_conditioned_diffusion_policy_graph",
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "datamodule_config", ["goal_conditioned_trajectory_datamodule"], indirect=True
+)
+class TestGoalConditionedDiffusionPolicyGraph(GoalConditionedDiffusionPolicyTests):
+    """Test suite for GoalConditionedDiffusionPolicy with GraphTokenizer, GraphTransformer, and
+    cross-attention decoder."""
+
+
 class TestDiffusionPolicyLogic:
     """Isolated unit tests for DiffusionPolicy-specific boundary conditions.
 

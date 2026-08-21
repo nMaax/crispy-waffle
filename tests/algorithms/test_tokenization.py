@@ -5,11 +5,13 @@ them: ``_tokenize -> _normalize_tokens -> encoder``. Normalizing the raw tree in
 non-unit quaternions to the tokenizer's SE(3) math and z-score the one-hot role indicators to zero.
 """
 
+from collections.abc import Mapping
+
 import pytest
 import torch
 
 from policy.algorithms.goal_conditioned_diffusion_policy import GoalConditionedDiffusionPolicy
-from policy.algorithms.tokenizers import ObjectTokenizer, StateTokenizer
+from policy.algorithms.tokenizers import GraphTokenizer, ObjectTokenizer, StateTokenizer
 from policy.transforms import MinMaxNormalizer, ZScoreNormalizer
 from policy.transforms.canonicalization.spec import (
     CATEGORICAL_KEYS,
@@ -22,6 +24,7 @@ from policy.transforms.canonicalization.spec import (
 
 DECODER = "policy.algorithms.networks.decoder.unet1d.FiLMDecoder1D"
 ENCODER = "policy.algorithms.networks.encoder.encoder.ConditioningEncoder"
+GRAPH_TOKENIZER = "policy.algorithms.tokenizers.graph.GraphTokenizer"
 OBJECT_TOKENIZER = "policy.algorithms.tokenizers.object.ObjectTokenizer"
 STATE_TOKENIZER = "policy.algorithms.tokenizers.state.StateTokenizer"
 
@@ -45,9 +48,13 @@ def _policy(tokenizer=STATE_TOKENIZER, relative_goal=True, encoder=True, **overr
         relative_goal=relative_goal,
         goal_horizon=1,
     )
-    if tokenizer is not None:
+    if isinstance(tokenizer, Mapping):
+        kwargs["tokenizer"] = tokenizer
+    elif tokenizer is not None:
         kwargs["tokenizer"] = {"_target_": tokenizer}
-    if encoder:
+    if isinstance(encoder, Mapping):
+        kwargs["encoder"] = encoder
+    elif encoder:
         kwargs["encoder"] = {"_target_": ENCODER, "_recursive_": False}
     kwargs.update(overrides)
     return GoalConditionedDiffusionPolicy(**kwargs)
@@ -305,6 +312,33 @@ class TestCategoricalMaskLayout:
         assert not mask["role"].any()
         assert (out["role"] == self.SENTINEL).all(), "role leaf misses the sentinel"
 
+    def test_graph_tokenizer_mask_matches_emitted_channels(self):
+        task_dim = {k: v for k, v in canonical_dim_spec(NUM_OBJECTS).items() if k != "proprio"}
+        tokenizer = GraphTokenizer(task_dim=task_dim, relative_goal=True)
+
+        obs = self._sentinel_tree()
+        goal = self._sentinel_tree(time_axis=False)
+        obs.pop("proprio"), goal.pop("proprio")
+        goal = {k: v.unsqueeze(1) for k, v in goal.items()}
+
+        out = tokenizer.tokenize(obs, goal)
+        mask = tokenizer.normalization_mask
+
+        assert out["nodes"].shape[-1] == tokenizer.output_dim == mask["nodes"].shape[0]
+        assert mask["nodes"].all()
+        assert (out["nodes"] != self.SENTINEL).all()
+
+        assert out["edge_feat"].shape[-1] == tokenizer.edge_dim == mask["edge_feat"].shape[0]
+        assert mask["edge_feat"].all()
+        assert (out["edge_feat"] != self.SENTINEL).all()
+
+        assert out["role"].shape[-1] == mask["role"].shape[0]
+        assert not mask["role"].any()
+        assert (out["role"] == self.SENTINEL).all()
+
+        assert out["valid"].shape[-1] == mask["valid"].shape[0]
+        assert not mask["valid"].any()
+
 
 class TestNormalizerFitting:
     def test_fit_runs_over_tokenized_items(self):
@@ -326,6 +360,52 @@ class TestNormalizerFitting:
         assert bool(policy.obs_normalizer.is_fit)
         assert policy.obs_normalizer.norms["task"].norms["tokens"].mean.shape == (
             policy.tokenizer.output_dim,
+        )
+
+    def test_fit_runs_over_graph_tokenized_items(self):
+        policy = _policy(
+            tokenizer=GRAPH_TOKENIZER,
+            decoder={
+                "_target_": "policy.algorithms.networks.decoder.unet1d.CrossAttentionDecoder1D",
+                "act_dim": 4,
+                "obs_horizon": OBS_HORIZON,
+            },
+            encoder={
+                "_target_": ENCODER,
+                "_recursive_": False,
+                "decoder_type": "cross_attention",
+                "embedder": {
+                    "_target_": (
+                        "policy.algorithms.networks.encoder.embedders.graph_transformer.GraphTransformer"
+                    ),
+                    "output_dim": 16,
+                    "obs_horizon": OBS_HORIZON,
+                    "goal_horizon": 1,
+                    "num_heads": 2,
+                },
+            },
+            relative_goal=True,
+            obs_normalizer=True,
+        )
+        policy.configure_model()
+
+        items = [
+            {
+                "obs_seq": {k: v[i] for k, v in _canonical_tree().items()},
+                "goal": {k: v[i] for k, v in _canonical_tree(time_axis=False).items()},
+                "act_seq": torch.randn(16, 4),
+            }
+            for i in range(4)
+        ]
+        policy.trainer = _FakeTrainer(items)
+        policy.on_fit_start()
+
+        assert bool(policy.obs_normalizer.is_fit)
+        assert policy.obs_normalizer.norms["task"].norms["nodes"].mean.shape == (
+            policy.tokenizer.output_dim,
+        )
+        assert policy.obs_normalizer.norms["task"].norms["edge_feat"].mean.shape == (
+            policy.tokenizer.edge_dim,
         )
 
     def test_fitting_one_normalizer_does_not_depend_on_the_other(self):

@@ -308,3 +308,81 @@ class TestConditioningEncoderLogic:
         ext_cond = encoder({"obs": _tokens(token_dim=15, tokens_per_step=3)})
         assert set(ext_cond) == {"obs", "task"}
         assert ext_cond["task"].shape == (2, 3, 15)
+
+    # ------------------------------------------------------------------ #
+    # GraphTransformer Embedder
+    # ------------------------------------------------------------------ #
+    def test_graph_transformer_encoder_packs_graph_payload(self):
+        encoder = ConditioningEncoder(
+            proprio_dim=18,
+            token_dim=10,
+            tokens_per_step=4,
+            goal_conditioned=True,
+            relative_goal=True,
+            decoder_type="cross_attention",
+            embedder={
+                "_target_": (
+                    "policy.algorithms.networks.encoder.embedders.graph_transformer.GraphTransformer"
+                ),
+                "output_dim": 8,
+                "obs_horizon": 2,
+                "goal_horizon": 1,
+                "num_heads": 2,
+            },
+        )
+        assert encoder.cond_dims == ConditioningContract(
+            step_dim=18, context_dim=8, context_key="context"
+        )
+
+        task = {
+            "nodes": torch.randn(2, 3, 4, 10),
+            "role": torch.zeros(2, 3, 4, 4),
+            "valid": torch.ones(2, 3, 4),
+            "edge_feat": torch.randn(2, 12, 12, 6),
+        }
+        tokens = {"obs": {"proprio": torch.randn(2, 2, 18), "task": task}}
+        ext_cond = encoder(tokens)
+
+        assert set(ext_cond) == {"obs", "context", "context_mask"}
+        assert ext_cond["context"].shape == (2, 12, 8)
+        assert ext_cond["context_mask"].shape == (2, 12)
+
+    def test_graph_transformer_encoder_rejects_film_decoder(self):
+        with pytest.raises(ValueError, match="GraphTransformer embedder is only supported with"):
+            ConditioningEncoder(
+                proprio_dim=18,
+                token_dim=10,
+                tokens_per_step=4,
+                goal_conditioned=True,
+                relative_goal=True,
+                decoder_type="film",
+                embedder={
+                    "_target_": (
+                        "policy.algorithms.networks.encoder.embedders.graph_transformer.GraphTransformer"
+                    ),
+                    "output_dim": 8,
+                    "obs_horizon": 2,
+                    "goal_horizon": 1,
+                    "num_heads": 2,
+                },
+            )
+
+    def test_graph_transformer_encoder_rejects_absolute_goal(self):
+        with pytest.raises(ValueError, match="Set relative_goal=True"):
+            ConditioningEncoder(
+                proprio_dim=18,
+                token_dim=10,
+                tokens_per_step=4,
+                goal_conditioned=True,
+                relative_goal=False,
+                decoder_type="cross_attention",
+                embedder={
+                    "_target_": (
+                        "policy.algorithms.networks.encoder.embedders.graph_transformer.GraphTransformer"
+                    ),
+                    "output_dim": 8,
+                    "obs_horizon": 2,
+                    "goal_horizon": 1,
+                    "num_heads": 2,
+                },
+            )
