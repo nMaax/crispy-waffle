@@ -66,7 +66,7 @@ def main(dict_config: DictConfig):
     print(f"Loading policy from {ckpt_path}...")
     # Load the model class dynamically from the config
     model_class = hydra.utils.get_class(dict_config.algorithm._target_)
-    model = model_class.load_from_checkpoint(ckpt_path)
+    model = model_class.load_from_checkpoint(ckpt_path, weights_only=False)
 
     hparams = dataclasses.asdict(config)
     checkpoint_hydra_config = find_checkpoint_hydra_config(config.ckpt_path)

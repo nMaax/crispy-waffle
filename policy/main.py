@@ -130,6 +130,7 @@ def main(dict_config: DictConfig) -> dict:
         algorithm = type(algorithm).load_from_checkpoint(
             config.finetuning_ckpt_path,
             strict=False,
+            weights_only=False,
             **algo_kwargs,  # type: ignore
         )
 

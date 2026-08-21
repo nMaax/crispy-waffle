@@ -48,7 +48,7 @@ def test_eval_wires_up_experiment(
     the algorithm's checkpoint class, and calls `trainer.test` with that model."""
     policy.eval.main(dict_config)
 
-    mock_load_from_checkpoint.assert_called_once_with(Path("dummy.ckpt"))
+    mock_load_from_checkpoint.assert_called_once_with(Path("dummy.ckpt"), weights_only=False)
     mock_trainer_test.assert_called_once()
     assert mock_trainer_test.call_args.kwargs["model"] is mock_load_from_checkpoint.return_value
 

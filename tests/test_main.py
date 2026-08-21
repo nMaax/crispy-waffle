@@ -10,6 +10,7 @@ from logging import getLogger
 from pathlib import Path
 from unittest.mock import Mock
 
+import lightning
 import omegaconf
 import pytest
 from _pytest.mark.structures import ParameterSet
@@ -159,3 +160,20 @@ def test_setup_with_overrides_works(dict_config: omegaconf.DictConfig):
     """This test receives the `dict_config` loaded from Hydra with the given overrides."""
     assert dict_config["algorithm"]["_target_"] == NoOp.__module__ + "." + NoOp.__name__
     assert dict_config["trainer"]["max_epochs"] == 1
+
+
+@setup_with_overrides(
+    "experiment=GCDP-Obj-Attn-MLPPool__SCLR__default__train finetuning_ckpt_path=dummy.ckpt"
+)
+def test_main_loads_finetuning_checkpoint(
+    dict_config: DictConfig,
+    mock_train_and_validate: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mock_load = Mock(return_value=Mock())
+    monkeypatch.setattr(lightning.LightningModule, "load_from_checkpoint", mock_load)
+    policy.main.main(dict_config)
+    mock_load.assert_called_once()
+    assert mock_load.call_args.args[0] == Path("dummy.ckpt") or mock_load.call_args.args[0] == "dummy.ckpt" or mock_load.call_args.kwargs.get("checkpoint_path") == "dummy.ckpt"
+    assert mock_load.call_args.kwargs.get("weights_only") is False
+    assert mock_load.call_args.kwargs.get("strict") is False
