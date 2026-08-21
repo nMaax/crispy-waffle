@@ -48,13 +48,26 @@ class TestGraphTokenizer:
         assert torch.equal(out["valid"][:, :T], torch.ones(B, T, K))
         assert torch.equal(out["valid"][:, T:], torch.zeros(B, G, K))
 
-    def test_tcp_node_is_its_own_reference_frame(self):
-        """Slot 0 is the TCP, so its pose relative to the TCP is identically zero."""
+    def test_goal_timestep_node_delta_to_itself_is_zero(self):
+        """Every slot's node content is its delta to its own goal-timestep pose, so at the goal
+        timestep itself that delta is identically zero."""
         tokenizer = GraphTokenizer(_task_dim())
         out = tokenizer.tokenize(_tree(T), _tree(G))
 
-        assert torch.allclose(out["nodes"][:, :, 0, :], torch.zeros(1), atol=1e-6)
+        assert torch.allclose(out["nodes"][:, -1, :, :], torch.zeros(1), atol=1e-6)
         assert torch.allclose(out["role"][:, :, 0, :], torch.tensor(ROLE_TCP).float())
+
+    def test_nodes_carry_the_delta_to_own_slots_goal_pose(self):
+        """Node content at (t, k) is the SE(3) delta from pose[t, k] to pose[-1, k] (that slot's
+        goal-timestep pose), analogous to ObjectTokenizer's goal_delta."""
+        tokenizer = GraphTokenizer(_task_dim())
+        obs, goal = _tree(T), _tree(G)
+        out = tokenizer.tokenize(obs, goal)
+
+        pose = torch.cat([obs["obj_pose"], goal["obj_pose"]], dim=1)
+        t_i, k_i = 0, 2
+        expected_pos = pose[:, -1, k_i, :3] - pose[:, t_i, k_i, :3]
+        assert torch.allclose(out["nodes"][:, t_i, k_i, :3], expected_pos, atol=1e-5)
 
     def test_edges_carry_the_se3_delta_between_endpoints(self):
         tokenizer = GraphTokenizer(_task_dim())

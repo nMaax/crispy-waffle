@@ -9,7 +9,6 @@ from policy.algorithms.tokenizers.utils import relative_se3_pose
 from policy.transforms.canonicalization.spec import (
     RELATIVE_SE3_DIM,
     ROLE_DIM,
-    TCP_SLOT,
 )
 from policy.utils import get_tensor
 from policy.utils.typing_utils import DimSpec, TensorTree
@@ -22,8 +21,12 @@ class GraphTokenizer(BaseTokenizer):
 
     def __init__(self, task_dim: DimSpec, relative_goal: bool = True):
         super().__init__(relative_goal=relative_goal)
+
+        # For base-tokenizer contract
         self._tokens_per_step = self._num_slots(task_dim)
         self.output_dim = RELATIVE_SE3_DIM
+
+        # This is only for graphs instead
         self.edge_dim = RELATIVE_SE3_DIM
 
     @property
@@ -55,8 +58,11 @@ class GraphTokenizer(BaseTokenizer):
         role = self._concat_time(obs_task, goal_task, "obj_role")
         valid = self._concat_time(obs_task, goal_task, "obj_valid")
 
-        tcp_pose = pose[..., TCP_SLOT : TCP_SLOT + 1, :].expand_as(pose)
-        nodes = relative_se3_pose(pose, tcp_pose)
+        # The goal occupies the last concatenated timestep (see `_concat_time`): every slot's
+        # goal-timestep pose is that same slot's own target, so broadcast it back over time to
+        # get each node's delta to its own goal.
+        goal_pose = pose[:, -1:, :, :].expand_as(pose)
+        nodes = relative_se3_pose(goal_pose, pose)
 
         return {
             "nodes": nodes,

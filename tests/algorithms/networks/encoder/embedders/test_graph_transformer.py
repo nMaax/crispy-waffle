@@ -50,21 +50,30 @@ class TestEdgeTopology:
             block = kinds[step * K : (step + 1) * K, step * K : (step + 1) * K]
             assert (block == EDGE_SPATIAL).all()
 
-    def test_temporal_edges_run_present_to_past_on_the_same_slot_only(self, kinds):
+    def test_temporal_edges_are_symmetric_between_adjacent_historical_steps_on_the_same_slot(
+        self, kinds
+    ):
         for slot in range(K):
             assert kinds[1 * K + slot, 0 * K + slot] == EDGE_TEMPORAL
-            # The past must not see the future.
-            assert kinds[0 * K + slot, 1 * K + slot] == EDGE_NONE
+            # The reverse direction is connected too, as long as both steps are historical.
+            assert kinds[0 * K + slot, 1 * K + slot] == EDGE_TEMPORAL
             # A different object at a different timestep is never connected.
             other = (slot + 1) % K
             assert kinds[1 * K + slot, 0 * K + other] == EDGE_NONE
 
-    def test_only_the_most_recent_observation_attends_to_its_own_goal(self, kinds):
+    def test_temporal_edges_never_reach_the_goal_step(self, kinds):
         goal_step = T  # goal frames are the trailing timesteps
         for slot in range(K):
-            assert kinds[(T - 1) * K + slot, goal_step * K + slot] == EDGE_GOAL
-            # Older observations do not reach the goal, ...
-            assert kinds[0 * K + slot, goal_step * K + slot] == EDGE_NONE
+            # The pair between the last historical step and the goal is EDGE_GOAL, not
+            # EDGE_TEMPORAL, even though they are "adjacent" in step index.
+            assert kinds[goal_step * K + slot, (T - 1) * K + slot] != EDGE_TEMPORAL
+            assert kinds[(T - 1) * K + slot, goal_step * K + slot] != EDGE_TEMPORAL
+
+    def test_every_historical_observation_attends_to_its_own_goal(self, kinds):
+        goal_step = T  # goal frames are the trailing timesteps
+        for slot in range(K):
+            for step in range(T):
+                assert kinds[step * K + slot, goal_step * K + slot] == EDGE_GOAL
             # ... and a goal node never queries the observations.
             assert kinds[goal_step * K + slot, (T - 1) * K + slot] == EDGE_NONE
 
@@ -112,6 +121,43 @@ class TestGraphTransformer:
             after = embedder(task)
 
         assert torch.allclose(before[:, :, :3], after[:, :, :3], atol=1e-6)
+
+    def test_goal_edges_carry_no_geometric_payload(self):
+        """EDGE_GOAL pairs must be expressed purely through the learned edge-kind embedding: the
+        SE(3) delta is redundant there (it already reaches the model through each node's own
+        goal-relative content), so ``edge_feat`` should be ignored for those pairs."""
+        embedder = _embedder().eval()
+        task = _task()
+
+        task_corrupted = dict(task)
+        task_corrupted["edge_feat"] = task["edge_feat"].clone()
+        kinds = embedder._edge_kinds(T + G, K, torch.device("cpu"))
+        goal_pairs = kinds == EDGE_GOAL
+        task_corrupted["edge_feat"][:, goal_pairs] = torch.randn_like(
+            task_corrupted["edge_feat"][:, goal_pairs]
+        )
+
+        with torch.no_grad():
+            out = embedder(task)
+            out_corrupted = embedder(task_corrupted)
+
+        assert torch.allclose(out, out_corrupted, atol=1e-6)
+
+    def test_edge_none_pairs_still_contribute_a_learned_bias(self):
+        """Topology is now a soft prior: an EDGE_NONE pair is not hard-masked to -inf, so its
+        learned bias (via ``edge_kind_emb[EDGE_NONE]``) should influence attention just like any
+        other kind, as long as the key is a valid node."""
+        embedder = _embedder().eval()
+        task = _task()
+
+        attn_mask = embedder._attention_mask(
+            task["edge_feat"], task["valid"], T + G, K
+        )
+        kinds = embedder._edge_kinds(T + G, K, torch.device("cpu"))
+        none_pairs = kinds == EDGE_NONE
+        # Valid-key EDGE_NONE pairs must be finite (attended), not -inf.
+        finite_mask = attn_mask[0][none_pairs]
+        assert torch.isfinite(finite_mask).all()
 
     def test_gradients_reach_the_edge_encoder(self):
         embedder = _embedder()

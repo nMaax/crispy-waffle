@@ -20,16 +20,16 @@ class GraphTransformer(nn.Module):
     one sequence (index = t * K + k), and a mask decides which of those pairs are edges, we make:
 
     - one edge for every object/tcp in the same timestep, in both directions (self-loops included).
-    - one edge for a node attending to itself one step earlier, one direction only (future to past).
-    - one edge between the most recent observed object attending toward itself in the goal, one direction
-      only (past to goal)
+    - one edge for a node attending to itself one step earlier or one step later (same slot), both
+      directions, as long as both endpoints are historical steps.
+    - one edge between every historical step's node attending toward itself in the goal, one direction
+      only (past to goal).
 
     Goal nodes are therefore keys but never queries.
 
-    Each node's role (TCP/pick/target/clutter) is injected as an ``nn.Embedding`` added after the
-    input projection, the same way ``pos_emb`` is -- role is a per-node identity signal, so it is
-    additive rather than concatenated into the node features.
-    Each edge carries its endpoints' SE(3) delta as features.
+    Attention mask is soft-learned by the model, except for invalid objects which are always dropped.
+
+    Inspired by Graphormer (Ying et al., 2021).
     """
 
     ROLE_AWARE = True
@@ -52,10 +52,13 @@ class GraphTransformer(nn.Module):
         self.goal_horizon = goal_horizon
         self.num_heads = num_heads
 
+        # Positional and Role embeddings will be added to the input projection, before attention
         self.input_proj = nn.Linear(input_dim, output_dim)
         self.pos_emb = nn.Parameter(torch.zeros(1, obs_horizon + goal_horizon, output_dim))
         self.role_emb = nn.Embedding(ROLE_DIM, output_dim)
 
+        # Each edge carries its endpoints' SE(3) delta as features, except ``EDGE_GOAL`` edges,
+        # which carry no geometric information.
         self.edge_kind_emb = nn.Embedding(NUM_EDGE_KINDS, edge_dim)
         self.edge_bias = nn.Sequential(
             nn.Linear(edge_dim, 2 * edge_dim),
@@ -110,7 +113,9 @@ class GraphTransformer(nn.Module):
         # is added the same way, as a learned per-role embedding.
         pos = self.pos_emb[:, :time, :].unsqueeze(2)
         role_term = self.role_emb(role.argmax(dim=-1))
-        x = (self.input_proj(nodes) + pos + role_term).reshape(batch, time * num_slots, self.output_dim)
+        x = (self.input_proj(nodes) + pos + role_term).reshape(
+            batch, time * num_slots, self.output_dim
+        )
 
         attn_mask = self._attention_mask(edge_feat, valid, time, num_slots)
 
@@ -128,13 +133,23 @@ class GraphTransformer(nn.Module):
     ) -> torch.Tensor:
         """The additive ``[B * num_heads, S, S]`` mask provides both topology and geometry."""
         kinds = self._edge_kinds(time, num_slots, edge_feat.device)
+        # We want an edge that carries no relative pose for edges of goal type
+        # (as it is already embedded in the node itself). So we add zeroes on top of the
+        # embedding signal. The resulting edge feat will NOT have the maning of
+        # 0-distnace SE(3) relative pose since what we add is the embed for EDGE_GOAL,
+        # not EDGE_SPATIAL.
+        # In other words, the below input will always be emb(EDGE_GOAL) + 0 = emb(EDGE_GOAL)
+        edge_feat = edge_feat.masked_fill((kinds == EDGE_GOAL).unsqueeze(0).unsqueeze(-1), 0.0)
         bias = self.edge_bias(edge_feat + self.edge_kind_emb(kinds))  # [B, S, S, num_heads]
 
-        connected = kinds != EDGE_NONE
-        # A key that is not a real object must never be attended to, whatever the topology says.
-        allowed = connected.unsqueeze(0) & valid.flatten(1).bool().unsqueeze(1)
+        # Topology is a soft learned prior. The only hard masking is per-key
+        # validity (an invalid/non-object key is never attended to) and a self-loop guarantee that keeps
+        # every query row non-empty.
+        # A key that is not a real object must never be attended to
+        allowed = valid.flatten(1).bool().unsqueeze(1)
+
         # An all-masked row makes softmax emit NaN, which applies automatically for an invalid node's row
-        # We keep also self-loops
+        # We then keep self-loops also for invalid nodes, so that they do not explode numerically.
         eye = torch.eye(allowed.shape[-1], dtype=torch.bool, device=allowed.device)
         allowed = allowed | eye.unsqueeze(0)
 
@@ -144,19 +159,47 @@ class GraphTransformer(nn.Module):
 
     def _edge_kinds(self, time: int, num_slots: int, device: torch.device) -> torch.Tensor:
         """Static ``[S, S]`` relation type per node pair."""
-        steps = torch.arange(time, device=device).repeat_interleave(num_slots)
-        slots = torch.arange(num_slots, device=device).repeat(time)
 
+        # index = t*K + k
+        # e.g. T=2 historical steps, G=1 goal step, K=5 slots, so S=(T+G)*K=15, obs_horizon=2
+
+        # [0,0,0,0,0, 1,1,1,1,1, 2,2,2,2,2]
+        steps = torch.arange(time, device=device).repeat_interleave(num_slots)  # time (t)
+        # [0,1,2,3,4, 0,1,2,3,4, 0,1,2,3,4]
+        slots = torch.arange(num_slots, device=device).repeat(time)  # objects (k)
+
+        # [S,1] and [1,S] → broadcast to [S,S]
         query_step, key_step = steps.unsqueeze(1), steps.unsqueeze(0)
+
+        # [S,S] bool
         same_slot = slots.unsqueeze(1) == slots.unsqueeze(0)
+
+        # [[0,0,0,0,0, 1,1,1,1,1, 2,2,2,2,2]] -> [[F,F,F,F,F, F,F,F,F,F, T,T,T,T,T]]
         is_goal_step = key_step >= self.obs_horizon
 
+        # Start with every pair as EDGE_NONE.
         kinds = torch.full(
             (time * num_slots, time * num_slots), EDGE_NONE, dtype=torch.long, device=device
         )
+
+        # [[0],[0],[0],[0],[0], [1],[1],[1],[1],[1], [2],[2],[2],[2],[2]] -> [[T],[T],[T],[T],[T], [T],...,[T], [F],[F],[F],[F],[F]]
+        is_hist_query = query_step < self.obs_horizon
+        # [[0,0,0,0,0, 1,1,1,1,1, 2,2,2,2,2]] -> [[T,T,T,T,T, T,T,T,T,T, F,F,F,F,F]]
+        is_hist_key = key_step < self.obs_horizon
+
+        # Any pair sharing a timestep:
+        #   same object to itself (diagonal), or
+        #   two different objects at the same instant
         kinds[query_step == key_step] = EDGE_SPATIAL
-        kinds[same_slot & (key_step == query_step - 1) & (query_step < self.obs_horizon)] = (
+
+        # Same object, adjacent timesteps, one step apart in either direction, \
+        # but only when both endpoints are historical
+        kinds[same_slot & (key_step == query_step - 1) & is_hist_query] = EDGE_TEMPORAL
+        kinds[same_slot & (key_step == query_step + 1) & is_hist_query & is_hist_key] = (
             EDGE_TEMPORAL
         )
-        kinds[same_slot & is_goal_step & (query_step == self.obs_horizon - 1)] = EDGE_GOAL
+
+        # Same object, key side is the goal step, query side is any historical step
+        kinds[same_slot & is_goal_step & is_hist_query] = EDGE_GOAL
+
         return kinds
