@@ -1,6 +1,7 @@
 import functools
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 import hydra_zen
@@ -27,6 +28,41 @@ from policy.utils.typing_utils import (
     TensorTree,
     TokenizerProtocol,
 )
+
+
+@dataclass(frozen=True)
+class _TaskSpec:
+    """Per-key shape helper for the task (non-proprio) portion of a canonical obs_dim tree."""
+
+    dim: Mapping[str, DimSpec]
+    leaf_ndims: Mapping[str, int]
+
+    @classmethod
+    def from_obs_dim(cls, obs_dim: DimSpec) -> "_TaskSpec":
+        if not isinstance(obs_dim, Mapping):
+            raise TypeError(
+                f"Tokenizers require a canonical dict obs_dim tree, got {type(obs_dim).__name__}."
+            )
+        dim = drop_key(obs_dim, "proprio")
+        return cls(dim=dim, leaf_ndims={key: len(dim_shape(d)) for key, d in dim.items()})
+
+    def validate_obs_time_axis(self, obs_task: Mapping[str, TensorTree]) -> None:
+        """Requires a [B, T, ...] prefix on every task leaf."""
+        for key, spec_ndim in self.leaf_ndims.items():
+            ndim = get_tensor(obs_task, key).ndim
+            if ndim != spec_ndim + 2:
+                raise ValueError(
+                    "relative_goal=True expects observations of shape [B, T, F], but task leaf "
+                    f"{key!r} has {ndim} axes where {spec_ndim + 2} were expected."
+                )
+
+    def add_goal_time_axis(self, goal_task: Mapping[str, TensorTree]) -> TensorTree:
+        """Inserts the goal's missing time axis, leaving an already-timed goal untouched."""
+        return {
+            key: leaf.unsqueeze(1) if leaf.ndim == spec_ndim + 1 else leaf
+            for key, spec_ndim in self.leaf_ndims.items()
+            for leaf in (get_tensor(goal_task, key),)
+        }
 
 
 class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
@@ -182,7 +218,7 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         self.tokenizer = (
             hydra_zen.instantiate(
                 self.tokenizer_config,
-                task_dim=self._tokenizer_task_dim(),
+                task_dim=self._task_spec.dim,
                 relative_goal=self.relative_goal,
             )
             if self.tokenizer_config is not None
@@ -190,13 +226,10 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         )
         self._validate_tokenizer()
 
-    def _tokenizer_task_dim(self) -> Mapping[str, DimSpec]:
-        """The task-only dim spec handed to the tokenizer, with proprioception split off."""
-        if not isinstance(self.obs_dim, Mapping):
-            raise TypeError(
-                f"Tokenizers require a canonical dict obs_dim tree, got {type(self.obs_dim).__name__}. "
-            )
-        return drop_key(self.obs_dim, "proprio")
+    @property
+    def _task_spec(self) -> "_TaskSpec":
+        """Per-key shape bookkeeping for the task (non-proprio) portion of ``obs_dim``."""
+        return _TaskSpec.from_obs_dim(self.obs_dim)
 
     def _validate_tokenizer(self) -> None:
         if self.encoder_config is not None and self.tokenizer is None:
@@ -349,12 +382,13 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
 
         # An obs without a time axis would not raise below: it would broadcast against the
         # unsqueezed goal into [B, B, ...], mistaking the batch axis for the time axis.
-        self._validate_obs_time_axis(obs_task)
+        task_spec = self._task_spec
+        task_spec.validate_obs_time_axis(obs_task)
 
         return {
             "proprio": obs_proprio,
             "task": self._required_tokenizer.tokenize(
-                obs_task, self._add_goal_time_axis(goal_task)
+                obs_task, task_spec.add_goal_time_axis(goal_task)
             ),
         }
 
@@ -381,28 +415,6 @@ class BaseDiffusionAgent(L.LightningModule, PolicyProtocol):
         if proprio is None:
             raise ValueError("Observation mapping must contain a 'proprio' key.")
         return proprio, task
-
-    def _validate_obs_time_axis(self, obs_task: Mapping[str, TensorTree]) -> None:
-        """Requires a [B, T, ...] prefix on every task leaf."""
-        for key, spec_ndim in self._task_leaf_ndims().items():
-            ndim = get_tensor(obs_task, key).ndim
-            if ndim != spec_ndim + 2:
-                raise ValueError(
-                    "relative_goal=True expects observations of shape [B, T, F], but task leaf "
-                    f"{key!r} has {ndim} axes where {spec_ndim + 2} were expected."
-                )
-
-    def _add_goal_time_axis(self, goal_task: Mapping[str, TensorTree]) -> TensorTree:
-        """Inserts the goal's missing time axis, leaving an already-timed goal untouched."""
-        return {
-            key: leaf.unsqueeze(1) if leaf.ndim == spec_ndim + 1 else leaf
-            for key, spec_ndim in self._task_leaf_ndims().items()
-            for leaf in (get_tensor(goal_task, key),)
-        }
-
-    def _task_leaf_ndims(self) -> dict[str, int]:
-        """Per-key axis counts before the [B, T] prefix."""
-        return {key: len(dim_shape(dim)) for key, dim in self._tokenizer_task_dim().items()}
 
     def _encoder_extra_kwargs(self) -> dict[str, Any]:
         """Extra kwargs threaded to encoder instantiation."""
