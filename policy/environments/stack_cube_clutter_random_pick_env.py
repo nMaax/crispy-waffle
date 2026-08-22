@@ -23,24 +23,12 @@ class StackCubeClutterRandomPickEnv(ManiSkillStackCubeClutterRandomPickEnv):
         extra = obs_dict["extra"]
         pool_size = len(self.pool_objects)
 
-        # Find pick and target slot indices from observations
-        pick_slot = 0
-        target_slot = 1
-        for i in range(pool_size):
-            is_pick = extra.get(f"obj_{i}_is_pick")
-            if is_pick is not None and torch.any(is_pick):
-                pick_slot = i
-            is_target = extra.get(f"obj_{i}_is_target")
-            if is_target is not None and torch.any(is_target):
-                target_slot = i
+        pick_idx = info["pick_idx"]
+        target_pos = info["target_pose"][..., :3]
+        target_quat = info["target_pose"][..., 3:7]
 
-        target_pose = extra[f"obj_{target_slot}_pose"]
-
-        target_pos = target_pose[..., :3]
-        target_quat = target_pose[..., 3:7]
-
-        pick_rest_z = self.pool_rest_z[pick_slot]
-        target_rest_z = self.pool_rest_z[target_slot]
+        pick_rest_z = info["pick_rest_z"]
+        target_rest_z = info["target_rest_z"]
 
         goal_pick_pos = target_pos.clone()
         goal_pick_pos[..., 2] += pick_rest_z + target_rest_z
@@ -58,7 +46,11 @@ class StackCubeClutterRandomPickEnv(ManiSkillStackCubeClutterRandomPickEnv):
 
         goal_extra: dict[str, Any] = dict(extra)
         goal_extra["tcp_pose"] = goal_tcp_pose
-        goal_extra[f"obj_{pick_slot}_pose"] = goal_pick_pose
+        for i in range(pool_size):
+            is_pick_slot = (pick_idx == i).unsqueeze(-1)
+            goal_extra[f"obj_{i}_pose"] = torch.where(
+                is_pick_slot, goal_pick_pose, extra[f"obj_{i}_pose"]
+            )
 
         return {
             "agent": {
