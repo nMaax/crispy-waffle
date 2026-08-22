@@ -24,10 +24,10 @@ class ObjectTokenizer(BaseTokenizer):
     rather than concatenated into the token.
 
     - In relative mode (``relative_goal=True``), ``"tokens"`` is:
-        1. SE(3) pose relative to TCP (6D)
+        1. SE(3) pose relative to TCP (6D, omitted when ``include_rel_to_tcp=False``)
         2. SE(3) pose delta from current state to goal (6D)
     - In absolute mode (``relative_goal=False``), ``"tokens"`` is:
-        1. SE(3) pose relative to TCP (6D)
+        1. SE(3) pose relative to TCP (6D, omitted when ``include_rel_to_tcp=False``)
         2. Absolute SE(3) pose (7D)
 
     ``obj_valid`` is ignored: this tokenizer has no way to express an absent object, so it suits
@@ -38,11 +38,14 @@ class ObjectTokenizer(BaseTokenizer):
         self,
         task_dim: DimSpec,
         relative_goal: bool = True,
+        include_rel_to_tcp: bool = True,
     ):
         super().__init__(relative_goal=relative_goal)
         self._tokens_per_step = self._num_slots(task_dim)
+        self.include_rel_to_tcp = include_rel_to_tcp
+        rel_to_tcp_dim = RELATIVE_SE3_DIM if include_rel_to_tcp else 0
         self.output_dim = (
-            RELATIVE_SE3_DIM + RELATIVE_SE3_DIM if relative_goal else RELATIVE_SE3_DIM + POSE_DIM
+            rel_to_tcp_dim + RELATIVE_SE3_DIM if relative_goal else rel_to_tcp_dim + POSE_DIM
         )
         self._normalization_mask = {
             "tokens": torch.ones(self.output_dim, dtype=torch.bool),
@@ -68,18 +71,27 @@ class ObjectTokenizer(BaseTokenizer):
         goal_pose = match_shapes(get_tensor(goal_task, "obj_pose"), obs_pose)
         role = match_shapes(get_tensor(obs_task, "obj_role"), obs_pose)
 
-        rel_to_tcp = relative_se3_pose(obs_pose, self._tcp_pose(obs_pose))
         goal_delta = relative_se3_pose(goal_pose, obs_pose)
 
-        return {"tokens": torch.cat([rel_to_tcp, goal_delta], dim=-1), "role": role}
+        if self.include_rel_to_tcp:
+            rel_to_tcp = relative_se3_pose(obs_pose, self._tcp_pose(obs_pose))
+            tokens = torch.cat([rel_to_tcp, goal_delta], dim=-1)
+        else:
+            tokens = goal_delta
+
+        return {"tokens": tokens, "role": role}
 
     def _tokenize_absolute(self, task: Mapping[str, TensorTree]) -> dict[str, torch.Tensor]:
         pose = get_tensor(task, "obj_pose")
         role = match_shapes(get_tensor(task, "obj_role"), pose)
 
-        rel_to_tcp = relative_se3_pose(pose, self._tcp_pose(pose))
+        if self.include_rel_to_tcp:
+            rel_to_tcp = relative_se3_pose(pose, self._tcp_pose(pose))
+            tokens = torch.cat([rel_to_tcp, pose], dim=-1)
+        else:
+            tokens = pose
 
-        return {"tokens": torch.cat([rel_to_tcp, pose], dim=-1), "role": role}
+        return {"tokens": tokens, "role": role}
 
     @staticmethod
     def _tcp_pose(pose: torch.Tensor) -> torch.Tensor:

@@ -40,6 +40,18 @@ class TestObjectTokenizer:
         assert ObjectTokenizer(_task_dim(3), relative_goal=True).output_dim == 12
         assert ObjectTokenizer(_task_dim(3), relative_goal=False).output_dim == 13
 
+    def test_output_dim_without_rel_to_tcp(self):
+        assert (
+            ObjectTokenizer(_task_dim(3), relative_goal=True, include_rel_to_tcp=False).output_dim
+            == 6
+        )
+        assert (
+            ObjectTokenizer(
+                _task_dim(3), relative_goal=False, include_rel_to_tcp=False
+            ).output_dim
+            == 7
+        )
+
     def test_tokens_per_step_matches_num_slots(self):
         assert ObjectTokenizer(_task_dim(3)).tokens_per_step == 3
         assert ObjectTokenizer(_task_dim(9)).tokens_per_step == 9
@@ -89,6 +101,30 @@ class TestObjectTokenizer:
         assert torch.allclose(tok_2[:3], torch.tensor([1.0, -1.0, 0.0]))
         assert torch.allclose(tok_2[6:12], torch.zeros(6), atol=1e-6)
         assert torch.allclose(out["role"][0, 0, 2], torch.tensor(ROLE_TARGET))
+
+    def test_enriched_token_structure_without_rel_to_tcp(self):
+        tokenizer = ObjectTokenizer(_task_dim(3), relative_goal=True, include_rel_to_tcp=False)
+        obs, goal = self._obs_goal()
+
+        out = tokenizer.tokenize(obs, goal)
+        assert out["tokens"].shape == (1, 1, 3, 6)
+
+        # Token 1 (pick): goal_delta only, no leading rel_to_tcp block.
+        tok_1 = out["tokens"][0, 0, 1]
+        assert torch.allclose(tok_1[:3], torch.tensor([1.0, 2.0, 3.0]))
+        assert torch.allclose(tok_1[3:6].norm(), torch.tensor(torch.pi / 2), atol=1e-5)
+
+        # Token 2 (target): goal == obs so delta is 0.
+        assert torch.allclose(out["tokens"][0, 0, 2], torch.zeros(6), atol=1e-6)
+
+    def test_single_side_tokenization_absolute_mode_without_rel_to_tcp(self):
+        tokenizer = ObjectTokenizer(_task_dim(3), relative_goal=False, include_rel_to_tcp=False)
+        obs, _ = self._obs_goal()
+
+        out = tokenizer.tokenize(obs, None)
+        assert out["tokens"].shape == (1, 1, 3, 7)
+        assert torch.equal(out["tokens"][0, 0, 1], obs["obj_pose"][0, 0, 1])
+        assert torch.equal(out["tokens"][0, 0, 2], obs["obj_pose"][0, 0, 2])
 
     def test_clutter_slots_extend_the_token_sequence(self):
         tokenizer = ObjectTokenizer(_task_dim(5), relative_goal=True)

@@ -1,0 +1,2 @@
+_target_: policy.algorithms.tokenizers.object.ObjectTokenizer
+include_rel_to_tcp: false
