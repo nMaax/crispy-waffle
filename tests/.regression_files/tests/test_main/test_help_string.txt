@@ -13,9 +13,9 @@ algorithm/noise_scheduler: ddpm, edm
 algorithm/normalizer: min_max, z_score
 algorithm/optimizer: Adam, AdamW, SGD
 algorithm/pooling: attention, mlp
-algorithm/tokenizer: graph, object, state
+algorithm/tokenizer: graph, object, object_no_rel_to_tcp, state
 datamodule: goal_conditioned_trajectory_datamodule, trajectory_datamodule
-experiment: BESO++-Obj__SCLR__default__test, BESO++-Obj__SCLR__default__train, BESO++__SCLR__default__test, BESO++__SCLR__default__test__video, BESO++__SCLR__default__train, GCDP-Graph__SCLR__default__test, GCDP-Graph__SCLR__default__test__video, GCDP-Graph__SCLR__default__train, GCDP-Obj-Attn-AttnPool__SCLR__default__test, GCDP-Obj-Attn-AttnPool__SCLR__default__train, GCDP-Obj-Attn-AttnPool__StackCube-v1__default__train, GCDP-Obj-Attn-CrossAttn__SCLR__default__test, GCDP-Obj-Attn-CrossAttn__SCLR__default__test__video, GCDP-Obj-Attn-CrossAttn__SCLR__default__train, GCDP-Obj-Attn-MLPPool__SCLR__default__test, GCDP-Obj-Attn-MLPPool__SCLR__default__test__video, GCDP-Obj-Attn-MLPPool__SCLR__default__train
+experiment: BESO++-Obj__SCLR__default__test, BESO++-Obj__SCLR__default__train, BESO++__SCLR__default__test, BESO++__SCLR__default__test__video, BESO++__SCLR__default__train, GCDP-Graph__SCCRPLR__default__test, GCDP-Graph__SCCRPLR__default__test__video, GCDP-Graph__SCCRPLR__default__train, GCDP-Graph__SCLR__default__test, GCDP-Graph__SCLR__default__test__video, GCDP-Graph__SCLR__default__train, GCDP-Obj-Attn-AttnPool__SCLR__default__test, GCDP-Obj-Attn-AttnPool__SCLR__default__train, GCDP-Obj-Attn-AttnPool__StackCube-v1__default__train, GCDP-Obj-Attn-CrossAttn__SCLR__default__test, GCDP-Obj-Attn-CrossAttn__SCLR__default__test__video, GCDP-Obj-Attn-CrossAttn__SCLR__default__train, GCDP-Obj-Attn-MLPPool__SCLR__default__test, GCDP-Obj-Attn-MLPPool__SCLR__default__test__video, GCDP-Obj-Attn-MLPPool__SCLR__default__train
 render: live, video
 trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, differential_lr, early_stopping, finetune_planner, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar, rollout_evaluation, test_stack_cube_clutter_locked_rotation, test_stack_cube_clutter_random_pick_locked_rotation, test_stack_cube_locked_rotation, tqdm_progress_bar, zero_shot_stack_cube_clutter_random_pick_locked_rotation, zero_shot_stack_cube_locked_rotation
